@@ -37,7 +37,7 @@ class AISettingsDialog(QtWidgets.QDialog):
         self.config_loader = ConfigLoader()
         self.config = self.config_loader.config
 
-        self.setWindowTitle(self.tr("AI设置"))
+        self.setWindowTitle(self.tr("模型设置"))
         self.setWindowFlags(
             self.windowFlags() & ~QtCore.Qt.WindowContextHelpButtonHint
         )
@@ -58,7 +58,7 @@ class AISettingsDialog(QtWidgets.QDialog):
         self.mask_tab = QtWidgets.QWidget()  # 新增Mask选项卡
         self.tabs.addTab(self.detection_tab, self.tr("目标检测"))
         self.tabs.addTab(self.pose_tab, self.tr("人体姿态估计"))
-        self.tabs.addTab(self.mask_tab, self.tr("AI蒙版"))  # 添加AI蒙版选项卡
+        self.tabs.addTab(self.mask_tab, self.tr("分割蒙版"))  # 添加AI蒙版选项卡
 
         # 设置目标检测选项卡
         self.setupDetectionTab()

@@ -52,7 +52,7 @@ class Canvas(QtWidgets.QWidget):
                     self.double_click)
             )
         self.num_backups = kwargs.pop("num_backups", 10)
-        self._crosshair = kwargs.pop(
+        self.crosshair = kwargs.pop(
             "crosshair",
             {
                 "polygon": False,
@@ -78,10 +78,10 @@ class Canvas(QtWidgets.QWidget):
         #   - createMode == 'rectangle': diagonal line of the rectangle
         #   - createMode == 'line': the line
         #   - createMode == 'point': the point
-        self.line = Shape()
-        self.prevPoint = QtCore.QPoint()
-        self.prevMovePoint = QtCore.QPoint()
-        self.offsets = QtCore.QPoint(), QtCore.QPoint()
+        self.line = Shape(line_color=QtGui.QColor(0, 0, 255))
+        self.prevPoint = QtCore.QPointF()
+        self.prevMovePoint = QtCore.QPointF()
+        self.offsets = QtCore.QPointF(), QtCore.QPointF()
         self.scale = 1.0
         self.pixmap = QtGui.QPixmap()
         self.visible = {}
@@ -105,6 +105,13 @@ class Canvas(QtWidgets.QWidget):
         # Set widget options.
         self.setMouseTracking(True)
         self.setFocusPolicy(QtCore.Qt.WheelFocus)
+        self.image_embedding = None
+        self.ai_model = None
+
+        # 添加框选相关变量
+        self.selectionBox = None  # 用于存储框选的矩形区域
+        self.isSelecting = False  # 是否正在框选
+        self.selectionStartPoint = None  # 框选的起始点
 
         self._sam: Optional[osam.types.Model] = None
         self._sam_embedding: collections.OrderedDict[
@@ -254,7 +261,13 @@ class Canvas(QtWidgets.QWidget):
         self.prevMovePoint = pos
         self.restoreCursor()
 
-        is_shift_pressed = ev.modifiers() & QtCore.Qt.ShiftModifier
+        # 处理框选
+        if self.isSelecting:
+            self.selectionBox = QtCore.QRectF(
+                self.selectionStartPoint, pos
+            ).normalized()
+            self.update()
+            return
 
         # Polygon drawing.
         if self.drawing():
@@ -290,7 +303,7 @@ class Canvas(QtWidgets.QWidget):
                 self.line.points = [self.current.points[-1], pos]
                 self.line.point_labels = [
                     self.current.point_labels[-1],
-                    0 if is_shift_pressed else 1,
+                    0 if ev.modifiers() & QtCore.Qt.ShiftModifier else 1,
                 ]
             elif self.createMode == "rectangle":
                 self.line.points = [self.current[0], pos]
@@ -484,13 +497,39 @@ class Canvas(QtWidgets.QWidget):
                         self.drawingPolygon.emit(True)
                         self.update()
             elif self.editing():
-                if self.selectedEdge() and ev.modifiers() == QtCore.Qt.AltModifier:
+                # 检查是否点击了顶点或边缘
+                is_vertex_selected = self.selectedVertex()
+                is_edge_selected = self.selectedEdge()
+
+                # 处理特殊修改键的情况
+                if is_edge_selected and ev.modifiers() == QtCore.Qt.AltModifier:
                     self.addPointToEdge()
-                elif self.selectedVertex() and ev.modifiers() == (
+                elif is_vertex_selected and ev.modifiers() == (
                     QtCore.Qt.AltModifier | QtCore.Qt.ShiftModifier
                 ):
                     self.removeSelectedPoint()
+                # 如果没有选中顶点或边缘，并且不是在形状上点击，则开始框选
+                elif not is_vertex_selected and not is_edge_selected:
+                    # 检查点击位置是否在任何形状内
+                    shape_clicked = False
+                    for shape in reversed(self.shapes):
+                        if self.isVisible(shape) and shape.containsPoint(pos):
+                            shape_clicked = True
+                            break
 
+                    # 如果没有点击到任何形状，则开始框选
+                    if not shape_clicked:
+                        # 如果没有按住Ctrl键，则清除之前的选择
+                        if not (ev.modifiers() & QtCore.Qt.ControlModifier):
+                            self.deSelectShape()
+                        # 开始框选
+                        self.isSelecting = True
+                        self.selectionStartPoint = pos
+                        self.selectionBox = QtCore.QRectF(pos, pos)
+                        self.update()
+                        return  # 开始框选后直接返回，不执行后续代码
+
+                # 如果点击了形状，则选择该形状
                 group_mode = int(ev.modifiers()) == QtCore.Qt.ControlModifier
                 self.selectShapePoint(pos, multiple_selection_mode=group_mode)
                 self.prevPoint = pos
@@ -513,6 +552,30 @@ class Canvas(QtWidgets.QWidget):
                 self.selectedShapesCopy = []
                 self.repaint()
         elif ev.button() == QtCore.Qt.LeftButton:
+            # 处理框选结束
+            if self.isSelecting:
+                self.isSelecting = False
+                if self.selectionBox and self.selectionBox.width() > 5 and self.selectionBox.height() > 5:
+                    # 选择框选区域内的所有形状
+                    selected_shapes = []
+                    for shape in self.shapes:
+                        if self.isVisible(shape) and self.shapeIsInSelectionBox(shape, self.selectionBox):
+                            selected_shapes.append(shape)
+
+                    # 如果按住Ctrl键，则添加到已选择的形状中
+                    if ev.modifiers() & QtCore.Qt.ControlModifier:
+                        for shape in selected_shapes:
+                            if shape not in self.selectedShapes:
+                                self.selectedShapes.append(shape)
+                    else:
+                        self.selectedShapes = selected_shapes
+
+                    self.selectionChanged.emit(self.selectedShapes)
+
+                self.selectionBox = None
+                self.update()
+                return
+
             if self.editing():
                 if (
                     self.hShape is not None
@@ -695,11 +758,19 @@ class Canvas(QtWidgets.QWidget):
 
         p.drawPixmap(0, 0, self.pixmap)
 
+        # 绘制选择框
+        if self.isSelecting and self.selectionBox:
+            p.save()
+            p.setPen(QtGui.QPen(QtGui.QColor(0, 255, 0), 1, QtCore.Qt.DashLine))
+            p.setBrush(QtGui.QColor(0, 255, 0, 32))
+            p.drawRect(self.selectionBox)
+            p.restore()
+
         p.scale(1 / self.scale, 1 / self.scale)
 
         # draw crosshair
         if (
-            self._crosshair[self._createMode]
+            self.crosshair[self._createMode]
             and self.drawing()
             and self.prevMovePoint
             and not self.outOfPixmap(self.prevMovePoint)
@@ -922,7 +993,20 @@ class Canvas(QtWidgets.QWidget):
             elif modifiers == QtCore.Qt.AltModifier:
                 self.snapping = False
         elif self.editing():
-            if key == QtCore.Qt.Key_Up:
+            if key == QtCore.Qt.Key_Delete or key == QtCore.Qt.Key_Backspace:
+                # 删除所有选中的形状
+                if self.selectedShapes:
+                    # 这里不直接调用deleteSelected，而是发出信号让MainWindow处理
+                    # 因为MainWindow需要更新标签列表和其他UI元素
+                    # 我们可以通过selectionChanged信号触发MainWindow的deleteSelectedShape方法
+                    # 先保存当前选中的形状
+                    selected = self.selectedShapes.copy()
+                    # 发出信号，这会触发MainWindow的shapeSelectionChanged方法
+                    self.selectionChanged.emit(selected)
+                    # 然后可以通过其他方式触发删除操作
+                    # 这里我们直接删除，MainWindow会在下一次调用时处理UI更新
+                    self.deleteSelected()
+            elif key == QtCore.Qt.Key_Up:
                 self.moveByKeyboard(QtCore.QPointF(0.0, -MOVE_SPEED))
             elif key == QtCore.Qt.Key_Down:
                 self.moveByKeyboard(QtCore.QPointF(0.0, MOVE_SPEED))
@@ -1014,6 +1098,14 @@ class Canvas(QtWidgets.QWidget):
         self.pixmap = None
         self.shapesBackups = []
         self.update()
+
+    def shapeIsInSelectionBox(self, shape, selection_box):
+        """检查形状是否在选择框内"""
+        # 检查形状的任何点是否在选择框内
+        for point in shape.points:
+            if selection_box.contains(point):
+                return True
+        return False
 
 
 def _update_shape_with_sam(

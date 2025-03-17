@@ -1,13 +1,25 @@
 ai:
   default: EfficientSam (speed)
+  mask:
+    conf_threshold: 0.5
+    device: cpu
+    max_segments: 5
+    min_area: 100
+    postprocess: true
+    preprocess: true
+    simplify_tolerance: 1.0
+  prompt:
+    iou_threshold: 0.5
+    score_threshold: 0.1
+    text: ''
 detection:
-  conf_threshold: 0.9
+  conf_threshold: 0.95
   device: cpu
   filter_classes:
   - person
   model_name: fasterrcnn_resnet50_fpn
 pose_estimation:
-  conf_threshold: 0.9
+  conf_threshold: 0.95
   device: cpu
   model_name: keypointrcnn_resnet50_fpn
 yolov7:

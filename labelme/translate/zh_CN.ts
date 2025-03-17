@@ -175,7 +175,7 @@
     <message>
         <location filename="../app.py" line="305"/>
         <source>Toggle &quot;keep pevious annotation&quot; mode</source>
-        <translation>开关“保留最后的标注”模式</translation>
+        <translation>开关"保留最后的标注"模式</translation>
     </message>
     <message>
         <location filename="../app.py" line="315"/>
@@ -510,6 +510,18 @@ Polygons</source>
         <location filename="../app.py" line="712"/>
         <source>Open &amp;Recent</source>
         <translation>最近打开(&amp;R)</translation>
+    </message>
+    <message>
+        <source>快捷键(&amp;K)</source>
+        <translation>快捷键(&amp;K)</translation>
+    </message>
+    <message>
+        <source>快捷键设置</source>
+        <translation>快捷键设置</translation>
+    </message>
+    <message>
+        <source>自定义快捷键设置</source>
+        <translation>自定义快捷键设置</translation>
     </message>
     <message>
         <location filename="../app.py" line="783"/>

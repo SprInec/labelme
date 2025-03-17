@@ -36,6 +36,8 @@ from labelme.widgets import LabelListWidgetItem
 from labelme.widgets import ToolBar
 from labelme.widgets import UniqueLabelQListWidget
 from labelme.widgets import ZoomWidget
+from labelme.widgets.ai_settings_dialog import AISettingsDialog
+from labelme.widgets.shortcuts_dialog import ShortcutsDialog
 
 from . import utils
 
@@ -291,10 +293,9 @@ class MainWindow(QtWidgets.QMainWindow):
         )
 
         saveAuto = action(
-            text=self.tr("Save &Automatically"),
+            text=self.tr("自动保存"),
             slot=self.toggleAutoSave,
-            icon="save",
-            tip=self.tr("Save automatically"),
+            tip=self.tr("自动保存标注文件"),
             checkable=True,
             enabled=True,
         )
@@ -302,9 +303,9 @@ class MainWindow(QtWidgets.QMainWindow):
         saveAuto.setChecked(True)
 
         saveWithImageData = action(
-            text=self.tr("Save With Image Data"),
+            text=self.tr("同时保存图像数据"),
             slot=self.enableSaveImageWithData,
-            tip=self.tr("Save image data in label file"),
+            tip=self.tr("在标注文件中保存图像数据"),
             checkable=True,
             checked=False,  # 默认关闭同时保存图像数据
         )
@@ -601,7 +602,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
         # AI相关动作
         aiSettings = action(
-            self.tr("AI设置"),
+            self.tr("模型设置"),
             self.openAISettings,
             None,
             "settings",
@@ -783,7 +784,8 @@ class MainWindow(QtWidgets.QMainWindow):
             file=self.menu(self.tr("&File")),
             edit=self.menu(self.tr("&Edit")),
             view=self.menu(self.tr("&View")),
-            ai=self.menu(self.tr("&AI")),  # 将AI菜单置于帮助菜单左侧
+            ai=self.menu(self.tr("A&I(I)")),
+            shortcuts=self.menu(self.tr("快捷键(&K)")),
             help=self.menu(self.tr("&Help")),
             recentFiles=QtWidgets.QMenu(self.tr("Open &Recent")),
             labelList=labelMenu,
@@ -799,9 +801,9 @@ class MainWindow(QtWidgets.QMainWindow):
                 self.menus.recentFiles,
                 save,
                 saveAs,
-                saveAuto,  # 自动保存选项，已设置为可勾选
+                saveAuto,
                 changeOutputDir,
-                saveWithImageData,  # 同时保存图像数据选项，已设置为可勾选
+                saveWithImageData,
                 close,
                 deleteFile,
                 None,
@@ -838,7 +840,27 @@ class MainWindow(QtWidgets.QMainWindow):
         # 添加AI菜单动作
         utils.addActions(self.menus.ai, self.actions.aiMenuActions)
 
+        # 添加快捷键菜单
+        shortcuts_menu = action(
+            self.tr("快捷键设置"),
+            self.openShortcutsDialog,
+            None,
+            "settings",
+            self.tr("自定义快捷键设置"),
+        )
+        utils.addActions(self.menus.shortcuts, (shortcuts_menu,))
+
         self.menus.file.aboutToShow.connect(self.updateFileMenu)
+
+        # 自定义菜单栏顺序
+        menubar = self.menuBar()
+        menubar.clear()
+        menubar.addMenu(self.menus.file)
+        menubar.addMenu(self.menus.edit)
+        menubar.addMenu(self.menus.view)
+        menubar.addMenu(self.menus.ai)
+        menubar.addMenu(self.menus.shortcuts)
+        menubar.addMenu(self.menus.help)
 
         # Custom context menu for the canvas widget:
         utils.addActions(self.canvas.menus[0], self.actions.menu)
@@ -869,8 +891,6 @@ class MainWindow(QtWidgets.QMainWindow):
             None,
             createMode,
             createRectangleMode,
-            createCircleMode,
-            createLineMode,
             createPointMode,
             createLineStripMode,
             editMode,
@@ -2231,18 +2251,24 @@ class MainWindow(QtWidgets.QMainWindow):
         self.setDirty()
 
     def deleteSelectedShape(self):
+        if not self.canvas.selectedShapes:
+            return
+
         yes, no = QtWidgets.QMessageBox.Yes, QtWidgets.QMessageBox.No
         msg = self.tr(
-            "You are about to permanently delete {} polygons, " "proceed anyway?"
+            "您即将永久删除 {} 个标注对象，确定继续吗？"
         ).format(len(self.canvas.selectedShapes))
         if yes == QtWidgets.QMessageBox.warning(
-            self, self.tr("Attention"), msg, yes | no, yes
+            self, self.tr("注意"), msg, yes | no, yes
         ):
-            self.remLabels(self.canvas.deleteSelected())
+            deleted_shapes = self.canvas.deleteSelected()
+            self.remLabels(deleted_shapes)
             self.setDirty()
             if self.noShapes():
                 for action in self.actions.onShapesPresent:
                     action.setEnabled(False)
+            # 更新dock标题
+            self.updateDockTitles()
 
     def copyShape(self):
         self.canvas.endMove(copy=True)
@@ -2516,3 +2542,16 @@ class MainWindow(QtWidgets.QMainWindow):
         # 更新文件列表dock
         file_count = self.fileListWidget.count()
         self.file_dock.setWindowTitle(self.tr(f"文件列表 ({file_count})"))
+
+    def openShortcutsDialog(self):
+        """打开快捷键设置对话框"""
+        dialog = ShortcutsDialog(self)
+        dialog.exec_()
+
+    def keyPressEvent(self, event):
+        # 处理Delete键删除操作
+        if event.key() == QtCore.Qt.Key_Delete or event.key() == QtCore.Qt.Key_Backspace:
+            if self.canvas.selectedShapes:
+                self.deleteSelectedShape()
+        # 调用父类方法处理其他键盘事件
+        super(MainWindow, self).keyPressEvent(event)
