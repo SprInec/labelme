@@ -71,6 +71,10 @@ class MainWindow(QtWidgets.QMainWindow):
             config = get_config()
         self._config = config
 
+        # 确保自动保存默认开启，同时保存图像数据默认关闭
+        self._config["auto_save"] = True
+        self._config["store_data"] = False
+
         # set default shape colors
         Shape.line_color = QtGui.QColor(*self._config["shape"]["line_color"])
         Shape.fill_color = QtGui.QColor(*self._config["shape"]["fill_color"])
@@ -115,7 +119,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.lastOpenDir = None
 
         self.flag_dock = self.flag_widget = None
-        self.flag_dock = QtWidgets.QDockWidget(self.tr("Flags"), self)
+        self.flag_dock = QtWidgets.QDockWidget(self.tr("标记 (0)"), self)
         self.flag_dock.setObjectName("Flags")
         self.flag_widget = QtWidgets.QListWidget()
         if config["flags"]:
@@ -128,7 +132,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.labelList.itemChanged.connect(self.labelItemChanged)
         self.labelList.itemDropped.connect(self.labelOrderChanged)
         self.shape_dock = QtWidgets.QDockWidget(
-            self.tr("Polygon Labels"), self)
+            self.tr("多边形标签 (0)"), self)
         self.shape_dock.setObjectName("Labels")
         self.shape_dock.setWidget(self.labelList)
 
@@ -144,7 +148,7 @@ class MainWindow(QtWidgets.QMainWindow):
                 self.uniqLabelList.addItem(item)
                 rgb = self._get_rgb_by_label(label)
                 self.uniqLabelList.setItemLabel(item, label, rgb)
-        self.label_dock = QtWidgets.QDockWidget(self.tr("Label List"), self)
+        self.label_dock = QtWidgets.QDockWidget(self.tr("标签列表 (0)"), self)
         self.label_dock.setObjectName("Label List")
         self.label_dock.setWidget(self.uniqLabelList)
 
@@ -159,7 +163,7 @@ class MainWindow(QtWidgets.QMainWindow):
         fileListLayout.setSpacing(0)
         fileListLayout.addWidget(self.fileSearch)
         fileListLayout.addWidget(self.fileListWidget)
-        self.file_dock = QtWidgets.QDockWidget(self.tr("File List"), self)
+        self.file_dock = QtWidgets.QDockWidget(self.tr("文件列表 (0)"), self)
         self.file_dock.setObjectName("Files")
         fileListWidget = QtWidgets.QWidget()
         fileListWidget.setLayout(fileListLayout)
@@ -288,20 +292,21 @@ class MainWindow(QtWidgets.QMainWindow):
 
         saveAuto = action(
             text=self.tr("Save &Automatically"),
-            slot=lambda x: self.actions.saveAuto.setChecked(x),
+            slot=self.toggleAutoSave,
             icon="save",
             tip=self.tr("Save automatically"),
             checkable=True,
             enabled=True,
         )
-        saveAuto.setChecked(self._config["auto_save"])
+        # 默认开启自动保存
+        saveAuto.setChecked(True)
 
         saveWithImageData = action(
             text=self.tr("Save With Image Data"),
             slot=self.enableSaveImageWithData,
             tip=self.tr("Save image data in label file"),
             checkable=True,
-            checked=self._config["store_data"],
+            checked=False,  # 默认关闭同时保存图像数据
         )
 
         close = action(
@@ -794,9 +799,9 @@ class MainWindow(QtWidgets.QMainWindow):
                 self.menus.recentFiles,
                 save,
                 saveAs,
-                saveAuto,
+                saveAuto,  # 自动保存选项，已设置为可勾选
                 changeOutputDir,
-                saveWithImageData,
+                saveWithImageData,  # 同时保存图像数据选项，已设置为可勾选
                 close,
                 deleteFile,
                 None,
@@ -1249,6 +1254,7 @@ class MainWindow(QtWidgets.QMainWindow):
             edit_flags = True
             edit_group_id = True
             edit_description = True
+            edit_color = True
         else:
             edit_text = all(item.shape().label ==
                             shape.label for item in items[1:])
@@ -1260,6 +1266,7 @@ class MainWindow(QtWidgets.QMainWindow):
             edit_description = all(
                 item.shape().description == shape.description for item in items[1:]
             )
+            edit_color = False  # 多选时不允许编辑颜色
 
         if not edit_text:
             self.labelDialog.edit.setDisabled(True)
@@ -1272,11 +1279,15 @@ class MainWindow(QtWidgets.QMainWindow):
         if not edit_description:
             self.labelDialog.editDescription.setDisabled(True)
 
-        text, flags, group_id, description = self.labelDialog.popUp(
+        # 获取当前形状的颜色
+        current_color = shape.fill_color if edit_color else None
+
+        result = self.labelDialog.popUp(
             text=shape.label if edit_text else "",
             flags=shape.flags if edit_flags else None,
             group_id=shape.group_id if edit_group_id else None,
             description=shape.description if edit_description else None,
+            color=current_color if edit_color else None,
         )
 
         if not edit_text:
@@ -1290,11 +1301,10 @@ class MainWindow(QtWidgets.QMainWindow):
         if not edit_description:
             self.labelDialog.editDescription.setDisabled(False)
 
-        if text is None:
-            assert flags is None
-            assert group_id is None
-            assert description is None
+        if result is None:
             return
+
+        text, flags, group_id, description, color = result
 
         if not self.validateLabel(text):
             self.errorMessage(
@@ -1318,7 +1328,19 @@ class MainWindow(QtWidgets.QMainWindow):
             if edit_description:
                 shape.description = description
 
-            self._update_shape_color(shape)
+            # 如果编辑了颜色，则应用新颜色
+            if edit_color and color is not None:
+                shape.line_color = color
+                shape.fill_color = QtGui.QColor(
+                    color.red(), color.green(), color.blue(), 128)
+                shape.select_line_color = QtGui.QColor(255, 255, 255)
+                shape.select_fill_color = QtGui.QColor(
+                    color.red(), color.green(), color.blue(), 155)
+                shape.vertex_fill_color = color
+                shape.hvertex_fill_color = QtGui.QColor(255, 255, 255)
+            else:
+                self._update_shape_color(shape)
+
             if shape.group_id is None:
                 item.setText(
                     '{} <font color="#{:02x}{:02x}{:02x}">●</font>'.format(
@@ -1398,6 +1420,8 @@ class MainWindow(QtWidgets.QMainWindow):
                 html.escape(text), *shape.fill_color.getRgb()[:3]
             )
         )
+        # 更新dock标题
+        self.updateDockTitles()
 
     def _update_shape_color(self, shape):
         r, g, b = self._get_rgb_by_label(shape.label)
@@ -1433,6 +1457,8 @@ class MainWindow(QtWidgets.QMainWindow):
         for shape in shapes:
             item = self.labelList.findItemByShape(shape)
             self.labelList.removeItem(item)
+        # 更新dock标题
+        self.updateDockTitles()
 
     def loadShapes(self, shapes, replace=True):
         self._noSelectionSlot = True
@@ -1595,7 +1621,12 @@ class MainWindow(QtWidgets.QMainWindow):
         description = ""
         if self._config["display_label_popup"] or not text:
             previous_text = self.labelDialog.edit.text()
-            text, flags, group_id, description = self.labelDialog.popUp(text)
+            result = self.labelDialog.popUp(text)
+            if result is None:
+                self.canvas.undoLastLine()
+                self.canvas.shapesBackups.pop()
+                return
+            text, flags, group_id, description, color = result
             if not text:
                 self.labelDialog.edit.setText(previous_text)
 
@@ -1612,6 +1643,18 @@ class MainWindow(QtWidgets.QMainWindow):
             shape = self.canvas.setLastLabel(text, flags)
             shape.group_id = group_id
             shape.description = description
+
+            # 如果用户选择了自定义颜色，则应用它
+            if color is not None:
+                shape.line_color = color
+                shape.fill_color = QtGui.QColor(
+                    color.red(), color.green(), color.blue(), 128)
+                shape.select_line_color = QtGui.QColor(255, 255, 255)
+                shape.select_fill_color = QtGui.QColor(
+                    color.red(), color.green(), color.blue(), 155)
+                shape.vertex_fill_color = color
+                shape.hvertex_fill_color = QtGui.QColor(255, 255, 255)
+
             self.addLabel(shape)
             self.actions.editMode.setEnabled(True)
             self.actions.undoLastPoint.setEnabled(False)
@@ -1843,6 +1886,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self.toggleActions(True)
         self.canvas.setFocus()
         self.status(str(self.tr("Loaded %s")) % osp.basename(str(filename)))
+        # 更新dock标题
+        self.updateDockTitles()
         return True
 
     def resizeEvent(self, event):
@@ -2297,6 +2342,8 @@ class MainWindow(QtWidgets.QMainWindow):
             else:
                 item.setCheckState(Qt.Unchecked)
             self.fileListWidget.addItem(item)
+        # 更新dock标题
+        self.updateDockTitles()
         self.openNextImg(load=load)
 
     def scanAllImages(self, folderPath):
@@ -2445,3 +2492,27 @@ class MainWindow(QtWidgets.QMainWindow):
                 self.tr(f"运行人体姿态估计时出错: {str(e)}"),
             )
             logger.exception("人体姿态估计错误")
+
+    def toggleAutoSave(self, enabled):
+        """启用或禁用自动保存功能"""
+        self._config["auto_save"] = enabled
+        # 更新菜单项的勾选状态
+        self.actions.saveAuto.setChecked(enabled)
+
+    def updateDockTitles(self):
+        """更新所有dock窗口的标题，显示当前项目数量"""
+        # 更新标记dock
+        flag_count = self.flag_widget.count()
+        self.flag_dock.setWindowTitle(self.tr(f"标记 ({flag_count})"))
+
+        # 更新多边形标签dock
+        shape_count = len(self.labelList)  # 使用__len__方法而不是count
+        self.shape_dock.setWindowTitle(self.tr(f"多边形标签 ({shape_count})"))
+
+        # 更新标签列表dock
+        label_count = self.uniqLabelList.count()
+        self.label_dock.setWindowTitle(self.tr(f"标签列表 ({label_count})"))
+
+        # 更新文件列表dock
+        file_count = self.fileListWidget.count()
+        self.file_dock.setWindowTitle(self.tr(f"文件列表 ({file_count})"))
