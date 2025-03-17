@@ -9,6 +9,8 @@ import re
 import webbrowser
 import colorsys
 import random
+import yaml
+import PIL.Image
 
 import imgviz
 import natsort
@@ -36,6 +38,7 @@ from labelme.widgets import FileDialogPreview
 from labelme.widgets import LabelDialog
 from labelme.widgets import LabelListWidget
 from labelme.widgets import LabelListWidgetItem
+from labelme.widgets import LabelQLineEdit
 from labelme.widgets import LabelTreeWidget
 from labelme.widgets import LabelTreeWidgetItem
 from labelme.widgets import ToolBar
@@ -45,8 +48,11 @@ from labelme.widgets import UniqueLabelTreeWidgetItem
 from labelme.widgets import ZoomWidget
 from labelme.widgets.ai_settings_dialog import AISettingsDialog
 from labelme.widgets.shortcuts_dialog import ShortcutsDialog
+from labelme.widgets.unique_label_tree_widget import UniqueLabelTreeWidget
+from labelme.widgets.label_tree_widget import LabelTreeWidgetItem
 
 from . import utils
+import labelme.styles  # 导入样式模块
 
 # FIXME
 # - [medium] Set max zoom value to something big enough for FitWidth/Window
@@ -111,6 +117,9 @@ class MainWindow(QtWidgets.QMainWindow):
 
         # Set point size from config file
         Shape.point_size = self._config["shape"]["point_size"]
+
+        # 初始化主题设置
+        self.currentTheme = self._config.get("theme", "light")
 
         super(MainWindow, self).__init__()
         self.setWindowTitle(__appname__)
@@ -619,6 +628,33 @@ class MainWindow(QtWidgets.QMainWindow):
             enabled=False,
         )
 
+        # 主题相关动作
+        lightTheme = action(
+            self.tr("明亮主题"),
+            self.setLightTheme,
+            None,
+            "color",
+            self.tr("切换至明亮主题"),
+            checkable=True,
+            checked=self.currentTheme == "light",
+        )
+
+        darkTheme = action(
+            self.tr("暗黑主题"),
+            self.setDarkTheme,
+            None,
+            "color-fill",
+            self.tr("切换至暗黑主题"),
+            checkable=True,
+            checked=self.currentTheme == "dark",
+        )
+
+        # 创建主题切换动作组，确保只有一个主题被选中
+        themeActionGroup = QtWidgets.QActionGroup(self)
+        themeActionGroup.setExclusive(True)
+        themeActionGroup.addAction(lightTheme)
+        themeActionGroup.addAction(darkTheme)
+
         # AI相关动作
         aiSettings = action(
             self.tr("模型设置"),
@@ -742,7 +778,10 @@ class MainWindow(QtWidgets.QMainWindow):
             openPrevImg=openPrevImg,
             fileMenuActions=(open_, opendir, save, saveAs, close, quit),
             aiMenuActions=(aiSettings, None, createAiPolygonMode, createAiMaskMode,
-                           None, runObjectDetection, runPoseEstimation, submitAiPrompt),  # 更新AI菜单动作
+                           None, runObjectDetection, runPoseEstimation, submitAiPrompt),
+            lightTheme=lightTheme,  # 添加明亮主题动作
+            darkTheme=darkTheme,    # 添加暗黑主题动作
+            themeActions=(lightTheme, darkTheme),  # 添加主题动作组
             tool=(),
             # XXX: need to add some actions here to activate the shortcut
             editMenu=(
@@ -799,16 +838,24 @@ class MainWindow(QtWidgets.QMainWindow):
 
         self.canvas.vertexSelected.connect(self.actions.removePoint.setEnabled)
 
+        # 创建菜单
         self.menus = utils.struct(
-            file=self.menu(self.tr("&File")),
-            edit=self.menu(self.tr("&Edit")),
-            view=self.menu(self.tr("&View")),
-            ai=self.menu(self.tr("A&I(I)")),
-            shortcuts=self.menu(self.tr("快捷键(&K)")),
-            help=self.menu(self.tr("&Help")),
-            recentFiles=QtWidgets.QMenu(self.tr("Open &Recent")),
+            file=self.menu(self.tr("&文件")),
+            edit=self.menu(self.tr("&编辑")),
+            view=self.menu(self.tr("&视图")),
+            ai=self.menu(self.tr("&AI")),
+            shortcuts=self.menu(self.tr("&快捷键")),
+            help=self.menu(self.tr("&帮助")),
+            theme=self.menu(self.tr("&主题")),  # 添加主题菜单
+            recentFiles=QtWidgets.QMenu(self.tr("打开最近文件")),
             labelList=labelMenu,
         )
+
+        # 应用上次保存的主题设置
+        if self.currentTheme == "dark":
+            self.setDarkTheme()
+        else:
+            self.setLightTheme()
 
         utils.addActions(
             self.menus.file,
@@ -859,6 +906,12 @@ class MainWindow(QtWidgets.QMainWindow):
         # 添加AI菜单动作
         utils.addActions(self.menus.ai, self.actions.aiMenuActions)
 
+        # 添加主题相关菜单项
+        utils.addActions(
+            self.menus.theme,
+            self.actions.themeActions
+        )
+
         # 添加快捷键菜单
         shortcuts_menu = action(
             self.tr("快捷键设置"),
@@ -878,6 +931,7 @@ class MainWindow(QtWidgets.QMainWindow):
         menubar.addMenu(self.menus.edit)
         menubar.addMenu(self.menus.view)
         menubar.addMenu(self.menus.ai)
+        menubar.addMenu(self.menus.theme)  # 添加主题菜单到菜单栏
         menubar.addMenu(self.menus.shortcuts)
         menubar.addMenu(self.menus.help)
 
@@ -1474,11 +1528,10 @@ class MainWindow(QtWidgets.QMainWindow):
         if not self.mayContinue():
             return
 
-        currIndex = self.imageList.index(str(item.text()))
-        if currIndex < len(self.imageList):
-            filename = self.imageList[currIndex]
-            if filename:
-                self.loadFile(filename)
+        # 获取当前项存储的完整文件路径
+        filepath = item.data(Qt.UserRole)
+        if filepath and osp.exists(filepath):
+            self.loadFile(filepath)
 
     # React to canvas signals.
     def shapeSelectionChanged(self, selected_shapes):
@@ -2155,6 +2208,11 @@ class MainWindow(QtWidgets.QMainWindow):
             self._config["output_dir"] = self.output_dir
             logger.info("Saving output directory: {}".format(self.output_dir))
 
+        # 保存当前主题设置
+        if hasattr(self, "currentTheme"):
+            self._config["theme"] = self.currentTheme
+            logger.info("Saving theme setting: {}".format(self.currentTheme))
+
         if not self.mayContinue():
             event.ignore()
             return
@@ -2519,7 +2577,9 @@ class MainWindow(QtWidgets.QMainWindow):
         lst = []
         for i in range(self.fileListWidget.count()):
             item = self.fileListWidget.item(i)
-            lst.append(item.text())
+            # 获取存储在Qt.UserRole中的完整路径
+            filepath = item.data(Qt.UserRole)
+            lst.append(filepath)
         return lst
 
     def importDroppedImageFiles(self, imageFiles):
@@ -2536,7 +2596,13 @@ class MainWindow(QtWidgets.QMainWindow):
             if self.output_dir:
                 label_file_without_path = osp.basename(label_file)
                 label_file = osp.join(self.output_dir, label_file_without_path)
-            item = QtWidgets.QListWidgetItem(file)
+
+            # 创建一个QListWidgetItem，但只显示文件名，不显示路径
+            basename = osp.basename(file)
+            item = QtWidgets.QListWidgetItem(basename)
+            # 存储完整路径作为项的数据，用于后续加载文件
+            item.setData(Qt.UserRole, file)
+
             item.setFlags(Qt.ItemIsEnabled | Qt.ItemIsSelectable)
             if QtCore.QFile.exists(label_file) and LabelFile.is_label_file(label_file):
                 item.setCheckState(Qt.Checked)
@@ -2572,7 +2638,13 @@ class MainWindow(QtWidgets.QMainWindow):
             if self.output_dir:
                 label_file_without_path = osp.basename(label_file)
                 label_file = osp.join(self.output_dir, label_file_without_path)
-            item = QtWidgets.QListWidgetItem(filename)
+
+            # 创建一个QListWidgetItem，但只显示文件名，不显示路径
+            basename = osp.basename(filename)
+            item = QtWidgets.QListWidgetItem(basename)
+            # 存储完整路径作为项的数据，用于后续加载文件
+            item.setData(Qt.UserRole, filename)
+
             item.setFlags(Qt.ItemIsEnabled | Qt.ItemIsSelectable)
             if QtCore.QFile.exists(label_file) and LabelFile.is_label_file(label_file):
                 item.setCheckState(Qt.Checked)
@@ -2776,3 +2848,33 @@ class MainWindow(QtWidgets.QMainWindow):
         # 转换HSV到RGB
         r, g, b = [int(x * 255) for x in colorsys.hsv_to_rgb(hue, 0.8, 0.95)]
         return (r, g, b)
+
+    def setLightTheme(self):
+        """设置为明亮主题"""
+        app = QtWidgets.QApplication.instance()
+        app.setStyle("Fusion")
+        app.setPalette(labelme.styles.get_light_palette())
+        app.setStyleSheet(labelme.styles.LIGHT_STYLE)
+
+        # 更新选中状态（如果动作已初始化）
+        if hasattr(self, 'actions') and hasattr(self.actions, 'lightTheme'):
+            self.actions.lightTheme.setChecked(True)
+            self.actions.darkTheme.setChecked(False)
+
+        # 保存当前主题设置
+        self.currentTheme = "light"
+
+    def setDarkTheme(self):
+        """设置为暗黑主题"""
+        app = QtWidgets.QApplication.instance()
+        app.setStyle("Fusion")
+        app.setPalette(labelme.styles.get_dark_palette())
+        app.setStyleSheet(labelme.styles.DARK_STYLE)
+
+        # 更新选中状态（如果动作已初始化）
+        if hasattr(self, 'actions') and hasattr(self.actions, 'darkTheme'):
+            self.actions.lightTheme.setChecked(False)
+            self.actions.darkTheme.setChecked(True)
+
+        # 保存当前主题设置
+        self.currentTheme = "dark"
