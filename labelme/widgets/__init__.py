@@ -1,6 +1,7 @@
 # flake8: noqa
 
 from .ai_prompt_widget import AiPromptWidget
+from .ai_settings_dialog import AISettingsDialog
 
 from .brightness_contrast_dialog import BrightnessContrastDialog
 

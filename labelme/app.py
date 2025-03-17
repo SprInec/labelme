@@ -19,11 +19,14 @@ from PyQt5.QtCore import Qt
 
 from labelme import __appname__
 from labelme._automation import bbox_from_text
+from labelme._automation import object_detection
+from labelme._automation import pose_estimation
 from labelme.config import get_config
 from labelme.label_file import LabelFile
 from labelme.label_file import LabelFileError
 from labelme.shape import Shape
 from labelme.widgets import AiPromptWidget
+from labelme.widgets import AISettingsDialog
 from labelme.widgets import BrightnessContrastDialog
 from labelme.widgets import Canvas
 from labelme.widgets import FileDialogPreview
@@ -58,7 +61,8 @@ class MainWindow(QtWidgets.QMainWindow):
         output_dir=None,
     ):
         if output is not None:
-            logger.warning("argument output is deprecated, use output_file instead")
+            logger.warning(
+                "argument output is deprecated, use output_file instead")
             if output_file is None:
                 output_file = output
 
@@ -123,7 +127,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self.labelList.itemDoubleClicked.connect(self._edit_label)
         self.labelList.itemChanged.connect(self.labelItemChanged)
         self.labelList.itemDropped.connect(self.labelOrderChanged)
-        self.shape_dock = QtWidgets.QDockWidget(self.tr("Polygon Labels"), self)
+        self.shape_dock = QtWidgets.QDockWidget(
+            self.tr("Polygon Labels"), self)
         self.shape_dock.setObjectName("Labels")
         self.shape_dock.setWidget(self.labelList)
 
@@ -147,7 +152,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self.fileSearch.setPlaceholderText(self.tr("Search Filename"))
         self.fileSearch.textChanged.connect(self.fileSearchChanged)
         self.fileListWidget = QtWidgets.QListWidget()
-        self.fileListWidget.itemSelectionChanged.connect(self.fileSelectionChanged)
+        self.fileListWidget.itemSelectionChanged.connect(
+            self.fileSelectionChanged)
         fileListLayout = QtWidgets.QVBoxLayout()
         fileListLayout.setContentsMargins(0, 0, 0, 0)
         fileListLayout.setSpacing(0)
@@ -578,6 +584,34 @@ class MainWindow(QtWidgets.QMainWindow):
             self.tr("Adjust brightness and contrast"),
             enabled=False,
         )
+
+        # AI相关动作
+        aiSettings = action(
+            self.tr("AI设置"),
+            self.openAISettings,
+            None,
+            "settings",
+            self.tr("配置AI模型参数"),
+        )
+
+        runObjectDetection = action(
+            self.tr("运行目标检测"),
+            self.runObjectDetection,
+            None,
+            "object-detection",
+            self.tr("使用AI检测图像中的对象"),
+            enabled=False,
+        )
+
+        runPoseEstimation = action(
+            self.tr("运行人体姿态估计"),
+            self.runPoseEstimation,
+            None,
+            "pose-estimation",
+            self.tr("检测图像中的人体姿态"),
+            enabled=False,
+        )
+
         # Group zoom controls into a list for easier toggling.
         zoomActions = (
             self.zoomWidget,
@@ -621,7 +655,8 @@ class MainWindow(QtWidgets.QMainWindow):
         labelMenu = QtWidgets.QMenu()
         utils.addActions(labelMenu, (edit, delete))
         self.labelList.setContextMenuPolicy(Qt.CustomContextMenu)
-        self.labelList.customContextMenuRequested.connect(self.popLabelListMenu)
+        self.labelList.customContextMenuRequested.connect(
+            self.popLabelListMenu)
 
         # Store actions for further handling.
         self.actions = utils.struct(
@@ -663,6 +698,8 @@ class MainWindow(QtWidgets.QMainWindow):
             openNextImg=openNextImg,
             openPrevImg=openPrevImg,
             fileMenuActions=(open_, opendir, save, saveAs, close, quit),
+            aiMenuActions=(aiSettings, None, runObjectDetection,
+                           runPoseEstimation),  # AI菜单动作
             tool=(),
             # XXX: need to add some actions here to activate the shortcut
             editMenu=(
@@ -724,6 +761,7 @@ class MainWindow(QtWidgets.QMainWindow):
             help=self.menu(self.tr("&Help")),
             recentFiles=QtWidgets.QMenu(self.tr("Open &Recent")),
             labelList=labelMenu,
+            ai=self.menu(self.tr("&AI")),  # 添加AI菜单
         )
 
         utils.addActions(
@@ -772,6 +810,9 @@ class MainWindow(QtWidgets.QMainWindow):
             ),
         )
 
+        # 添加AI菜单动作
+        utils.addActions(self.menus.ai, self.actions.aiMenuActions)
+
         self.menus.file.aboutToShow.connect(self.updateFileMenu)
 
         # Custom context menu for the canvas widget:
@@ -805,8 +846,10 @@ class MainWindow(QtWidgets.QMainWindow):
             ("sam2:large", "Sam2 (accuracy)"),
         ]
         for model_name, model_ui_name in MODEL_NAMES:
-            self._selectAiModelComboBox.addItem(model_ui_name, userData=model_name)
-        model_ui_names: list[str] = [model_ui_name for _, model_ui_name in MODEL_NAMES]
+            self._selectAiModelComboBox.addItem(
+                model_ui_name, userData=model_name)
+        model_ui_names: list[str] = [
+            model_ui_name for _, model_ui_name in MODEL_NAMES]
         if self._config["ai"]["default"] in model_ui_names:
             model_index = model_ui_names.index(self._config["ai"]["default"])
         else:
@@ -1006,6 +1049,13 @@ class MainWindow(QtWidgets.QMainWindow):
         for action in self.actions.onLoadActive:
             action.setEnabled(value)
 
+        # 启用AI相关动作
+        if hasattr(self.actions, "aiMenuActions"):
+            for action in self.actions.aiMenuActions:
+                # 跳过AI设置和分隔符
+                if action is not None and action != self.actions.aiMenuActions[0]:
+                    action.setEnabled(value)
+
     def queueEvent(self, function):
         QtCore.QTimer.singleShot(0, function)
 
@@ -1190,8 +1240,10 @@ class MainWindow(QtWidgets.QMainWindow):
             edit_group_id = True
             edit_description = True
         else:
-            edit_text = all(item.shape().label == shape.label for item in items[1:])
-            edit_flags = all(item.shape().flags == shape.flags for item in items[1:])
+            edit_text = all(item.shape().label ==
+                            shape.label for item in items[1:])
+            edit_flags = all(item.shape().flags ==
+                             shape.flags for item in items[1:])
             edit_group_id = all(
                 item.shape().group_id == shape.group_id for item in items[1:]
             )
@@ -1260,7 +1312,8 @@ class MainWindow(QtWidgets.QMainWindow):
             if shape.group_id is None:
                 item.setText(
                     '{} <font color="#{:02x}{:02x}{:02x}">●</font>'.format(
-                        html.escape(shape.label), *shape.fill_color.getRgb()[:3]
+                        html.escape(shape.label), *
+                        shape.fill_color.getRgb()[:3]
                     )
                 )
             else:
@@ -1469,7 +1522,8 @@ class MainWindow(QtWidgets.QMainWindow):
                 flags=flags,
             )
             self.labelFile = lf
-            items = self.fileListWidget.findItems(self.imagePath, Qt.MatchExactly)
+            items = self.fileListWidget.findItems(
+                self.imagePath, Qt.MatchExactly)
             if len(items) > 0:
                 if len(items) != 1:
                     raise RuntimeError("There are duplicate files.")
@@ -1622,7 +1676,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self.actions.keepPrevScale.setChecked(enabled)
 
     def onNewBrightnessContrast(self, qimage):
-        self.canvas.loadPixmap(QtGui.QPixmap.fromImage(qimage), clear_shapes=False)
+        self.canvas.loadPixmap(
+            QtGui.QPixmap.fromImage(qimage), clear_shapes=False)
 
     def brightnessContrast(self, value):
         dialog = BrightnessContrastDialog(
@@ -1672,7 +1727,8 @@ class MainWindow(QtWidgets.QMainWindow):
             )
             return False
         # assumes same name, but json extension
-        self.status(str(self.tr("Loading %s...")) % osp.basename(str(filename)))
+        self.status(str(self.tr("Loading %s...")) %
+                    osp.basename(str(filename)))
         label_file = osp.splitext(filename)[0] + ".json"
         if self.output_dir:
             label_file_without_path = osp.basename(label_file)
@@ -1824,7 +1880,8 @@ class MainWindow(QtWidgets.QMainWindow):
     def closeEvent(self, event):
         if not self.mayContinue():
             event.ignore()
-        self.settings.setValue("filename", self.filename if self.filename else "")
+        self.settings.setValue(
+            "filename", self.filename if self.filename else "")
         self.settings.setValue("window/size", self.size())
         self.settings.setValue("window/position", self.pos())
         self.settings.setValue("window/state", self.saveState())
@@ -1966,7 +2023,8 @@ class MainWindow(QtWidgets.QMainWindow):
 
         if current_filename in self.imageList:
             # retain currently selected file
-            self.fileListWidget.setCurrentRow(self.imageList.index(current_filename))
+            self.fileListWidget.setCurrentRow(
+                self.imageList.index(current_filename))
             self.fileListWidget.repaint()
 
     def saveFile(self, _value=False):
@@ -1988,9 +2046,11 @@ class MainWindow(QtWidgets.QMainWindow):
         caption = self.tr("%s - Choose File") % __appname__
         filters = self.tr("Label files (*%s)") % LabelFile.suffix
         if self.output_dir:
-            dlg = QtWidgets.QFileDialog(self, caption, self.output_dir, filters)
+            dlg = QtWidgets.QFileDialog(
+                self, caption, self.output_dir, filters)
         else:
-            dlg = QtWidgets.QFileDialog(self, caption, self.currentPath(), filters)
+            dlg = QtWidgets.QFileDialog(
+                self, caption, self.currentPath(), filters)
         dlg.setDefaultSuffix(LabelFile.suffix[1:])
         dlg.setAcceptMode(QtWidgets.QFileDialog.AcceptSave)
         dlg.setOption(QtWidgets.QFileDialog.DontConfirmOverwrite, False)
@@ -2076,7 +2136,8 @@ class MainWindow(QtWidgets.QMainWindow):
         if not self.dirty:
             return True
         mb = QtWidgets.QMessageBox
-        msg = self.tr('Save annotations to "{}" before closing?').format(self.filename)
+        msg = self.tr('Save annotations to "{}" before closing?').format(
+            self.filename)
         answer = mb.question(
             self,
             self.tr("Save annotations?"),
@@ -2147,7 +2208,8 @@ class MainWindow(QtWidgets.QMainWindow):
         if self.lastOpenDir and osp.exists(self.lastOpenDir):
             defaultOpenDirPath = self.lastOpenDir
         else:
-            defaultOpenDirPath = osp.dirname(self.filename) if self.filename else "."
+            defaultOpenDirPath = osp.dirname(
+                self.filename) if self.filename else "."
 
         targetDirPath = str(
             QtWidgets.QFileDialog.getExistingDirectory(
@@ -2241,3 +2303,118 @@ class MainWindow(QtWidgets.QMainWindow):
                     images.append(relativePath)
         images = natsort.os_sorted(images)
         return images
+
+    def openAISettings(self):
+        """打开AI设置对话框"""
+        dialog = AISettingsDialog(self)
+        dialog.exec_()
+
+    def runObjectDetection(self):
+        """运行目标检测"""
+        if self.image is None:
+            self.errorMessage(
+                self.tr("错误"),
+                self.tr("请先加载图像"),
+            )
+            return
+
+        try:
+            # 将QImage转换为numpy数组
+            image = self.image.convertToFormat(QtGui.QImage.Format_RGB888)
+            width = image.width()
+            height = image.height()
+            ptr = image.bits()
+            ptr.setsize(height * width * 3)
+            img_array = np.frombuffer(
+                ptr, np.uint8).reshape((height, width, 3))
+
+            # 运行目标检测
+            shape_dicts = object_detection.detect_objects(img_array)
+
+            if not shape_dicts:
+                self.errorMessage(
+                    self.tr("提示"),
+                    self.tr("未检测到任何对象"),
+                )
+                return
+
+            # 将字典列表转换为Shape对象列表
+            shapes = []
+            for shape_dict in shape_dicts:
+                shape = Shape(
+                    label=shape_dict["label"],
+                    shape_type=shape_dict["shape_type"],
+                    group_id=shape_dict.get("group_id"),
+                    flags=shape_dict.get("flags", {}),
+                    description=shape_dict.get("description", ""),
+                )
+                for point in shape_dict["points"]:
+                    shape.addPoint(QtCore.QPointF(point[0], point[1]))
+                shapes.append(shape)
+
+            # 加载检测结果
+            self.loadShapes(shapes)
+            self.setDirty()
+            self.status(self.tr(f"检测到 {len(shapes)} 个对象"))
+
+        except Exception as e:
+            self.errorMessage(
+                self.tr("目标检测错误"),
+                self.tr(f"运行目标检测时出错: {str(e)}"),
+            )
+            logger.exception("目标检测错误")
+
+    def runPoseEstimation(self):
+        """运行人体姿态估计"""
+        if self.image is None:
+            self.errorMessage(
+                self.tr("错误"),
+                self.tr("请先加载图像"),
+            )
+            return
+
+        try:
+            # 将QImage转换为numpy数组
+            image = self.image.convertToFormat(QtGui.QImage.Format_RGB888)
+            width = image.width()
+            height = image.height()
+            ptr = image.bits()
+            ptr.setsize(height * width * 3)
+            img_array = np.frombuffer(
+                ptr, np.uint8).reshape((height, width, 3))
+
+            # 运行人体姿态估计
+            shape_dicts = pose_estimation.estimate_poses(img_array)
+
+            if not shape_dicts:
+                self.errorMessage(
+                    self.tr("提示"),
+                    self.tr("未检测到任何人体姿态"),
+                )
+                return
+
+            # 将字典列表转换为Shape对象列表
+            shapes = []
+            for shape_dict in shape_dicts:
+                shape = Shape(
+                    label=shape_dict["label"],
+                    shape_type=shape_dict["shape_type"],
+                    group_id=shape_dict.get("group_id"),
+                    flags=shape_dict.get("flags", {}),
+                    description=shape_dict.get("description", ""),
+                )
+                for point in shape_dict["points"]:
+                    shape.addPoint(QtCore.QPointF(point[0], point[1]))
+                shapes.append(shape)
+
+            # 加载检测结果
+            self.loadShapes(shapes)
+            self.setDirty()
+            self.status(self.tr(f"检测到 {len(shapes)} 个人体姿态"))
+
+        except Exception as e:
+            self.errorMessage(
+                self.tr("人体姿态估计错误"),
+                self.tr(f"运行人体姿态估计时出错: {str(e)}"),
+            )
+            logger.exception("人体姿态估计错误")

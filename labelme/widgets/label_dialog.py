@@ -70,16 +70,19 @@ class LabelDialog(QtWidgets.QDialog):
         # label_list
         self.labelList = QtWidgets.QListWidget()
         if self._fit_to_content["row"]:
-            self.labelList.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOff)
+            self.labelList.setHorizontalScrollBarPolicy(
+                QtCore.Qt.ScrollBarAlwaysOff)
         if self._fit_to_content["column"]:
-            self.labelList.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOff)
+            self.labelList.setVerticalScrollBarPolicy(
+                QtCore.Qt.ScrollBarAlwaysOff)
         self._sort_labels = sort_labels
         if labels:
             self.labelList.addItems(labels)
         if self._sort_labels:
             self.labelList.sortItems()
         else:
-            self.labelList.setDragDropMode(QtWidgets.QAbstractItemView.InternalMove)
+            self.labelList.setDragDropMode(
+                QtWidgets.QAbstractItemView.InternalMove)
         self.labelList.currentItemChanged.connect(self.labelSelected)
         self.labelList.itemDoubleClicked.connect(self.labelDoubleClicked)
         self.labelList.setFixedHeight(150)
@@ -93,11 +96,17 @@ class LabelDialog(QtWidgets.QDialog):
         self.resetFlags()
         layout.addItem(self.flagsLayout)
         self.edit.textChanged.connect(self.updateFlags)
-        # text edit
-        self.editDescription = QtWidgets.QTextEdit()
-        self.editDescription.setPlaceholderText("Label description")
-        self.editDescription.setFixedHeight(50)
+        # 添加description输入框
+        self.editDescription = QtWidgets.QLineEdit()
+        self.editDescription.setPlaceholderText("Description (optional)")
+        layout.addWidget(QtWidgets.QLabel("Description:"))
         layout.addWidget(self.editDescription)
+        # 添加颜色选择按钮
+        self.color_button = QtWidgets.QPushButton("选择颜色")
+        self.color_button.clicked.connect(self.choose_color)
+        self.selected_color = QtGui.QColor(255, 0, 0)  # 默认红色
+        self.update_color_button()
+        layout.addWidget(self.color_button)
         self.setLayout(layout)
         # completion
         completer = QtWidgets.QCompleter()
@@ -193,20 +202,24 @@ class LabelDialog(QtWidgets.QDialog):
             return int(group_id)
         return None
 
+    def getDescription(self):
+        return self.editDescription.text()
+
     def popUp(self, text=None, move=True, flags=None, group_id=None, description=None):
         if self._fit_to_content["row"]:
             self.labelList.setMinimumHeight(
                 self.labelList.sizeHintForRow(0) * self.labelList.count() + 2
             )
         if self._fit_to_content["column"]:
-            self.labelList.setMinimumWidth(self.labelList.sizeHintForColumn(0) + 2)
+            self.labelList.setMinimumWidth(
+                self.labelList.sizeHintForColumn(0) + 2)
         # if text is None, the previous label in self.edit is kept
         if text is None:
             text = self.edit.text()
         # description is always initialized by empty text c.f., self.edit.text
         if description is None:
             description = ""
-        self.editDescription.setPlainText(description)
+        self.editDescription.setText(description)
         if flags:
             self.setFlags(flags)
         else:
@@ -225,14 +238,59 @@ class LabelDialog(QtWidgets.QDialog):
             row = self.labelList.row(items[0])
             self.edit.completer().setCurrentRow(row)
         self.edit.setFocus(QtCore.Qt.PopupFocusReason)
+
+        # 确保对话框显示在屏幕中央
         if move:
-            self.move(QtGui.QCursor.pos())
+            # 获取屏幕几何信息
+            screen = QtWidgets.QApplication.desktop().screenGeometry()
+            # 获取对话框大小
+            size = self.sizeHint()
+            # 计算居中位置
+            x = (screen.width() - size.width()) // 2
+            y = (screen.height() - size.height()) // 2
+            # 移动对话框到屏幕中央
+            self.move(x, y)
+
+        # 确保对话框显示在最前面
+        self.activateWindow()
+        self.raise_()
+
         if self.exec_():
             return (
                 self.edit.text(),
                 self.getFlags(),
                 self.getGroupId(),
-                self.editDescription.toPlainText(),
+                self.getDescription(),
             )
         else:
             return None, None, None, None
+
+    def choose_color(self):
+        """打开颜色选择对话框"""
+        color = QtWidgets.QColorDialog.getColor(
+            self.selected_color, self, "选择标签颜色"
+        )
+        if color.isValid():
+            self.selected_color = color
+            self.update_color_button()
+
+    def update_color_button(self):
+        """更新颜色按钮的样式"""
+        self.color_button.setStyleSheet(
+            f"background-color: {self.selected_color.name()}; color: {'white' if sum(self.selected_color.getRgb()[:3]) < 500 else 'black'};"
+        )
+
+    def get_color(self):
+        """获取选择的颜色"""
+        return self.selected_color
+
+    def edit(self, value):
+        """编辑标签并返回是否接受"""
+        self.edit.setText(value)
+        self.edit.setSelection(0, len(value))
+        result = self.exec_()
+        return result == QtWidgets.QDialog.Accepted
+        
+    def get_value(self):
+        """获取标签文本"""
+        return self.edit.text()

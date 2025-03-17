@@ -48,7 +48,8 @@ class Canvas(QtWidgets.QWidget):
         self.double_click = kwargs.pop("double_click", "close")
         if self.double_click not in [None, "close"]:
             raise ValueError(
-                "Unexpected value for double_click event: {}".format(self.double_click)
+                "Unexpected value for double_click event: {}".format(
+                    self.double_click)
             )
         self.num_backups = kwargs.pop("num_backups", 10)
         self._crosshair = kwargs.pop(
@@ -168,7 +169,7 @@ class Canvas(QtWidgets.QWidget):
         for shape in self.shapes:
             shapesBackup.append(shape.copy())
         if len(self.shapesBackups) > self.num_backups:
-            self.shapesBackups = self.shapesBackups[-self.num_backups - 1 :]
+            self.shapesBackups = self.shapesBackups[-self.num_backups - 1:]
         self.shapesBackups.append(shapesBackup)
 
     @property
@@ -319,7 +320,8 @@ class Canvas(QtWidgets.QWidget):
                 self.boundedMoveShapes(self.selectedShapesCopy, pos)
                 self.repaint()
             elif self.selectedShapes:
-                self.selectedShapesCopy = [s.copy() for s in self.selectedShapes]
+                self.selectedShapesCopy = [s.copy()
+                                           for s in self.selectedShapes]
                 self.repaint()
             return
 
@@ -458,7 +460,8 @@ class Canvas(QtWidgets.QWidget):
                         if self.createMode in ["ai_polygon", "ai_mask"]
                         else self.createMode
                     )
-                    self.current.addPoint(pos, label=0 if is_shift_pressed else 1)
+                    self.current.addPoint(
+                        pos, label=0 if is_shift_pressed else 1)
                     if self.createMode == "point":
                         self.finalise()
                     elif (
@@ -586,7 +589,8 @@ class Canvas(QtWidgets.QWidget):
                     self.setHiding()
                     if shape not in self.selectedShapes:
                         if multiple_selection_mode:
-                            self.selectionChanged.emit(self.selectedShapes + [shape])
+                            self.selectionChanged.emit(
+                                self.selectedShapes + [shape])
                         else:
                             self.selectionChanged.emit([shape])
                         self.hShapeIsSelected = False
@@ -764,7 +768,8 @@ class Canvas(QtWidgets.QWidget):
                 createMode=self.createMode,
                 model_name=self._sam.name,
                 image_embedding=self._sam_embedding[
-                    labelme.utils.img_qt_to_arr(self.pixmap.toImage()).tobytes()
+                    labelme.utils.img_qt_to_arr(
+                        self.pixmap.toImage()).tobytes()
                 ],
             )
         drawing_shape.fill = self.fillDrawing()
@@ -791,21 +796,25 @@ class Canvas(QtWidgets.QWidget):
 
     def finalise(self):
         assert self.current
-        _update_shape_with_sam(
-            shape=self.current,
-            createMode=self.createMode,
-            model_name=self._sam.name,
-            image_embedding=self._sam_embedding[
-                labelme.utils.img_qt_to_arr(self.pixmap.toImage()).tobytes()
-            ],
-        )
+        # 只有在self._sam不为None时才调用_update_shape_with_sam
+        if hasattr(self, '_sam') and self._sam is not None and hasattr(self, '_sam_embedding'):
+            _update_shape_with_sam(
+                shape=self.current,
+                createMode=self.createMode,
+                model_name=self._sam.name,
+                image_embedding=self._sam_embedding[
+                    labelme.utils.img_qt_to_arr(
+                        self.pixmap.toImage()).tobytes()
+                ],
+            )
         self.current.close()
 
         self.shapes.append(self.current)
         self.storeShapes()
         self.current = None
         self.setHiding(False)
-        self.newShape.emit()
+        self.drawingPolygon.emit(False)
+        self.newShape.emit()  # 确保这行代码存在，发出新形状创建完成的信号
         self.update()
 
     def closeEnough(self, p1, p2):
@@ -895,7 +904,8 @@ class Canvas(QtWidgets.QWidget):
 
     def moveByKeyboard(self, offset):
         if self.selectedShapes:
-            self.boundedMoveShapes(self.selectedShapes, self.prevPoint + offset)
+            self.boundedMoveShapes(self.selectedShapes,
+                                   self.prevPoint + offset)
             self.repaint()
             self.movingShape = True
 
@@ -1049,7 +1059,7 @@ def _update_shape_with_sam(
             shape_type="mask",
             points=[QtCore.QPointF(x1, y1), QtCore.QPointF(x2, y2)],
             point_labels=[1, 1],
-            mask=response.annotations[0].mask[y1 : y2 + 1, x1 : x2 + 1],
+            mask=response.annotations[0].mask[y1: y2 + 1, x1: x2 + 1],
         )
     elif createMode == "ai_polygon":
         points = polygon_from_mask.compute_polygon_from_mask(

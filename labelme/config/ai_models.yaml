@@ -1,0 +1,18 @@
+ai:
+  default: EfficientSam (speed)
+detection:
+  conf_threshold: 0.9
+  device: cpu
+  filter_classes:
+  - person
+  model_name: fasterrcnn_resnet50_fpn
+pose_estimation:
+  conf_threshold: 0.9
+  device: cpu
+  model_name: keypointrcnn_resnet50_fpn
+yolov7:
+  conf_threshold: 0.25
+  device: cpu
+  filter_classes: []
+  iou_threshold: 0.45
+  model_path: F:\GitHub\labelme\labelme\models\yolov7.pt

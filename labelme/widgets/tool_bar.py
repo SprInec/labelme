@@ -11,6 +11,20 @@ class ToolBar(QtWidgets.QToolBar):
         layout.setContentsMargins(*m)
         self.setContentsMargins(*m)
         self.setWindowFlags(self.windowFlags() | QtCore.Qt.FramelessWindowHint)
+        # 设置可调整大小
+        self.setSizePolicy(QtWidgets.QSizePolicy.Preferred,
+                           QtWidgets.QSizePolicy.Expanding)
+        # 允许工具栏在所有区域停靠
+        self.setAllowedAreas(
+            QtCore.Qt.LeftToolBarArea |
+            QtCore.Qt.RightToolBarArea |
+            QtCore.Qt.TopToolBarArea |
+            QtCore.Qt.BottomToolBarArea
+        )
+        # 设置工具栏可移动
+        self.setMovable(True)
+        # 设置浮动
+        self.setFloatable(True)
 
     def addAction(self, action):
         if isinstance(action, QtWidgets.QWidgetAction):
