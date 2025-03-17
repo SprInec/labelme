@@ -22,14 +22,14 @@ QMenuBar {
     background-color: #f8f9fa;
     color: #333333;
     border-bottom: 1px solid #e6e6e6;
-    padding: 3px;
+    padding: 1px;
     font-size: 10pt;
 }
 
 QMenuBar::item {
-    padding: 5px 12px;
+    padding: 3px 6px;
     border-radius: 4px;
-    margin: 2px 3px;
+    margin: 1px 1px;
 }
 
 QMenuBar::item:selected {
@@ -109,7 +109,7 @@ QToolBar {
     border-bottom: 1px solid #e6e6e6;
     spacing: 10px;
     padding: 10px 12px;
-    min-width: 90px;
+    min-width: 70px;
 }
 
 QToolBar::separator {
@@ -668,7 +668,7 @@ QSlider::handle:horizontal:hover {
 }
 
 QWidget {
-    color: #333333;  /* 修改为黑色而不是完全删除 */
+    color: #f0f0f0;  /* 修改为亮色而不是黑色 */
 }
 
 /* 多边形标签列表样式 */
@@ -731,6 +731,56 @@ QListWidget::item:selected {
     color: #1967d2;
 }
 
+QDialog {
+    background-color: #ffffff;
+    border-radius: 10px;
+}
+QLineEdit {
+    padding: 8px 12px;
+    border: 1px solid #e0e0e0;
+    border-radius: 6px;
+    background-color: #f8f9fa;
+    margin-bottom: 10px;
+    font-size: 10pt;
+}
+QLineEdit:focus {
+    border-color: #4285f4;
+    background-color: #ffffff;
+}
+QListWidget {
+    border: 1px solid #e0e0e0;
+    border-radius: 8px;
+    padding: 5px;
+    background-color: #ffffff;
+}
+QListWidget::item {
+    padding: 8px 12px;
+    border-radius: 6px;
+    margin: 2px 1px;
+}
+QListWidget::item:hover {
+    background-color: #f5f5f5;
+}
+QListWidget::item:selected {
+    background-color: #e8f0fe;
+    color: #1967d2;
+}
+QPushButton {
+    padding: 8px 20px;
+    border-radius: 6px;
+    font-size: 8pt;
+    font-weight: 500;
+    margin: 5px;
+    min-width: 90px;
+}
+QPushButton#color_button {
+    padding: 0px;
+    min-width: 28px;
+    border-radius: 14px;
+    border: 1px solid #e0e0e0;
+    margin-top: 1px;
+}
+
 /* 确保整个应用程序使用正确的文字颜色 */
 QMainWindow, QDialog, QWidget, QLabel, QPushButton, QLineEdit, QTreeView, QListView, QMenu, QMenuBar {
     color: #333333;
@@ -743,7 +793,7 @@ DARK_STYLE = """
 * {
     font-family: "Microsoft YaHei UI Light", "Segoe UI Light", "Arial", sans-serif;
     font-size: 9.5pt;
-    color: #333333;
+    color: #dbdbdb;
     letter-spacing: 0.3px;
 }
 
@@ -755,14 +805,14 @@ QMenuBar {
     background-color: #2d2d30;
     color: #cccccc;
     border-bottom: 1px solid #3e3e42;
-    padding: 3px;
+    padding: 1px;
     font-size: 10pt;
 }
 
 QMenuBar::item {
-    padding: 5px 12px;
+    padding: 3px 6px;
     border-radius: 4px;
-    margin: 2px 3px;
+    margin: 1px 1px;
 }
 
 QMenuBar::item:selected {
@@ -811,7 +861,7 @@ QMenu::indicator {
 }
 
 QMenu::indicator:non-exclusive:unchecked {
-    border: 2px solid #6e6e6e;
+    border: 2px solid rgb(58, 57, 57);
     border-radius: 3px;
     background-color: #2d2d30;
 }
@@ -824,7 +874,7 @@ QMenu::indicator:non-exclusive:checked {
 }
 
 QMenu::indicator:exclusive:unchecked {
-    border: 2px solid #6e6e6e;
+    border: 2px solid rgb(50, 49, 49);
     border-radius: 10px;
     background-color: #2d2d30;
 }
@@ -841,7 +891,7 @@ QToolBar {
     border-bottom: 1px solid #3e3e42;
     spacing: 10px;
     padding: 10px 12px;
-    min-width: 90px;
+    min-width: 70px;
 }
 
 QToolBar::separator {
@@ -1322,19 +1372,77 @@ QPushButton {
 
 /* 美化暗色主题对话框和窗口 */
 QDialog {
-    background-color: #ffffff;
+    background-color: #1e1e1e;
     border-radius: 10px;
     padding: 15px;
+}
+
+QDialog QLabel {
+    color: #e0e0e0;
+    font-size: 10pt;
+    margin-bottom: 8px;
+    font-weight: 500;
+}
+
+QDialog QLineEdit {
+    padding: 8px 14px;
+    border-radius: 6px;
+    font-size: 10pt;
+    margin-bottom: 12px;
+    background-color: #2d2d2d;
+    color: #e0e0e0;
+    border: 1px solid #3d3d3d;
+}
+
+QDialog QListWidget {
+    border: 1px solid #3d3d3d;
+    border-radius: 8px;
+    padding: 10px;
+    margin-bottom: 15px;
+    font-size: 10pt;
+    background-color: #252526;
+    color: #e0e0e0;
+}
+
+QDialog QPushButton {
+    padding: 8px 16px;
+    border-radius: 6px;
+    font-size: 10pt;
+}
+
+QDialog QPushButton:default {
+    background-color: #007acc;
+    color: white;
+    border: none;
+}
+
+QDialog QPushButton:default:hover {
+    background-color: #1c97ea;
+}
+
+QDialog QPushButton:default:pressed {
+    background-color: #0062a3;
+}
+
+QDialog QPushButton:!default {
+    background-color: #2d2d30;
+    color: #e0e0e0;
+    border: 1px solid #3e3e42;
+}
+
+QDialog QPushButton:!default:hover {
+    background-color: #3e3e42;
+    border-color: #007acc;
 }
 
 QMainWindow::separator {
     width: 1px;
     height: 1px;
-    background-color: #e6e6e6;
+    background-color: #3e3e42;
 }
 
 QMainWindow::separator:hover {
-    background-color: #4285f4;
+    background-color: #007acc;
 }
 
 /* 美化暗色主题滑块 */
@@ -1357,14 +1465,67 @@ QSlider::handle:horizontal:hover {
     background: #1967d2;
 }
 
+QDialog {
+    background-color: #2d2d30;
+    border-radius: 10px;
+}
+QLineEdit {
+    padding: 8px 12px;
+    border: 1px solid #3e3e42;
+    border-radius: 6px;
+    background-color: #252526;
+    margin-bottom: 10px;
+    font-size: 10pt;
+    color: #e0e0e0;
+}
+QLineEdit:focus {
+    border-color: #007acc;
+    background-color: #333337;
+}
+QListWidget {
+    border: 1px solid #3e3e42;
+    border-radius: 8px;
+    padding: 5px;
+    background-color: #252526;
+    color: #e0e0e0;
+}
+QListWidget::item {
+    padding: 8px 12px;
+    border-radius: 6px;
+    margin: 2px 1px;
+}
+QListWidget::item:hover {
+    background-color: #3e3e42;
+}
+QListWidget::item:selected {
+    background-color: #0e639c;
+    color: #ffffff;
+}
+QPushButton {
+    padding: 8px 20px;
+    border-radius: 6px;
+    font-size: 8pt;
+    font-weight: 500;
+    margin: 5px;
+    min-width: 90px;
+    background-color: #0e639c;
+    color: #ffffff;
+    border: 1px solid #1177bb;
+}
+QPushButton#color_button {
+    padding: 0px;
+    min-width: 28px;
+    border-radius: 14px;
+    border: 1px solid #3e3e42;
+    margin-top: 1px;
+}
+
 QWidget {
-    color: #333333;  /* 修改为黑色而不是完全删除 */
+    color: #f0f0f0;  /* 修改为亮色而不是黑色 */
 }
 """
 
 # 明亮主题调色板
-
-
 def get_light_palette():
     palette = QPalette()
     palette.setColor(QPalette.Window, QColor(250, 250, 250))
@@ -1386,8 +1547,6 @@ def get_light_palette():
     return palette
 
 # 暗黑主题调色板
-
-
 def get_dark_palette():
     palette = QPalette()
     palette.setColor(QPalette.Window, QColor(30, 30, 30))

@@ -140,64 +140,11 @@ class LabelDialog(QtWidgets.QDialog):
         self.setLayout(layout)
 
         # 设置初始大小
-        self.resize(500, 400)
+        self.resize(530, 620)
 
         # 设置对话框的最小尺寸
-        self.setMinimumWidth(400)
+        self.setMinimumWidth(530)
         self.setMinimumHeight(500)
-
-        # 设置样式
-        self.setStyleSheet("""
-            QDialog {
-                background-color: #ffffff;
-                border-radius: 10px;
-            }
-            QLineEdit {
-                padding: 8px 12px;
-                border: 1px solid #e0e0e0;
-                border-radius: 6px;
-                background-color: #f8f9fa;
-                margin-bottom: 10px;
-                font-size: 10pt;
-            }
-            QLineEdit:focus {
-                border-color: #4285f4;
-                background-color: #ffffff;
-            }
-            QListWidget {
-                border: 1px solid #e0e0e0;
-                border-radius: 8px;
-                padding: 5px;
-                background-color: #ffffff;
-            }
-            QListWidget::item {
-                padding: 8px 12px;
-                border-radius: 6px;
-                margin: 2px 1px;
-            }
-            QListWidget::item:hover {
-                background-color: #f5f5f5;
-            }
-            QListWidget::item:selected {
-                background-color: #e8f0fe;
-                color: #1967d2;
-            }
-            QPushButton {
-                padding: 8px 20px;
-                border-radius: 6px;
-                font-size: 10pt;
-                font-weight: 500;
-                margin: 5px;
-                min-width: 80px;
-            }
-            QPushButton#color_button {
-                padding: 0px;
-                min-width: 28px;
-                border-radius: 14px;
-                border: 1px solid #e0e0e0;
-                margin-top: 1px;
-            }
-        """)
 
         # completion
         completer = QtWidgets.QCompleter()
