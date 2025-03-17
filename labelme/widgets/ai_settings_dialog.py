@@ -190,31 +190,103 @@ class AISettingsDialog(QtWidgets.QDialog):
             self.mask_model_combo.addItem(model_ui_name, userData=model_name)
         layout.addRow(self.tr("AI蒙版模型:"), self.mask_model_combo)
 
+        # 当前选择的模型
+        self.current_model_label = QtWidgets.QLabel(self.tr("当前使用的模型:"))
+        layout.addRow(self.current_model_label)
+
         # AI Prompt设置
-        self.prompt_group = QtWidgets.QGroupBox(self.tr("AI提示设置"))
+        prompt_group = QtWidgets.QGroupBox(self.tr("AI提示设置"))
         prompt_layout = QtWidgets.QVBoxLayout()
 
-        # 提示类型
-        self.prompt_type_combo = QtWidgets.QComboBox()
-        self.prompt_type_combo.addItems(["文本提示", "点提示"])
-        prompt_layout.addWidget(QtWidgets.QLabel(self.tr("提示类型:")))
-        prompt_layout.addWidget(self.prompt_type_combo)
-
-        # 文本提示设置
-        self.text_prompt_widget = QtWidgets.QWidget()
-        text_prompt_layout = QtWidgets.QVBoxLayout()
-        text_prompt_layout.setContentsMargins(0, 0, 0, 0)
-
+        # 文本提示输入
+        prompt_input_layout = QtWidgets.QHBoxLayout()
+        prompt_label = QtWidgets.QLabel(self.tr("AI Prompt:"))
         self.text_prompt_input = QtWidgets.QLineEdit()
-        self.text_prompt_input.setPlaceholderText(self.tr("输入文本提示..."))
-        text_prompt_layout.addWidget(QtWidgets.QLabel(self.tr("文本提示:")))
-        text_prompt_layout.addWidget(self.text_prompt_input)
+        self.text_prompt_input.setPlaceholderText(
+            self.tr("e.g., dog,cat,bird"))
+        prompt_input_layout.addWidget(prompt_label)
+        prompt_input_layout.addWidget(self.text_prompt_input)
+        prompt_layout.addLayout(prompt_input_layout)
 
-        self.text_prompt_widget.setLayout(text_prompt_layout)
-        prompt_layout.addWidget(self.text_prompt_widget)
+        # Score和IoU阈值设置
+        threshold_layout = QtWidgets.QHBoxLayout()
 
-        self.prompt_group.setLayout(prompt_layout)
-        layout.addRow(self.prompt_group)
+        # Score阈值
+        score_layout = QtWidgets.QHBoxLayout()
+        score_label = QtWidgets.QLabel(self.tr("Score阈值:"))
+        self.score_threshold = QtWidgets.QDoubleSpinBox()
+        self.score_threshold.setRange(0, 1)
+        self.score_threshold.setSingleStep(0.05)
+        self.score_threshold.setValue(0.1)
+        score_layout.addWidget(score_label)
+        score_layout.addWidget(self.score_threshold)
+        threshold_layout.addLayout(score_layout)
+
+        # IoU阈值
+        iou_layout = QtWidgets.QHBoxLayout()
+        iou_label = QtWidgets.QLabel(self.tr("IoU阈值:"))
+        self.iou_threshold = QtWidgets.QDoubleSpinBox()
+        self.iou_threshold.setRange(0, 1)
+        self.iou_threshold.setSingleStep(0.05)
+        self.iou_threshold.setValue(0.5)
+        iou_layout.addWidget(iou_label)
+        iou_layout.addWidget(self.iou_threshold)
+        threshold_layout.addLayout(iou_layout)
+
+        prompt_layout.addLayout(threshold_layout)
+        prompt_group.setLayout(prompt_layout)
+        layout.addRow(prompt_group)
+
+        # 置信度阈值
+        self.mask_conf_threshold = QtWidgets.QDoubleSpinBox()
+        self.mask_conf_threshold.setRange(0.01, 1.0)
+        self.mask_conf_threshold.setSingleStep(0.05)
+        self.mask_conf_threshold.setDecimals(2)
+        self.mask_conf_threshold.setValue(0.5)
+        layout.addRow(self.tr("置信度阈值:"), self.mask_conf_threshold)
+
+        # 设备选择
+        self.mask_device = QtWidgets.QComboBox()
+        self.mask_device.addItems(["cpu", "cuda"])
+        layout.addRow(self.tr("运行设备:"), self.mask_device)
+
+        # 多边形简化参数
+        self.mask_simplify_tolerance = QtWidgets.QDoubleSpinBox()
+        self.mask_simplify_tolerance.setRange(0.0, 10.0)
+        self.mask_simplify_tolerance.setSingleStep(0.1)
+        self.mask_simplify_tolerance.setDecimals(1)
+        self.mask_simplify_tolerance.setValue(1.0)
+        layout.addRow(self.tr("多边形简化容差:"), self.mask_simplify_tolerance)
+
+        # 高级参数组
+        advanced_group = QtWidgets.QGroupBox(self.tr("高级参数"))
+        advanced_layout = QtWidgets.QFormLayout()
+
+        # 最大分割数量
+        self.mask_max_segments = QtWidgets.QSpinBox()
+        self.mask_max_segments.setRange(1, 20)
+        self.mask_max_segments.setValue(5)
+        advanced_layout.addRow(self.tr("最大分割数量:"), self.mask_max_segments)
+
+        # 最小区域大小
+        self.mask_min_area = QtWidgets.QSpinBox()
+        self.mask_min_area.setRange(0, 10000)
+        self.mask_min_area.setSingleStep(10)
+        self.mask_min_area.setValue(100)
+        advanced_layout.addRow(self.tr("最小区域大小(像素):"), self.mask_min_area)
+
+        # 预处理选项
+        self.mask_preprocess = QtWidgets.QCheckBox(self.tr("启用图像预处理"))
+        self.mask_preprocess.setChecked(True)
+        advanced_layout.addRow("", self.mask_preprocess)
+
+        # 后处理选项
+        self.mask_postprocess = QtWidgets.QCheckBox(self.tr("启用结果后处理"))
+        self.mask_postprocess.setChecked(True)
+        advanced_layout.addRow("", self.mask_postprocess)
+
+        advanced_group.setLayout(advanced_layout)
+        layout.addRow(advanced_group)
 
         self.mask_tab.setLayout(layout)
 
@@ -249,17 +321,20 @@ class AISettingsDialog(QtWidgets.QDialog):
         # 设置模型
         model_name = detection_config.get(
             "model_name", "fasterrcnn_resnet50_fpn")
-        index = self.detection_model_combo.findData(model_name)
-        if index >= 0:
-            self.detection_model_combo.setCurrentIndex(index)
+        for i in range(self.detection_model_combo.count()):
+            if self.detection_model_combo.itemData(i) == model_name:
+                self.detection_model_combo.setCurrentIndex(i)
+                break
 
-        # 设置其他参数
+        # 设置置信度阈值
         self.detection_conf_threshold.setValue(
             detection_config.get("conf_threshold", 0.5))
-        self.detection_device.setCurrentText(
-            detection_config.get("device", "cpu"))
 
-        # 设置检测类别
+        # 设置设备
+        device = detection_config.get("device", "cpu")
+        self.detection_device.setCurrentText(device)
+
+        # 设置过滤类别
         filter_classes = detection_config.get("filter_classes", [])
         for i in range(self.detection_classes_list.count()):
             item = self.detection_classes_list.item(i)
@@ -268,29 +343,65 @@ class AISettingsDialog(QtWidgets.QDialog):
 
         # 姿态估计设置
         pose_config = self.config.get("pose_estimation", {})
-        model_name = pose_config.get("model_name", "keypointrcnn_resnet50_fpn")
 
-        if model_name == "keypointrcnn_resnet50_fpn":
+        # 设置模型
+        pose_model_name = pose_config.get(
+            "model_name", "keypointrcnn_resnet50_fpn")
+        if pose_model_name == "keypointrcnn_resnet50_fpn":
             self.pose_model_name.setCurrentIndex(0)
             self.pose_custom_model_widget.setVisible(False)
         else:
             self.pose_model_name.setCurrentIndex(1)
-            self.pose_custom_model_path.setText(model_name)
+            self.pose_custom_model_path.setText(pose_model_name)
             self.pose_custom_model_widget.setVisible(True)
 
+        # 设置置信度阈值
         self.pose_conf_threshold.setValue(
             pose_config.get("conf_threshold", 0.5))
-        self.pose_device.setCurrentText(pose_config.get("device", "cpu"))
+
+        # 设置设备
+        pose_device = pose_config.get("device", "cpu")
+        self.pose_device.setCurrentText(pose_device)
 
         # AI蒙版设置
         ai_config = self.config.get("ai", {})
+        mask_config = ai_config.get("mask", {})
         default_model = ai_config.get("default", "EfficientSam (speed)")
 
-        # 查找并设置默认模型
+        # 设置AI蒙版模型
         for i in range(self.mask_model_combo.count()):
             if self.mask_model_combo.itemText(i) == default_model:
                 self.mask_model_combo.setCurrentIndex(i)
                 break
+
+        # 设置AI蒙版置信度阈值
+        self.mask_conf_threshold.setValue(
+            mask_config.get("conf_threshold", 0.5))
+
+        # 设置AI蒙版设备
+        mask_device = mask_config.get("device", "cpu")
+        self.mask_device.setCurrentText(mask_device)
+
+        # 设置多边形简化容差
+        self.mask_simplify_tolerance.setValue(
+            mask_config.get("simplify_tolerance", 1.0))
+
+        # 设置高级参数
+        self.mask_max_segments.setValue(
+            mask_config.get("max_segments", 5))
+        self.mask_min_area.setValue(
+            mask_config.get("min_area", 100))
+        self.mask_preprocess.setChecked(
+            mask_config.get("preprocess", True))
+        self.mask_postprocess.setChecked(
+            mask_config.get("postprocess", True))
+
+        # 设置AI Prompt
+        prompt_config = ai_config.get("prompt", {})
+        self.text_prompt_input.setText(prompt_config.get("text", ""))
+        self.score_threshold.setValue(
+            prompt_config.get("score_threshold", 0.1))
+        self.iou_threshold.setValue(prompt_config.get("iou_threshold", 0.5))
 
     def accept(self):
         """保存设置并关闭对话框"""
@@ -325,6 +436,28 @@ class AISettingsDialog(QtWidgets.QDialog):
         # 更新AI蒙版设置
         ai_config = self.config.get("ai", {})
         ai_config["default"] = self.mask_model_combo.currentText()
+
+        # 更新AI蒙版参数
+        mask_config = ai_config.get("mask", {})
+        mask_config["conf_threshold"] = self.mask_conf_threshold.value()
+        mask_config["device"] = self.mask_device.currentText()
+        mask_config["simplify_tolerance"] = self.mask_simplify_tolerance.value()
+
+        # 更新高级参数
+        mask_config["max_segments"] = self.mask_max_segments.value()
+        mask_config["min_area"] = self.mask_min_area.value()
+        mask_config["preprocess"] = self.mask_preprocess.isChecked()
+        mask_config["postprocess"] = self.mask_postprocess.isChecked()
+
+        ai_config["mask"] = mask_config
+
+        # 更新AI Prompt设置
+        prompt_config = ai_config.get("prompt", {})
+        prompt_config["text"] = self.text_prompt_input.text()
+        prompt_config["score_threshold"] = self.score_threshold.value()
+        prompt_config["iou_threshold"] = self.iou_threshold.value()
+        ai_config["prompt"] = prompt_config
+
         self.config["ai"] = ai_config
 
         # 保存配置

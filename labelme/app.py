@@ -279,7 +279,7 @@ class MainWindow(QtWidgets.QMainWindow):
         )
 
         changeOutputDir = action(
-            self.tr("&Change Output Dir"),
+            self.tr("输出路径"),
             slot=self.changeOutputDirDialog,
             shortcut=shortcuts["save_to"],
             icon="open",
@@ -370,6 +370,17 @@ class MainWindow(QtWidgets.QMainWindow):
             self.tr("Start drawing linestrip. Ctrl+LeftClick ends creation."),
             enabled=False,
         )
+
+        # 创建控制点模式
+        createControlPointMode = action(
+            self.tr("Create Control Point"),
+            lambda: self.toggleDrawMode(False, createMode="control_point"),
+            None,  # 暂无快捷键
+            "objects",
+            self.tr("Start drawing control points"),
+            enabled=False,
+        )
+
         createAiPolygonMode = action(
             self.tr("Create AI-Polygon"),
             lambda: self.toggleDrawMode(False, createMode="ai_polygon"),
@@ -380,9 +391,8 @@ class MainWindow(QtWidgets.QMainWindow):
         )
         createAiPolygonMode.changed.connect(
             lambda: self.canvas.initializeAiModel(
-                model_name=self._selectAiModelComboBox.itemData(
-                    self._selectAiModelComboBox.currentIndex()
-                )
+                model_name=self._config["ai"].get(
+                    "default", "EfficientSam (speed)")
             )
             if self.canvas.createMode == "ai_polygon"
             else None
@@ -397,9 +407,8 @@ class MainWindow(QtWidgets.QMainWindow):
         )
         createAiMaskMode.changed.connect(
             lambda: self.canvas.initializeAiModel(
-                model_name=self._selectAiModelComboBox.itemData(
-                    self._selectAiModelComboBox.currentIndex()
-                )
+                model_name=self._config["ai"].get(
+                    "default", "EfficientSam (speed)")
             )
             if self.canvas.createMode == "ai_mask"
             else None
@@ -595,20 +604,29 @@ class MainWindow(QtWidgets.QMainWindow):
         )
 
         runObjectDetection = action(
-            self.tr("运行目标检测"),
+            self.tr("目标检测"),
             self.runObjectDetection,
             None,
-            "object-detection",
+            "objects",  # 使用objects图标
             self.tr("使用AI检测图像中的对象"),
             enabled=False,
         )
 
         runPoseEstimation = action(
-            self.tr("运行人体姿态估计"),
+            self.tr("姿态估计"),
             self.runPoseEstimation,
             None,
-            "pose-estimation",
+            "edit",  # 使用edit图标
             self.tr("检测图像中的人体姿态"),
+            enabled=False,
+        )
+
+        submitAiPrompt = action(
+            self.tr("提交AI提示"),
+            lambda: self._submit_ai_prompt(None),
+            None,
+            "done",
+            self.tr("使用AI提示检测对象"),
             enabled=False,
         )
 
@@ -698,8 +716,8 @@ class MainWindow(QtWidgets.QMainWindow):
             openNextImg=openNextImg,
             openPrevImg=openPrevImg,
             fileMenuActions=(open_, opendir, save, saveAs, close, quit),
-            aiMenuActions=(aiSettings, None, runObjectDetection,
-                           runPoseEstimation),  # AI菜单动作
+            aiMenuActions=(aiSettings, None, createAiPolygonMode, createAiMaskMode,
+                           None, runObjectDetection, runPoseEstimation, submitAiPrompt),  # 更新AI菜单动作
             tool=(),
             # XXX: need to add some actions here to activate the shortcut
             editMenu=(
@@ -748,6 +766,8 @@ class MainWindow(QtWidgets.QMainWindow):
                 createAiMaskMode,
                 editMode,
                 brightnessContrast,
+                runObjectDetection,  # 添加运行目标检测
+                runPoseEstimation,   # 添加运行人体姿态估计
             ),
             onShapesPresent=(saveAs, hideAll, showAll, toggleAll),
         )
@@ -758,10 +778,10 @@ class MainWindow(QtWidgets.QMainWindow):
             file=self.menu(self.tr("&File")),
             edit=self.menu(self.tr("&Edit")),
             view=self.menu(self.tr("&View")),
+            ai=self.menu(self.tr("&AI")),  # 将AI菜单置于帮助菜单左侧
             help=self.menu(self.tr("&Help")),
             recentFiles=QtWidgets.QMenu(self.tr("Open &Recent")),
             labelList=labelMenu,
-            ai=self.menu(self.tr("&AI")),  # 添加AI菜单
         )
 
         utils.addActions(
@@ -825,48 +845,7 @@ class MainWindow(QtWidgets.QMainWindow):
             ),
         )
 
-        selectAiModel = QtWidgets.QWidgetAction(self)
-        selectAiModel.setDefaultWidget(QtWidgets.QWidget())
-        selectAiModel.defaultWidget().setLayout(QtWidgets.QVBoxLayout())
-        #
-        selectAiModelLabel = QtWidgets.QLabel(self.tr("AI Mask Model"))
-        selectAiModelLabel.setAlignment(QtCore.Qt.AlignCenter)
-        selectAiModel.defaultWidget().layout().addWidget(selectAiModelLabel)
-        #
-        self._selectAiModelComboBox = QtWidgets.QComboBox()
-        selectAiModel.defaultWidget().layout().addWidget(self._selectAiModelComboBox)
-        MODEL_NAMES: list[tuple[str, str]] = [
-            ("efficientsam:10m", "EfficientSam (speed)"),
-            ("efficientsam:latest", "EfficientSam (accuracy)"),
-            ("sam:100m", "SegmentAnything (speed)"),
-            ("sam:300m", "SegmentAnything (balanced)"),
-            ("sam:latest", "SegmentAnything (accuracy)"),
-            ("sam2:small", "Sam2 (speed)"),
-            ("sam2:latest", "Sam2 (balanced)"),
-            ("sam2:large", "Sam2 (accuracy)"),
-        ]
-        for model_name, model_ui_name in MODEL_NAMES:
-            self._selectAiModelComboBox.addItem(
-                model_ui_name, userData=model_name)
-        model_ui_names: list[str] = [
-            model_ui_name for _, model_ui_name in MODEL_NAMES]
-        if self._config["ai"]["default"] in model_ui_names:
-            model_index = model_ui_names.index(self._config["ai"]["default"])
-        else:
-            logger.warning(
-                "Default AI model is not found: %r",
-                self._config["ai"]["default"],
-            )
-            model_index = 0
-        self._selectAiModelComboBox.setCurrentIndex(model_index)
-        self._selectAiModelComboBox.currentIndexChanged.connect(
-            lambda index: self.canvas.initializeAiModel(
-                model_name=self._selectAiModelComboBox.itemData(index)
-            )
-            if self.canvas.createMode in ["ai_polygon", "ai_mask"]
-            else None
-        )
-
+        # 创建AI提示部件，但不添加到工具栏
         self._ai_prompt_widget: QtWidgets.QWidget = AiPromptWidget(
             on_submit=self._submit_ai_prompt, parent=self
         )
@@ -877,24 +856,29 @@ class MainWindow(QtWidgets.QMainWindow):
         self.actions.tool = (
             open_,
             opendir,
+            changeOutputDir,  # 添加输出路径按钮
             openPrevImg,
             openNextImg,
             save,
             deleteFile,
             None,
             createMode,
+            createRectangleMode,
+            createCircleMode,
+            createLineMode,
+            createPointMode,
+            createLineStripMode,
             editMode,
             duplicate,
             delete,
             undo,
             brightnessContrast,
             None,
+            runObjectDetection,  # 添加运行目标检测按钮
+            runPoseEstimation,   # 添加运行人体姿态估计按钮
+            None,
             fitWindow,
             zoom,
-            None,
-            selectAiModel,
-            None,
-            ai_prompt_action,
         )
 
         self.statusBar().showMessage(str(self.tr("%s started.")) % __appname__)
@@ -997,8 +981,6 @@ class MainWindow(QtWidgets.QMainWindow):
             self.actions.createLineMode,
             self.actions.createPointMode,
             self.actions.createLineStripMode,
-            self.actions.createAiPolygonMode,
-            self.actions.createAiMaskMode,
             self.actions.editMode,
         )
         utils.addActions(self.menus.edit, actions + self.actions.editMenu)
@@ -1063,11 +1045,39 @@ class MainWindow(QtWidgets.QMainWindow):
         self.statusBar().showMessage(message, delay)
 
     def _submit_ai_prompt(self, _) -> None:
-        texts = self._ai_prompt_widget.get_text_prompt().split(",")
+        # 从配置中获取AI Prompt设置
+        ai_config = self._config.get("ai", {})
+        prompt_config = ai_config.get("prompt", {})
+
+        # 使用配置中的文本提示，如果为空则使用工具栏中的文本提示
+        text_prompt = prompt_config.get("text", "")
+        if not text_prompt and hasattr(self, "_ai_prompt_widget"):
+            text_prompt = self._ai_prompt_widget.get_text_prompt()
+
+        texts = text_prompt.split(",")
+        if not texts or texts[0] == "":
+            self.errorMessage(
+                self.tr("错误"),
+                self.tr("请先设置AI提示文本"),
+            )
+            return
+
+        # 使用配置中的Score阈值
+        score_threshold = prompt_config.get("score_threshold", 0.1)
+        if hasattr(self, "_ai_prompt_widget"):
+            score_threshold = self._ai_prompt_widget.get_score_threshold()
+
+        # 使用配置中的IoU阈值
+        iou_threshold = prompt_config.get("iou_threshold", 0.5)
+        if hasattr(self, "_ai_prompt_widget"):
+            iou_threshold = self._ai_prompt_widget.get_iou_threshold()
+
         boxes, scores, labels = bbox_from_text.get_bboxes_from_texts(
             model="yoloworld",
             image=utils.img_qt_to_arr(self.image)[:, :, :3],
             texts=texts,
+            score_threshold=score_threshold,
+            iou_threshold=iou_threshold,
         )
 
         for shape in self.canvas.shapes:
@@ -2307,7 +2317,24 @@ class MainWindow(QtWidgets.QMainWindow):
     def openAISettings(self):
         """打开AI设置对话框"""
         dialog = AISettingsDialog(self)
-        dialog.exec_()
+
+        # 如果对话框被接受，更新配置
+        if dialog.exec_() == QtWidgets.QDialog.Accepted:
+            # 重新加载配置
+            self._config = get_config()
+
+            # 如果有AI模型选择框，更新它
+            if hasattr(self, "_selectAiModelComboBox"):
+                # 获取当前选择的AI模型
+                ai_config = self._config.get("ai", {})
+                default_model = ai_config.get(
+                    "default", "EfficientSam (speed)")
+
+                # 查找并设置模型
+                for i in range(self._selectAiModelComboBox.count()):
+                    if self._selectAiModelComboBox.itemText(i) == default_model:
+                        self._selectAiModelComboBox.setCurrentIndex(i)
+                        break
 
     def runObjectDetection(self):
         """运行目标检测"""
