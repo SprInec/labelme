@@ -33,7 +33,8 @@ class HTMLDelegate(QtWidgets.QStyledItemDelegate):
         if option.state & QStyle.State_Selected:
             ctx.palette.setColor(
                 QPalette.Text,
-                option.palette.color(QPalette.Active, QPalette.HighlightedText),
+                option.palette.color(
+                    QPalette.Active, QPalette.HighlightedText),
             )
         else:
             ctx.palette.setColor(
@@ -140,7 +141,8 @@ class LabelListWidget(QtWidgets.QListView):
 
     def itemSelectionChangedEvent(self, selected, deselected):
         selected = [self.model().itemFromIndex(i) for i in selected.indexes()]
-        deselected = [self.model().itemFromIndex(i) for i in deselected.indexes()]
+        deselected = [self.model().itemFromIndex(i)
+                      for i in deselected.indexes()]
         self.itemSelectionChanged.emit(selected, deselected)
 
     def itemDoubleClickedEvent(self, index):
@@ -150,7 +152,8 @@ class LabelListWidget(QtWidgets.QListView):
         return [self.model().itemFromIndex(i) for i in self.selectedIndexes()]
 
     def scrollToItem(self, item):
-        self.scrollTo(self.model().indexFromItem(item))
+        if item:
+            self.scrollTo(self.model().indexFromItem(item))
 
     def addItem(self, item):
         if not isinstance(item, LabelListWidgetItem):
@@ -159,8 +162,9 @@ class LabelListWidget(QtWidgets.QListView):
         item.setSizeHint(self.itemDelegate().sizeHint(None, None))
 
     def removeItem(self, item):
-        index = self.model().indexFromItem(item)
-        self.model().removeRows(index.row(), 1)
+        if item:
+            index = self.model().indexFromItem(item)
+            self.model().removeRows(index.row(), 1)
 
     def selectItem(self, item):
         index = self.model().indexFromItem(item)
@@ -171,7 +175,7 @@ class LabelListWidget(QtWidgets.QListView):
             item = self.model().item(row, 0)
             if item.shape() == shape:
                 return item
-        raise ValueError("cannot find shape: {}".format(shape))
+        return None
 
     def clear(self):
         self.model().clear()

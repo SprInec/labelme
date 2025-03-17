@@ -240,9 +240,10 @@ class LabelTreeWidget(QTreeView):
 
     def scrollToItem(self, item):
         """滚动到指定项"""
-        index = self.model.indexFromItem(item)
-        if index.isValid():
-            self.scrollTo(index)
+        if item:  # 确保item不是None
+            index = self.model.indexFromItem(item)
+            if index.isValid():
+                self.scrollTo(index)
 
     def findItemByShape(self, shape):
         """根据形状查找项"""
@@ -252,7 +253,7 @@ class LabelTreeWidget(QTreeView):
                 item = category_item.child(j, 0)
                 if item and item.shape() == shape:
                     return item
-        raise ValueError("cannot find shape: {}".format(shape))
+        return None  # 找不到形状时返回None，而不是抛出异常
 
     def clear(self):
         """清空所有项"""

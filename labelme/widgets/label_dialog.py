@@ -171,6 +171,19 @@ class LabelDialog(QtWidgets.QDialog):
     def labelSelected(self, item):
         self.edit.setText(item.text())
 
+        # 尝试从标签项文本中提取颜色
+        text = item.text()
+        if "●" in text:
+            try:
+                color_str = text.split('color="')[1].split('">')[0]
+                r = int(color_str[1:3], 16)
+                g = int(color_str[3:5], 16)
+                b = int(color_str[5:7], 16)
+                self.selected_color = QtGui.QColor(r, g, b)
+                self.update_color_button()
+            except (IndexError, ValueError):
+                pass
+
     def validate(self):
         if not self.edit.isEnabled():
             self.accept()
@@ -247,13 +260,8 @@ class LabelDialog(QtWidgets.QDialog):
     def popUp(self, text=None, move=True, flags=None, group_id=None, description=None, color=None):
         # 移除这些限制，允许窗口自由调整大小
         if self._fit_to_content["row"]:
-            # self.labelList.setMinimumHeight(
-            #     self.labelList.sizeHintForRow(0) * self.labelList.count() + 2
-            # )
             pass
         if self._fit_to_content["column"]:
-            # self.labelList.setMinimumWidth(
-            #     self.labelList.sizeHintForColumn(0) + 2)
             pass
 
         # if text is None, the previous label in self.edit is kept
@@ -263,6 +271,21 @@ class LabelDialog(QtWidgets.QDialog):
         if description is None:
             description = ""
         self.editDescription.setText(description)
+
+        # 如果没有提供颜色或需要查找已有标签的颜色
+        items = self.labelList.findItems(text, QtCore.Qt.MatchFixedString)
+        if items and (color is None or color.getRgb()[:3] == (0, 255, 0)):
+            # 尝试从已有标签中提取颜色
+            try:
+                item_text = items[0].text()
+                if "●" in item_text:
+                    color_str = item_text.split('color="')[1].split('">')[0]
+                    r = int(color_str[1:3], 16)
+                    g = int(color_str[3:5], 16)
+                    b = int(color_str[5:7], 16)
+                    color = QtGui.QColor(r, g, b)
+            except (IndexError, ValueError):
+                pass
 
         # 设置颜色按钮
         if color is not None and isinstance(color, QtGui.QColor):
