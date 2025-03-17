@@ -75,13 +75,12 @@ class LabelDialog(QtWidgets.QDialog):
                 QtWidgets.QAbstractItemView.InternalMove)
         self.labelList.currentItemChanged.connect(self.labelSelected)
         self.labelList.itemDoubleClicked.connect(self.labelDoubleClicked)
-        # 移除固定高度，允许标签列表随窗口大小变化
-        # self.labelList.setFixedHeight(150)
         # 设置最小高度，确保初始显示合理
-        self.labelList.setMinimumHeight(150)
+        self.labelList.setMinimumHeight(200)  # 增加最小高度
         # 设置大小策略为垂直方向可扩展
         sizePolicy = QtWidgets.QSizePolicy(
-            QtWidgets.QSizePolicy.Preferred, QtWidgets.QSizePolicy.Expanding
+            QtWidgets.QSizePolicy.Expanding,  # 水平方向也可扩展
+            QtWidgets.QSizePolicy.Expanding
         )
         self.labelList.setSizePolicy(sizePolicy)
 
@@ -111,13 +110,13 @@ class LabelDialog(QtWidgets.QDialog):
         color_layout.setAlignment(QtCore.Qt.AlignLeft)  # 设置左对齐
         color_label = QtWidgets.QLabel("标签颜色:")
         self.color_button = QtWidgets.QPushButton()
-        self.color_button.setFixedWidth(50)
-        self.color_button.setFixedHeight(20)
+        self.color_button.setObjectName("color_button")
+        self.color_button.setFixedSize(28, 28)
         self.selected_color = QtGui.QColor(0, 255, 0)  # 默认绿色
         self.update_color_button()
         self.color_button.clicked.connect(self.choose_color)
         color_layout.addWidget(color_label)
-        color_layout.addWidget(self.color_button)
+        color_layout.addWidget(self.color_button, 0, QtCore.Qt.AlignVCenter)
 
         # 添加按钮
         self.buttonBox = bb = QtWidgets.QDialogButtonBox(
@@ -140,25 +139,81 @@ class LabelDialog(QtWidgets.QDialog):
 
         self.setLayout(layout)
 
-        # 设置对话框的大小策略
-        self.setSizePolicy(
-            QtWidgets.QSizePolicy.Preferred,
-            QtWidgets.QSizePolicy.Expanding
-        )
-
         # 设置初始大小
         self.resize(500, 400)
+
+        # 设置对话框的最小尺寸
+        self.setMinimumWidth(400)
+        self.setMinimumHeight(500)
+
+        # 设置样式
+        self.setStyleSheet("""
+            QDialog {
+                background-color: #ffffff;
+                border-radius: 10px;
+            }
+            QLineEdit {
+                padding: 8px 12px;
+                border: 1px solid #e0e0e0;
+                border-radius: 6px;
+                background-color: #f8f9fa;
+                margin-bottom: 10px;
+                font-size: 10pt;
+            }
+            QLineEdit:focus {
+                border-color: #4285f4;
+                background-color: #ffffff;
+            }
+            QListWidget {
+                border: 1px solid #e0e0e0;
+                border-radius: 8px;
+                padding: 5px;
+                background-color: #ffffff;
+            }
+            QListWidget::item {
+                padding: 8px 12px;
+                border-radius: 6px;
+                margin: 2px 1px;
+            }
+            QListWidget::item:hover {
+                background-color: #f5f5f5;
+            }
+            QListWidget::item:selected {
+                background-color: #e8f0fe;
+                color: #1967d2;
+            }
+            QPushButton {
+                padding: 8px 20px;
+                border-radius: 6px;
+                font-size: 10pt;
+                font-weight: 500;
+                margin: 5px;
+                min-width: 80px;
+            }
+            QPushButton#color_button {
+                padding: 0px;
+                min-width: 28px;
+                border-radius: 14px;
+                border: 1px solid #e0e0e0;
+                margin-top: 1px;
+            }
+        """)
 
         # completion
         completer = QtWidgets.QCompleter()
         if completion == "startswith":
             completer.setCompletionMode(QtWidgets.QCompleter.InlineCompletion)
+            completer.setCaseSensitivity(QtCore.Qt.CaseInsensitive)
         elif completion == "contains":
             completer.setCompletionMode(QtWidgets.QCompleter.PopupCompletion)
             completer.setFilterMode(QtCore.Qt.MatchContains)
+            completer.setCaseSensitivity(QtCore.Qt.CaseInsensitive)
         else:
             raise ValueError("Unsupported completion: {}".format(completion))
-        completer.setModel(self.labelList.model())
+        stringListModel = QtCore.QStringListModel()
+        if labels:
+            stringListModel.setStringList(labels)
+        completer.setModel(stringListModel)
         self.edit.setCompleter(completer)
 
     def addLabelHistory(self, label):
@@ -185,10 +240,6 @@ class LabelDialog(QtWidgets.QDialog):
                 pass
 
     def validate(self):
-        if not self.edit.isEnabled():
-            self.accept()
-            return
-
         text = self.edit.text()
         if hasattr(text, "strip"):
             text = text.strip()
@@ -344,25 +395,23 @@ class LabelDialog(QtWidgets.QDialog):
 
     def update_color_button(self):
         """更新颜色按钮的样式"""
-        style = f"background-color: {self.selected_color.name()}; border: 1px solid #888888;"
+        style = f"background-color: {self.selected_color.name()}; border: 1px solid #888888; border-radius: 14px;"
         self.color_button.setStyleSheet(style)
 
     def get_color(self):
         """获取选择的颜色"""
         return self.selected_color
 
-    def edit(self, value):
-        """编辑标签并返回是否接受"""
-        self.edit.setText(value)
-        self.edit.setSelection(0, len(value))
-        result = self.exec_()
-        return result == QtWidgets.QDialog.Accepted
-
-    def get_value(self):
-        """获取标签文本"""
-        return self.edit.text()
-
     def resizeEvent(self, event):
         """处理窗口大小变化事件，确保标签列表控件能正确调整大小"""
         super(LabelDialog, self).resizeEvent(event)
         # 窗口大小变化时，标签列表控件会自动调整大小，因为我们已经设置了合适的大小策略
+
+    def labelSelectionChanged(self):
+        # 处理选择变化
+        if self.labelList.currentItem():
+            self.labelSelected(self.labelList.currentItem())
+
+    def changeColor(self):
+        # 确保向后兼容
+        self.choose_color()

@@ -119,13 +119,53 @@ class UniqueLabelTreeWidget(QTreeView):
             QTreeView {
                 background-color: transparent;
                 outline: none;
+                border: 1px solid #e0e0e0;
+                border-radius: 8px;
+                padding: 8px;
             }
             QTreeView::item {
-                padding: 8px 4px;
-                border-radius: 4px;
+                padding: 12px 10px;
+                border-radius: 6px;
+                margin: 4px 2px;
+                color: #333333;
+                min-height: 24px;
+            }
+            QTreeView::item:hover {
+                background-color: #f5f5f5;
+            }
+            QTreeView::item:selected {
+                background-color: #e8f0fe;
+                color: #1967d2;
             }
             QTreeView::branch {
                 background-color: transparent;
+                padding-left: 8px;
+            }
+            QTreeView::branch:has-children:!has-siblings:closed,
+            QTreeView::branch:closed:has-children:has-siblings {
+                image: url(:/right-arrow.png);
+                padding-left: 10px;
+            }
+            QTreeView::branch:open:has-children:!has-siblings,
+            QTreeView::branch:open:has-children:has-siblings {
+                image: url(:/down-arrow.png);
+                padding-left: 10px;
+            }
+            QTreeView::indicator {
+                width: 22px;
+                height: 22px;
+                border: 2px solid #bdbdbd;
+                border-radius: 4px;
+                background-color: #ffffff;
+                margin-right: 8px;
+            }
+            QTreeView::indicator:checked {
+                background-color: #4285f4;
+                border: 2px solid #4285f4;
+                image: url(:/check-white.png);
+            }
+            QTreeView::indicator:unchecked:hover {
+                border: 2px solid #4285f4;
             }
         """)
 
