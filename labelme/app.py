@@ -649,11 +649,22 @@ class MainWindow(QtWidgets.QMainWindow):
             checked=self.currentTheme == "dark",
         )
 
+        defaultTheme = action(
+            self.tr("原始主题"),
+            self.setDefaultTheme,
+            None,
+            "color-fill",
+            self.tr("恢复原始主题"),
+            checkable=True,
+            checked=self.currentTheme == "default",
+        )
+
         # 创建主题切换动作组，确保只有一个主题被选中
         themeActionGroup = QtWidgets.QActionGroup(self)
         themeActionGroup.setExclusive(True)
         themeActionGroup.addAction(lightTheme)
         themeActionGroup.addAction(darkTheme)
+        themeActionGroup.addAction(defaultTheme)
 
         # AI相关动作
         aiSettings = action(
@@ -781,7 +792,8 @@ class MainWindow(QtWidgets.QMainWindow):
                            None, runObjectDetection, runPoseEstimation, submitAiPrompt),
             lightTheme=lightTheme,  # 添加明亮主题动作
             darkTheme=darkTheme,    # 添加暗黑主题动作
-            themeActions=(lightTheme, darkTheme),  # 添加主题动作组
+            defaultTheme=defaultTheme,  # 添加原始主题动作
+            themeActions=(lightTheme, darkTheme, defaultTheme),  # 添加主题动作组
             tool=(),
             # XXX: need to add some actions here to activate the shortcut
             editMenu=(
@@ -853,9 +865,11 @@ class MainWindow(QtWidgets.QMainWindow):
 
         # 应用上次保存的主题设置
         if self.currentTheme == "dark":
-            self.setDarkTheme()
+            self.setDarkTheme(update_actions=False)  # 添加参数，表示不更新动作选中状态
+        elif self.currentTheme == "default":
+            self.setDefaultTheme(update_actions=False)  # 添加参数，表示不更新动作选中状态
         else:
-            self.setLightTheme()
+            self.setLightTheme(update_actions=False)  # 添加参数，表示不更新动作选中状态
 
         utils.addActions(
             self.menus.file,
@@ -1056,8 +1070,6 @@ class MainWindow(QtWidgets.QMainWindow):
                 self.statusBar().showMessage(
                     self.tr("输出目录已设置为: %s") % self.output_dir, 5000
                 )
-                logger.info(
-                    "Output directory set to: {}".format(self.output_dir))
 
                 # 重新加载当前文件列表，以显示输出目录中的标注文件
                 if self.lastOpenDir and osp.exists(self.lastOpenDir):
@@ -2849,32 +2861,50 @@ class MainWindow(QtWidgets.QMainWindow):
         r, g, b = [int(x * 255) for x in colorsys.hsv_to_rgb(hue, 0.8, 0.95)]
         return (r, g, b)
 
-    def setLightTheme(self):
+    def setLightTheme(self, update_actions=True):
         """设置为明亮主题"""
         app = QtWidgets.QApplication.instance()
         app.setStyle("Fusion")
         app.setPalette(labelme.styles.get_light_palette())
         app.setStyleSheet(labelme.styles.LIGHT_STYLE)
 
-        # 更新选中状态（如果动作已初始化）
-        if hasattr(self, 'actions') and hasattr(self.actions, 'lightTheme'):
+        # 更新选中状态（如果动作已初始化且需要更新）
+        if update_actions and hasattr(self, 'actions') and hasattr(self.actions, 'lightTheme'):
             self.actions.lightTheme.setChecked(True)
             self.actions.darkTheme.setChecked(False)
+            self.actions.defaultTheme.setChecked(False)
 
         # 保存当前主题设置
         self.currentTheme = "light"
 
-    def setDarkTheme(self):
+    def setDarkTheme(self, update_actions=True):
         """设置为暗黑主题"""
         app = QtWidgets.QApplication.instance()
         app.setStyle("Fusion")
         app.setPalette(labelme.styles.get_dark_palette())
         app.setStyleSheet(labelme.styles.DARK_STYLE)
 
-        # 更新选中状态（如果动作已初始化）
-        if hasattr(self, 'actions') and hasattr(self.actions, 'darkTheme'):
+        # 更新选中状态（如果动作已初始化且需要更新）
+        if update_actions and hasattr(self, 'actions') and hasattr(self.actions, 'darkTheme'):
             self.actions.lightTheme.setChecked(False)
             self.actions.darkTheme.setChecked(True)
+            self.actions.defaultTheme.setChecked(False)
 
         # 保存当前主题设置
         self.currentTheme = "dark"
+
+    def setDefaultTheme(self, update_actions=True):
+        """恢复原始主题"""
+        app = QtWidgets.QApplication.instance()
+        app.setStyle("")  # 使用系统默认样式
+        app.setPalette(app.style().standardPalette())  # 恢复默认调色板
+        app.setStyleSheet("")  # 清空样式表
+
+        # 更新选中状态（如果动作已初始化且需要更新）
+        if update_actions and hasattr(self, 'actions') and hasattr(self.actions, 'defaultTheme'):
+            self.actions.lightTheme.setChecked(False)
+            self.actions.darkTheme.setChecked(False)
+            self.actions.defaultTheme.setChecked(True)
+
+        # 保存当前主题设置
+        self.currentTheme = "default"

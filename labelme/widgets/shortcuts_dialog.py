@@ -19,28 +19,39 @@ class ShortcutsDialog(QtWidgets.QDialog):
         self.setWindowFlags(
             self.windowFlags() & ~QtCore.Qt.WindowContextHelpButtonHint
         )
-        self.setMinimumWidth(600)
-        self.setMinimumHeight(500)
+        self.setMinimumWidth(750)
+        self.setMinimumHeight(650)
 
         self.initUI()
 
     def initUI(self):
         """初始化UI"""
         layout = QtWidgets.QVBoxLayout()
+        layout.setContentsMargins(20, 20, 20, 20)
+        layout.setSpacing(15)
+
+        # 创建说明标签
+        desc_label = QtWidgets.QLabel(self.tr("在下表中可以查看和修改软件的快捷键设置："))
+        layout.addWidget(desc_label)
 
         # 创建表格
         self.table = QtWidgets.QTableWidget()
         self.table.setColumnCount(2)
         self.table.setHorizontalHeaderLabels([self.tr("功能"), self.tr("快捷键")])
+        self.table.setColumnWidth(0, 400)
+        self.table.setColumnWidth(1, 250)
         self.table.horizontalHeader().setSectionResizeMode(
-            0, QtWidgets.QHeaderView.Stretch)
+            0, QtWidgets.QHeaderView.Fixed)
         self.table.horizontalHeader().setSectionResizeMode(
-            1, QtWidgets.QHeaderView.ResizeToContents)
+            1, QtWidgets.QHeaderView.Stretch)
         self.table.verticalHeader().setVisible(False)
         self.table.setSelectionBehavior(QtWidgets.QAbstractItemView.SelectRows)
         self.table.setSelectionMode(
             QtWidgets.QAbstractItemView.SingleSelection)
         self.table.setEditTriggers(QtWidgets.QAbstractItemView.NoEditTriggers)
+        self.table.setAlternatingRowColors(True)
+        self.table.setStyleSheet("QTableView::item { padding: 8px; }")
+        self.table.verticalHeader().setDefaultSectionSize(36)
 
         # 填充表格
         self.populateTable()
@@ -228,12 +239,15 @@ class ShortcutEditDialog(QtWidgets.QDialog):
         self.current_shortcut = current_shortcut
 
         self.setWindowTitle(self.tr("编辑快捷键"))
-        self.setFixedSize(400, 150)
+        self.setFixedSize(500, 300)
 
         layout = QtWidgets.QVBoxLayout()
+        layout.setContentsMargins(20, 20, 20, 20)
+        layout.setSpacing(15)
 
         # 显示功能名称
         function_label = QtWidgets.QLabel(self.tr("功能: {}").format(key))
+        function_label.setStyleSheet("font-weight: bold; font-size: 12pt;")
         layout.addWidget(function_label)
 
         # 快捷键编辑控件

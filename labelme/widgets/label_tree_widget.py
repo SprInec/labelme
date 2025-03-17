@@ -87,6 +87,13 @@ class LabelTreeWidgetItem(QStandardItem):
             font.setBold(True)
             self.setFont(font)
 
+            # 为分类项设置更现代的字体大小
+            font.setPointSize(10)
+            self.setFont(font)
+
+            # 为分类项设置更暗的颜色
+            self.setForeground(QtGui.QColor(51, 51, 51))
+
     def clone(self):
         return LabelTreeWidgetItem(self.text(), self.shape(), self.is_category)
 
@@ -118,6 +125,29 @@ class LabelTreeWidget(QTreeView):
         self.setItemDelegate(HTMLDelegate())
         self.setSelectionMode(QtWidgets.QAbstractItemView.ExtendedSelection)
         self.setHeaderHidden(True)
+
+        # 设置样式
+        self.setStyleSheet("""
+            QTreeView {
+                background-color: transparent;
+                outline: none;
+            }
+            QTreeView::item {
+                padding: 8px 4px;
+                border-radius: 4px;
+            }
+            QTreeView::branch {
+                background-color: transparent;
+            }
+        """)
+
+        # 设置动画
+        self.setAnimated(True)
+        self.setIndentation(20)  # 设置缩进
+
+        # 设置图标大小
+        self.setIconSize(QtCore.QSize(20, 20))
+
         self.expandAll()
 
         # 启用拖放功能
