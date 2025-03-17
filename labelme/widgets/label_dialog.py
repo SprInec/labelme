@@ -263,10 +263,12 @@ class LabelDialog(QtWidgets.QDialog):
         if description is None:
             description = ""
         self.editDescription.setText(description)
-        # 设置颜色
+
+        # 设置颜色按钮
         if color is not None and isinstance(color, QtGui.QColor):
             self.selected_color = color
             self.update_color_button()
+
         if flags:
             self.setFlags(flags)
         else:

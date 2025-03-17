@@ -58,6 +58,7 @@ class Shape(object):
         self._shape_type_raw = None
         self.fill = False
         self.selected = False
+        self.visible = True
         self.flags = flags
         self.description = description
         self.other_data = {}
@@ -172,8 +173,19 @@ class Shape(object):
     def setOpen(self):
         self._closed = False
 
+    def setVisible(self, visible):
+        """设置形状是否可见"""
+        self.visible = visible
+
+    def isVisible(self):
+        """返回形状是否可见"""
+        return self.visible
+
     def paint(self, painter):
         if self.mask is None and not self.points:
+            return
+
+        if not self.visible:
             return
 
         color = self.select_line_color if self.selected else self.line_color

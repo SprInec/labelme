@@ -216,7 +216,13 @@ class Canvas(QtWidgets.QWidget):
         self.restoreCursor()
 
     def isVisible(self, shape):
-        return self.visible.get(shape, True)
+        """检查形状是否可见"""
+        # 先检查Canvas的可见性设置
+        canvas_visible = self.visible.get(shape, True)
+        # 再检查形状自己的可见性设置
+        shape_visible = shape.isVisible() if hasattr(shape, 'isVisible') else True
+        # 两者都为True时形状才可见
+        return canvas_visible and shape_visible
 
     def drawing(self):
         return self.mode == self.CREATE
@@ -1029,10 +1035,12 @@ class Canvas(QtWidgets.QWidget):
 
                 self.movingShape = False
 
-    def setLastLabel(self, text, flags):
+    def setLastLabel(self, text, flags, group_id=None, description=None):
         assert text
         self.shapes[-1].label = text
         self.shapes[-1].flags = flags
+        self.shapes[-1].group_id = group_id
+        self.shapes[-1].description = description
         self.shapesBackups.pop()
         self.storeShapes()
         return self.shapes[-1]

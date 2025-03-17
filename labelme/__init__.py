@@ -1,6 +1,7 @@
 # flake8: noqa
 
 import logging
+import sys
 
 
 __appname__ = "labelme"
@@ -11,6 +12,9 @@ __appname__ = "labelme"
 # 3. PATCH version when you make backwards-compatible bug fixes.
 # e.g., 1.0.0a0, 1.0.0a1, 1.0.0b0, 1.0.0rc0, 1.0.0, 1.0.0.post0
 __version__ = "5.8.0"
+
+# Python 2/3 compatibility
+PY2 = sys.version_info[0] == 2
 
 from labelme.label_file import LabelFile
 from labelme import testing

@@ -7,6 +7,8 @@ import os
 import os.path as osp
 import re
 import webbrowser
+import colorsys
+import random
 
 import imgviz
 import natsort
@@ -18,6 +20,7 @@ from PyQt5 import QtWidgets
 from PyQt5.QtCore import Qt
 
 from labelme import __appname__
+from labelme import PY2
 from labelme._automation import bbox_from_text
 from labelme._automation import object_detection
 from labelme._automation import pose_estimation
@@ -33,8 +36,12 @@ from labelme.widgets import FileDialogPreview
 from labelme.widgets import LabelDialog
 from labelme.widgets import LabelListWidget
 from labelme.widgets import LabelListWidgetItem
+from labelme.widgets import LabelTreeWidget
+from labelme.widgets import LabelTreeWidgetItem
 from labelme.widgets import ToolBar
 from labelme.widgets import UniqueLabelQListWidget
+from labelme.widgets import UniqueLabelTreeWidget
+from labelme.widgets import UniqueLabelTreeWidgetItem
 from labelme.widgets import ZoomWidget
 from labelme.widgets.ai_settings_dialog import AISettingsDialog
 from labelme.widgets.shortcuts_dialog import ShortcutsDialog
@@ -126,7 +133,8 @@ class MainWindow(QtWidgets.QMainWindow):
             flags=self._config["label_flags"],
         )
 
-        self.labelList = LabelListWidget()
+        # 将LabelListWidget替换为LabelTreeWidget
+        self.labelList = LabelTreeWidget()
         self.lastOpenDir = None
 
         self.flag_dock = self.flag_widget = None
@@ -140,17 +148,19 @@ class MainWindow(QtWidgets.QMainWindow):
 
         self.labelList.itemSelectionChanged.connect(self.labelSelectionChanged)
         self.labelList.itemDoubleClicked.connect(self._edit_label)
-        self.labelList.itemChanged.connect(self.labelItemChanged)
-        self.labelList.itemDropped.connect(self.labelOrderChanged)
+        # self.labelList.itemChanged.connect(self.labelItemChanged)  # LabelTreeWidget没有这个信号
+        # self.labelList.itemDropped.connect(self.labelOrderChanged)  # LabelTreeWidget没有这个信号
         self.shape_dock = QtWidgets.QDockWidget(
             self.tr("多边形标签 (0)"), self)
         self.shape_dock.setObjectName("Labels")
         self.shape_dock.setWidget(self.labelList)
 
-        self.uniqLabelList = UniqueLabelQListWidget()
+        # 使用树形结构的标签列表替代原来的列表
+        self.uniqLabelList = UniqueLabelTreeWidget()
         self.uniqLabelList.setToolTip(
             self.tr(
-                "Select label to start annotating for it. " "Press 'Esc' to deselect."
+                "Select label to start annotating for it. "
+                "Press 'Esc' to deselect."
             )
         )
         if self._config["labels"]:
@@ -1301,73 +1311,28 @@ class MainWindow(QtWidgets.QMainWindow):
         return False
 
     def _edit_label(self, value=None):
-        if not self.canvas.editing():
+        shapes = [s for s in self.canvas.selectedShapes if s.selected]
+        if not shapes or len(shapes) != 1:
             return
 
-        items = self.labelList.selectedItems()
-        if not items:
-            logger.warning("No label is selected, so cannot edit label.")
-            return
+        shape = shapes[0]
+        old_label = shape.label
+        old_flags = shape.flags
+        old_group_id = shape.group_id
+        old_description = shape.description
 
-        shape = items[0].shape()
+        # 获取形状的颜色
+        shape_color = shape.fill_color
 
-        if len(items) == 1:
-            edit_text = True
-            edit_flags = True
-            edit_group_id = True
-            edit_description = True
-            edit_color = True
-        else:
-            edit_text = all(item.shape().label ==
-                            shape.label for item in items[1:])
-            edit_flags = all(item.shape().flags ==
-                             shape.flags for item in items[1:])
-            edit_group_id = all(
-                item.shape().group_id == shape.group_id for item in items[1:]
-            )
-            edit_description = all(
-                item.shape().description == shape.description for item in items[1:]
-            )
-            edit_color = False  # 多选时不允许编辑颜色
-
-        if not edit_text:
-            self.labelDialog.edit.setDisabled(True)
-            self.labelDialog.labelList.setDisabled(True)
-        if not edit_flags:
-            for i in range(self.labelDialog.flagsLayout.count()):
-                self.labelDialog.flagsLayout.itemAt(i).setDisabled(True)
-        if not edit_group_id:
-            self.labelDialog.edit_group_id.setDisabled(True)
-        if not edit_description:
-            self.labelDialog.editDescription.setDisabled(True)
-
-        # 获取当前形状的颜色
-        current_color = shape.fill_color if edit_color else None
-
-        result = self.labelDialog.popUp(
-            text=shape.label if edit_text else "",
-            flags=shape.flags if edit_flags else None,
-            group_id=shape.group_id if edit_group_id else None,
-            description=shape.description if edit_description else None,
-            color=current_color if edit_color else None,
+        text, flags, group_id, description, color = self.labelDialog.popUp(
+            old_label,
+            flags=old_flags,
+            group_id=old_group_id,
+            description=old_description,
+            color=shape_color,  # 传递形状的颜色
         )
-
-        if not edit_text:
-            self.labelDialog.edit.setDisabled(False)
-            self.labelDialog.labelList.setDisabled(False)
-        if not edit_flags:
-            for i in range(self.labelDialog.flagsLayout.count()):
-                self.labelDialog.flagsLayout.itemAt(i).setDisabled(False)
-        if not edit_group_id:
-            self.labelDialog.edit_group_id.setDisabled(False)
-        if not edit_description:
-            self.labelDialog.editDescription.setDisabled(False)
-
-        if result is None:
+        if text is None:
             return
-
-        text, flags, group_id, description, color = result
-
         if not self.validateLabel(text):
             self.errorMessage(
                 self.tr("Invalid label"),
@@ -1377,47 +1342,115 @@ class MainWindow(QtWidgets.QMainWindow):
             )
             return
 
-        self.canvas.storeShapes()
-        for item in items:
-            shape: Shape = item.shape()
+        color_changed = color is not None and color != shape.fill_color
 
-            if edit_text:
-                shape.label = text
-            if edit_flags:
-                shape.flags = flags
-            if edit_group_id:
-                shape.group_id = group_id
-            if edit_description:
-                shape.description = description
+        # 更新当前形状
+        shape.label = text
+        shape.flags = flags
+        shape.group_id = group_id
+        shape.description = description
 
-            # 如果编辑了颜色，则应用新颜色
-            if edit_color and color is not None:
-                shape.line_color = color
-                shape.fill_color = QtGui.QColor(
-                    color.red(), color.green(), color.blue(), 128)
-                shape.select_line_color = QtGui.QColor(255, 255, 255)
-                shape.select_fill_color = QtGui.QColor(
-                    color.red(), color.green(), color.blue(), 155)
-                shape.vertex_fill_color = color
-                shape.hvertex_fill_color = QtGui.QColor(255, 255, 255)
-            else:
+        # 如果颜色已更改，更新当前形状颜色
+        if color_changed:
+            self._apply_shape_color(shape, color)
+
+            # 如果标签名称没有变化，更新所有同类同名的标签颜色
+            if old_label == text:
+                self._update_same_label_colors(text, color)
+        else:
+            # 如果标签名称发生变化，更新颜色
+            if old_label != text:
                 self._update_shape_color(shape)
 
-            if shape.group_id is None:
-                item.setText(
-                    '{} <font color="#{:02x}{:02x}{:02x}">●</font>'.format(
-                        html.escape(shape.label), *
-                        shape.fill_color.getRgb()[:3]
+        # 无论颜色是否变化，都更新标签项显示
+        item = self.labelList.findItemByShape(shape)
+        if item:
+            # 更新标签列表中的文本
+            display_text = text
+            if group_id is not None:
+                display_text = "{} ({})".format(text, group_id)
+
+            r, g, b = shape.fill_color.getRgb()[:3]
+            colored_text = '{} <font color="#{:02x}{:02x}{:02x}">●</font>'.format(
+                html.escape(display_text), r, g, b
+            )
+            item.setText(colored_text)
+
+        # 更新UI
+        self.setDirty()
+        self.canvas.update()
+        self.labelDialog.edit.setText(text)
+
+    def _apply_shape_color(self, shape, color):
+        """应用颜色到形状"""
+        shape.line_color = color
+        shape.fill_color = QtGui.QColor(
+            color.red(), color.green(), color.blue(), 128)
+        shape.select_line_color = QtGui.QColor(255, 255, 255)
+        shape.select_fill_color = QtGui.QColor(
+            color.red(), color.green(), color.blue(), 155)
+        shape.vertex_fill_color = color
+        shape.hvertex_fill_color = QtGui.QColor(255, 255, 255)
+
+    def _update_same_label_colors(self, label, color):
+        """更新所有同类同名标签的颜色"""
+        # 更新所有已加载的形状
+        for shape in self.canvas.shapes:
+            if shape.label == label:
+                self._apply_shape_color(shape, color)
+
+                # 更新标签列表显示
+                item = self.labelList.findItemByShape(shape)
+                if item:
+                    display_text = shape.label
+                    if shape.group_id is not None:
+                        display_text = "{} ({})".format(
+                            shape.label, shape.group_id)
+
+                    # 使用新颜色更新显示
+                    r, g, b = color.getRgb()[:3]
+                    colored_text = '{} <font color="#{:02x}{:02x}{:02x}">●</font>'.format(
+                        html.escape(display_text), r, g, b
                     )
-                )
-            else:
-                item.setText("{} ({})".format(shape.label, shape.group_id))
-            self.setDirty()
-            if self.uniqLabelList.findItemByLabel(shape.label) is None:
-                item = self.uniqLabelList.createItemFromLabel(shape.label)
-                self.uniqLabelList.addItem(item)
-                rgb = self._get_rgb_by_label(shape.label)
-                self.uniqLabelList.setItemLabel(item, shape.label, rgb)
+                    item.setText(colored_text)
+
+        # 更新标签列表项
+        item = self.uniqLabelList.findItemByLabel(label)
+        if item:
+            r, g, b = color.getRgb()[:3]
+            rgb = (r, g, b)
+            self.uniqLabelList.setItemLabel(item, label, rgb)
+
+        # 保存到标签颜色映射中，以便后续使用
+        if self._config["label_colors"] is None:
+            self._config["label_colors"] = {}
+        self._config["label_colors"][label] = (
+            color.red(), color.green(), color.blue())
+
+    def get_label_default_color(self, label):
+        """获取标签的默认颜色"""
+        # 先尝试从配置中获取颜色
+        if self._config["shape_color"] != "auto":
+            return QtGui.QColor(*self._config["shape_color"])
+
+        # 如果是自动颜色，使用标签对应的颜色
+        item = self.uniqLabelList.findItemByLabel(label)
+        if item is not None:
+            # 尝试从标签项中提取颜色
+            text = item.text()
+            if "●" in text:
+                try:
+                    # 尝试从文本中解析颜色
+                    color_str = text.split('color="')[1].split('">')[0]
+                    r = int(color_str[1:3], 16)
+                    g = int(color_str[3:5], 16)
+                    b = int(color_str[5:7], 16)
+                    return QtGui.QColor(r, g, b)
+                except (IndexError, ValueError):
+                    pass
+
+        # 否则根据标签计算默认颜色
+        return self._get_default_label_color(label)
 
     def fileSearchChanged(self):
         self.importDirImages(
@@ -1465,25 +1498,60 @@ class MainWindow(QtWidgets.QMainWindow):
             text = shape.label
         else:
             text = "{} ({})".format(shape.label, shape.group_id)
-        label_list_item = LabelListWidgetItem(text, shape)
+
+        # 创建标签项
+        r, g, b = shape.fill_color.getRgb()[:3]
+        colored_text = '{} <font color="#{:02x}{:02x}{:02x}">●</font>'.format(
+            html.escape(text), r, g, b
+        )
+
+        # 使用带颜色的文本
+        label_list_item = LabelTreeWidgetItem(colored_text, shape)
         self.labelList.addItem(label_list_item)
+
+        # 对标签列表窗口的处理
         if self.uniqLabelList.findItemByLabel(shape.label) is None:
-            item = self.uniqLabelList.createItemFromLabel(shape.label)
+            # 添加shape_type参数
+            item = self.uniqLabelList.createItemFromLabel(
+                shape.label, shape_type=shape.shape_type)
             self.uniqLabelList.addItem(item)
             rgb = self._get_rgb_by_label(shape.label)
             self.uniqLabelList.setItemLabel(item, shape.label, rgb)
+
         self.labelDialog.addLabelHistory(shape.label)
         for action in self.actions.onShapesPresent:
             action.setEnabled(True)
 
         self._update_shape_color(shape)
-        label_list_item.setText(
-            '{} <font color="#{:02x}{:02x}{:02x}">●</font>'.format(
-                html.escape(text), *shape.fill_color.getRgb()[:3]
-            )
-        )
+
+        # 更新分类数量
+        self.labelList.updateAllCategoryCounts()
+
         # 更新dock标题
         self.updateDockTitles()
+
+        # 连接复选框状态变化信号
+        self.connectItemCheckState(label_list_item)
+
+    def connectItemCheckState(self, item):
+        """连接标签项的复选框状态变化信号"""
+        item.model().itemChanged.connect(self.labelItemCheckStateChanged)
+
+    def labelItemCheckStateChanged(self, item):
+        """处理标签项复选框状态变化"""
+        if hasattr(item, 'is_category') and item.is_category:
+            return  # 忽略分类项
+
+        shape = item.shape()
+        if shape:
+            # 根据复选框状态设置形状可见性
+            if item.checkState() == Qt.Checked:
+                shape.setVisible(True)
+            else:
+                shape.setVisible(False)
+
+            # 重绘画布
+            self.canvas.update()
 
     def _update_shape_color(self, shape):
         r, g, b = self._get_rgb_by_label(shape.label)
@@ -1495,40 +1563,96 @@ class MainWindow(QtWidgets.QMainWindow):
         shape.select_fill_color = QtGui.QColor(r, g, b, 155)
 
     def _get_rgb_by_label(self, label):
-        if self._config["shape_color"] == "auto":
-            item = self.uniqLabelList.findItemByLabel(label)
-            if item is None:
-                item = self.uniqLabelList.createItemFromLabel(label)
-                self.uniqLabelList.addItem(item)
-                rgb = self._get_rgb_by_label(label)
-                self.uniqLabelList.setItemLabel(item, label, rgb)
-            label_id = self.uniqLabelList.indexFromItem(item).row() + 1
-            label_id += self._config["shift_auto_shape_color"]
-            return LABEL_COLORMAP[label_id % len(LABEL_COLORMAP)]
-        elif (
+        """获取标签的RGB颜色"""
+        # 检查label_colors配置
+        if (
             self._config["shape_color"] == "manual"
             and self._config["label_colors"]
             and label in self._config["label_colors"]
         ):
             return self._config["label_colors"][label]
+
+        # 查找已存在的标签项
+        item = self.uniqLabelList.findItemByLabel(label)
+        if item:
+            # 尝试从标签项文本中提取颜色
+            text = item.text()
+            if "●" in text:
+                try:
+                    color_str = text.split('color="')[1].split('">')[0]
+                    r = int(color_str[1:3], 16)
+                    g = int(color_str[3:5], 16)
+                    b = int(color_str[5:7], 16)
+                    return (r, g, b)
+                except (IndexError, ValueError):
+                    pass
+
+        # 如果是auto模式，生成唯一颜色
+        if self._config["shape_color"] == "auto":
+            # 创建新的标签项
+            if not item:
+                item = self.uniqLabelList.createItemFromLabel(label)
+                self.uniqLabelList.addItem(item)
+
+            # 使用黄金比例生成唯一颜色
+            hash_value = sum(ord(c) for c in label) % 100
+            hue = (hash_value * 0.618033988749895) % 1.0
+            r, g, b = [int(x * 255)
+                       for x in colorsys.hsv_to_rgb(hue, 0.8, 0.95)]
+            return (r, g, b)
+
+        # 使用默认颜色
         elif self._config["default_shape_color"]:
             return self._config["default_shape_color"]
-        return (0, 255, 0)
+
+        # 最后的默认值
+        return (0, 255, 0)  # 默认绿色
 
     def remLabels(self, shapes):
-        for shape in shapes:
-            item = self.labelList.findItemByShape(shape)
-            self.labelList.removeItem(item)
-        # 更新dock标题
-        self.updateDockTitles()
+        if shapes:
+            for shape in shapes:
+                item = self.labelList.findItemByShape(shape)
+                self.labelList.removeItem(item)
+            self.labelList.updateAllCategoryCounts()  # 更新所有分类的数量
+            self.updateDockTitles()
 
     def loadShapes(self, shapes, replace=True):
         self._noSelectionSlot = True
         for shape in shapes:
             self.addLabel(shape)
+        self.labelList.updateAllCategoryCounts()  # 更新所有分类的数量
         self.labelList.clearSelection()
-        self._noSelectionSlot = False
         self.canvas.loadShapes(shapes, replace=replace)
+        if replace:
+            self.setClean()
+            self.canvas.setEnabled(True)
+        self._noSelectionSlot = False
+        self.updateDockTitles()
+
+        # 修复所有标签项的颜色显示
+        self.fixAllLabelColors()
+
+    def fixAllLabelColors(self):
+        """修复所有标签项的颜色显示"""
+        for item in self.labelList:
+            shape = item.shape()
+            if shape:
+                # 获取标签文本（去掉颜色标记部分）
+                text = item.text()
+                if "<font" in text:
+                    text = text.split("<font")[0].strip()
+                else:
+                    if shape.group_id is None:
+                        text = shape.label
+                    else:
+                        text = "{} ({})".format(shape.label, shape.group_id)
+
+                # 使用形状的实际颜色
+                r, g, b = shape.fill_color.getRgb()[:3]
+                colored_text = '{} <font color="#{:02x}{:02x}{:02x}">●</font>'.format(
+                    html.escape(text), r, g, b
+                )
+                item.setText(colored_text)
 
     def loadLabels(self, shapes):
         s = []
@@ -1670,61 +1794,87 @@ class MainWindow(QtWidgets.QMainWindow):
     # Callback functions:
 
     def newShape(self):
-        """Pop-up and give focus to the label editor.
-
-        position MUST be in global coordinates.
-        """
-        items = self.uniqLabelList.selectedItems()
-        text = None
-        if items:
-            text = items[0].data(Qt.UserRole)
+        """调用此方法创建一个新形状"""
+        text = self.tr("请输入对象标签")
         flags = {}
         group_id = None
         description = ""
-        if self._config["display_label_popup"] or not text:
-            previous_text = self.labelDialog.edit.text()
-            result = self.labelDialog.popUp(text)
-            if result is None:
-                self.canvas.undoLastLine()
-                self.canvas.shapesBackups.pop()
-                return
-            text, flags, group_id, description, color = result
-            if not text:
-                self.labelDialog.edit.setText(previous_text)
 
-        if text and not self.validateLabel(text):
+        # 生成随机颜色作为默认颜色
+        r = random.randint(0, 255)
+        g = random.randint(0, 255)
+        b = random.randint(0, 255)
+        default_color = QtGui.QColor(r, g, b)
+
+        # 检查标签是否已存在，如果存在则使用其颜色
+        existing_item = None
+        if hasattr(self, 'labelDialog') and hasattr(self.labelDialog, 'labelList'):
+            items = self.labelDialog.labelList.findItems(
+                text, QtCore.Qt.MatchFixedString)
+            if items:
+                existing_item = items[0]
+                # 尝试从配置中获取此标签的颜色
+                if self._config["label_colors"] and text in self._config["label_colors"]:
+                    rgb = self._config["label_colors"][text]
+                    default_color = QtGui.QColor(*rgb)
+
+        while True:
+            result = self.labelDialog.popUp(
+                text=text,
+                flags=flags,
+                group_id=group_id,
+                description=description,
+                color=default_color,
+            )
+            if result is None:
+                return
+
+            text, flags, group_id, description, color = result
+
+            if text is not None and self.validateLabel(text):
+                # 检查是否已存在同名标签，如果存在使用其颜色
+                item = self.uniqLabelList.findItemByLabel(text)
+                if item and color == default_color:  # 用户没有修改颜色
+                    # 尝试从现有标签项中获取颜色
+                    try:
+                        item_text = item.text()
+                        if "●" in item_text:
+                            color_str = item_text.split(
+                                'color="')[1].split('">')[0]
+                            r = int(color_str[1:3], 16)
+                            g = int(color_str[3:5], 16)
+                            b = int(color_str[5:7], 16)
+                            color = QtGui.QColor(r, g, b)
+                    except (IndexError, ValueError):
+                        pass
+                break
+
+            # 标签未通过验证，显示错误消息
             self.errorMessage(
                 self.tr("Invalid label"),
                 self.tr("Invalid label '{}' with validation type '{}'").format(
                     text, self._config["validate_label"]
                 ),
             )
-            text = ""
-        if text:
-            self.labelList.clearSelection()
-            shape = self.canvas.setLastLabel(text, flags)
-            shape.group_id = group_id
-            shape.description = description
 
-            # 如果用户选择了自定义颜色，则应用它
-            if color is not None:
-                shape.line_color = color
-                shape.fill_color = QtGui.QColor(
-                    color.red(), color.green(), color.blue(), 128)
-                shape.select_line_color = QtGui.QColor(255, 255, 255)
-                shape.select_fill_color = QtGui.QColor(
-                    color.red(), color.green(), color.blue(), 155)
-                shape.vertex_fill_color = color
-                shape.hvertex_fill_color = QtGui.QColor(255, 255, 255)
+        shape = self.canvas.setLastLabel(text, flags, group_id, description)
 
-            self.addLabel(shape)
-            self.actions.editMode.setEnabled(True)
-            self.actions.undoLastPoint.setEnabled(False)
-            self.actions.undo.setEnabled(True)
-            self.setDirty()
-        else:
-            self.canvas.undoLastLine()
-            self.canvas.shapesBackups.pop()
+        # 如果是新标签或者用户选择了自定义颜色，应用颜色
+        self._apply_shape_color(shape, color)
+
+        # 如果是已有标签，确保所有同名标签颜色一致
+        if self.uniqLabelList.findItemByLabel(text):
+            self._update_same_label_colors(text, color)
+
+        # 添加到形状列表
+        self.addLabel(shape)
+
+        # 如果是第一个形状，启用相关动作
+        if len(self.canvas.shapes) == 1:
+            self.actions.delete.setEnabled(True)
+
+        # 设置为修改状态
+        self.setDirty()
 
     def scrollRequest(self, delta, orientation):
         units = -delta * 0.1  # natural scroll
@@ -2617,3 +2767,13 @@ class MainWindow(QtWidgets.QMainWindow):
                 self.deleteSelectedShape()
         # 调用父类方法处理其他键盘事件
         super(MainWindow, self).keyPressEvent(event)
+
+    def _get_default_label_color(self, label):
+        """生成标签的默认颜色"""
+        # 使用标签名称的哈希值生成稳定的颜色
+        hash_value = sum(ord(c) for c in label) % 100
+        # 黄金比例共轭用于生成不同的颜色
+        hue = (hash_value * 0.618033988749895) % 1.0
+        # 转换HSV到RGB
+        r, g, b = [int(x * 255) for x in colorsys.hsv_to_rgb(hue, 0.8, 0.95)]
+        return (r, g, b)
