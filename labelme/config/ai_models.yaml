@@ -13,14 +13,14 @@ ai:
     score_threshold: 0.1
     text: ''
 detection:
-  conf_threshold: 0.95
-  device: cpu
+  conf_threshold: 0.7
+  device: cuda
   filter_classes:
   - person
   model_name: fasterrcnn_resnet50_fpn
 pose_estimation:
-  conf_threshold: 0.95
-  device: cpu
+  conf_threshold: 0.7
+  device: cuda
   model_name: keypointrcnn_resnet50_fpn
 yolov7:
   conf_threshold: 0.25

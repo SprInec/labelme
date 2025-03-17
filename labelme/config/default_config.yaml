@@ -8,6 +8,9 @@ keep_prev_scale: false
 keep_prev_brightness: false
 keep_prev_contrast: false
 logger_level: info
+last_dir: null
+output_dir: null
+last_output_dir: null
 
 flags: null
 label_flags: null

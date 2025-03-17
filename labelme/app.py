@@ -77,6 +77,15 @@ class MainWindow(QtWidgets.QMainWindow):
         self._config["auto_save"] = True
         self._config["store_data"] = False
 
+        # 初始化输出目录
+        if output_dir is not None:
+            self.output_dir = output_dir
+            self._config["output_dir"] = output_dir
+        elif self._config.get("output_dir") and osp.exists(self._config["output_dir"]):
+            self.output_dir = self._config["output_dir"]
+        else:
+            self.output_dir = None
+
         # set default shape colors
         Shape.line_color = QtGui.QColor(*self._config["shape"]["line_color"])
         Shape.fill_color = QtGui.QColor(*self._config["shape"]["fill_color"])
@@ -970,6 +979,39 @@ class MainWindow(QtWidgets.QMainWindow):
         # self.firstStart = True
         # if self.firstStart:
         #    QWhatsThis.enterWhatsThisMode()
+
+        # 在UI初始化完成后，加载上次的目录
+        if self._config.get("last_dir") and osp.exists(self._config["last_dir"]):
+            self.lastOpenDir = self._config["last_dir"]
+            self.importDirImages(self._config["last_dir"], load=True)
+
+            # 如果有输出目录，在加载完图像后应用它
+            if self._config.get("output_dir") and osp.exists(self._config["output_dir"]):
+                self.output_dir = self._config["output_dir"]
+                # 确保应用输出目录
+                self.statusBar().showMessage(
+                    self.tr("输出目录已设置为: %s") % self.output_dir, 5000
+                )
+                logger.info(
+                    "Output directory set to: {}".format(self.output_dir))
+
+                # 重新加载当前文件列表，以显示输出目录中的标注文件
+                if self.lastOpenDir and osp.exists(self.lastOpenDir):
+                    # 保存当前文件名
+                    current_filename = self.filename
+                    # 重新加载目录
+                    self.importDirImages(self.lastOpenDir, load=False)
+                    # 如果当前有选中的文件，保持选中状态
+                    if current_filename and current_filename in self.imageList:
+                        self.fileListWidget.setCurrentRow(
+                            self.imageList.index(current_filename))
+                        self.fileListWidget.repaint()
+                        # 重新加载当前文件
+                        self.loadFile(current_filename)
+                        # 设置默认适应窗口
+                        self.setFitWindow(True)
+                        self.actions.fitWindow.setChecked(True)
+                        self.adjustScale(initial=True)
 
     def menu(self, title, actions=None):
         menu = self.menuBar().addMenu(title)
@@ -1908,6 +1950,10 @@ class MainWindow(QtWidgets.QMainWindow):
         self.status(str(self.tr("Loaded %s")) % osp.basename(str(filename)))
         # 更新dock标题
         self.updateDockTitles()
+        # 设置适应窗口
+        self.setFitWindow(True)
+        self.actions.fitWindow.setChecked(True)
+        self.adjustScale(initial=True)
         return True
 
     def resizeEvent(self, event):
@@ -1953,16 +1999,30 @@ class MainWindow(QtWidgets.QMainWindow):
         self.actions.saveWithImageData.setChecked(enabled)
 
     def closeEvent(self, event):
+        # 保存当前目录到配置
+        if hasattr(self, "currentPath") and self.currentPath():
+            self._config["last_dir"] = self.currentPath()
+        if hasattr(self, "output_dir") and self.output_dir:
+            self._config["output_dir"] = self.output_dir
+            logger.info("Saving output directory: {}".format(self.output_dir))
+
         if not self.mayContinue():
             event.ignore()
+            return
+
+        # 保存窗口状态
         self.settings.setValue(
             "filename", self.filename if self.filename else "")
         self.settings.setValue("window/size", self.size())
         self.settings.setValue("window/position", self.pos())
         self.settings.setValue("window/state", self.saveState())
         self.settings.setValue("recentFiles", self.recentFiles)
-        # ask the use for where to save the labels
-        # self.settings.setValue('window/geometry', self.saveGeometry())
+
+        # 保存配置到文件
+        from labelme.config import save_config
+        save_config(self._config)
+
+        event.accept()
 
     def dragEnterEvent(self, event):
         extensions = [
@@ -2073,34 +2133,36 @@ class MainWindow(QtWidgets.QMainWindow):
         if default_output_dir is None:
             default_output_dir = self.currentPath()
 
-        output_dir = QtWidgets.QFileDialog.getExistingDirectory(
+        dirpath = QtWidgets.QFileDialog.getExistingDirectory(
             self,
-            self.tr("%s - Save/Load Annotations in Directory") % __appname__,
-            default_output_dir,
-            QtWidgets.QFileDialog.ShowDirsOnly
-            | QtWidgets.QFileDialog.DontResolveSymlinks,
+            self.tr("%s - 选择输出目录") % __appname__,
+            default_output_dir or "",
+            QtWidgets.QFileDialog.ShowDirsOnly | QtWidgets.QFileDialog.DontResolveSymlinks,
         )
-        output_dir = str(output_dir)
-
-        if not output_dir:
+        if not dirpath:
             return
 
-        self.output_dir = output_dir
-
+        self.output_dir = dirpath
+        self._config["output_dir"] = dirpath
         self.statusBar().showMessage(
-            self.tr("%s . Annotations will be saved/loaded in %s")
-            % ("Change Annotations Dir", self.output_dir)
+            self.tr("输出目录已更改为: %s") % self.output_dir, 5000
         )
-        self.statusBar().show()
+        logger.info("Output directory changed to: {}".format(self.output_dir))
 
+        # 保存当前文件名，以便在重新加载后恢复选择
         current_filename = self.filename
-        self.importDirImages(self.lastOpenDir, load=False)
 
-        if current_filename in self.imageList:
-            # retain currently selected file
-            self.fileListWidget.setCurrentRow(
-                self.imageList.index(current_filename))
-            self.fileListWidget.repaint()
+        # 重新加载当前目录的图像，以更新标注状态
+        if self.lastOpenDir and osp.exists(self.lastOpenDir):
+            self.importDirImages(self.lastOpenDir, load=False)
+
+            # 如果当前有选中的文件，保持选中状态
+            if current_filename and current_filename in self.imageList:
+                self.fileListWidget.setCurrentRow(
+                    self.imageList.index(current_filename))
+                self.fileListWidget.repaint()
+                # 重新加载当前文件
+                self.loadFile(current_filename)
 
     def saveFile(self, _value=False):
         assert not self.image.isNull(), "cannot save empty image"

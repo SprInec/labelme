@@ -12,9 +12,9 @@ def update_dict(target_dict, new_dict, validate_item=None):
         if validate_item:
             validate_item(key, value)
         if key not in target_dict:
-            logger.warning("Skipping unexpected key in config: {}".format(key))
-            continue
-        if isinstance(target_dict[key], dict) and isinstance(value, dict):
+            # 允许保存额外的配置项
+            target_dict[key] = value
+        elif isinstance(target_dict[key], dict) and isinstance(value, dict):
             update_dict(target_dict[key], value, validate_item=validate_item)
         else:
             target_dict[key] = value
@@ -34,7 +34,8 @@ def get_default_config():
         try:
             shutil.copy(config_file, user_config_file)
         except Exception:
-            logger.warning("Failed to save config: {}".format(user_config_file))
+            logger.warning(
+                "Failed to save config: {}".format(user_config_file))
 
     return config
 
@@ -42,7 +43,8 @@ def get_default_config():
 def validate_config_item(key, value):
     if key == "validate_label" and value not in [None, "exact"]:
         raise ValueError(
-            "Unexpected value for config key 'validate_label': {}".format(value)
+            "Unexpected value for config key 'validate_label': {}".format(
+                value)
         )
     if key == "shape_color" and value not in [None, "auto", "manual"]:
         raise ValueError(
@@ -54,6 +56,17 @@ def validate_config_item(key, value):
         )
 
 
+def save_config(config):
+    """保存配置到用户配置文件"""
+    user_config_file = osp.join(osp.expanduser("~"), ".labelmerc")
+    try:
+        with open(user_config_file, "w") as f:
+            yaml.safe_dump(config, f, allow_unicode=True)
+        logger.info("Config saved to: {}".format(user_config_file))
+    except Exception as e:
+        logger.warning("Failed to save config: {}".format(e))
+
+
 def get_config(config_file_or_yaml=None, config_from_args=None):
     # 1. default config
     config = get_default_config()
@@ -63,12 +76,15 @@ def get_config(config_file_or_yaml=None, config_from_args=None):
         config_from_yaml = yaml.safe_load(config_file_or_yaml)
         if not isinstance(config_from_yaml, dict):
             with open(config_from_yaml) as f:
-                logger.info("Loading config file from: {}".format(config_from_yaml))
+                logger.info(
+                    "Loading config file from: {}".format(config_from_yaml))
                 config_from_yaml = yaml.safe_load(f)
-        update_dict(config, config_from_yaml, validate_item=validate_config_item)
+        update_dict(config, config_from_yaml,
+                    validate_item=validate_config_item)
 
     # 3. command line argument or specified config file
     if config_from_args is not None:
-        update_dict(config, config_from_args, validate_item=validate_config_item)
+        update_dict(config, config_from_args,
+                    validate_item=validate_config_item)
 
     return config
