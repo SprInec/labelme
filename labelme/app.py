@@ -664,7 +664,7 @@ class MainWindow(QtWidgets.QMainWindow):
             self.tr("模型设置"),
             self.openAISettings,
             None,
-            "icons8-facial-recognition-100.png",
+            "icons8-setting-48.png",
             self.tr("配置AI模型参数"),
         )
 

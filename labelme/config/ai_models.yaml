@@ -17,7 +17,7 @@ detection:
   device: cuda
   filter_classes:
   - person
-  model_name: fasterrcnn_resnet50_fpn
+  model_name: retinanet_resnet50_fpn
 pose_estimation:
   conf_threshold: 0.7
   device: cuda
