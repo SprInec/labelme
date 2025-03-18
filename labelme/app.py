@@ -264,14 +264,14 @@ class MainWindow(QtWidgets.QMainWindow):
             self.tr("&Open\n"),
             self.openFile,
             shortcuts["open"],
-            "open",
+            "icons8-image-64",
             self.tr("Open image or label file"),
         )
         opendir = action(
             self.tr("Open Dir"),
             self.openDirDialog,
             shortcuts["open_dir"],
-            "open",
+            "icons8-folder-64",
             self.tr("Open Dir"),
         )
         openNextImg = action(
@@ -294,7 +294,7 @@ class MainWindow(QtWidgets.QMainWindow):
             self.tr("&Save\n"),
             self.saveFile,
             shortcuts["save"],
-            "save",
+            "icons8-save-60",
             self.tr("Save labels to file"),
             enabled=False,
         )
@@ -311,7 +311,7 @@ class MainWindow(QtWidgets.QMainWindow):
             self.tr("&Delete File"),
             self.deleteFile,
             shortcuts["delete_file"],
-            "delete",
+            "icons8-delete-48",
             self.tr("Delete current label file"),
             enabled=False,
         )
@@ -320,7 +320,7 @@ class MainWindow(QtWidgets.QMainWindow):
             self.tr("输出路径"),
             slot=self.changeOutputDirDialog,
             shortcut=shortcuts["save_to"],
-            icon="open",
+            icon="icons8-file-64",
             tip=self.tr("Change where annotations are loaded/saved"),
         )
 
@@ -364,7 +364,7 @@ class MainWindow(QtWidgets.QMainWindow):
             self.tr("Create Polygons"),
             lambda: self.toggleDrawMode(False, createMode="polygon"),
             shortcuts["create_polygon"],
-            "objects",
+            "icons8-polygon-100",
             self.tr("Start drawing polygons"),
             enabled=False,
         )
@@ -372,7 +372,7 @@ class MainWindow(QtWidgets.QMainWindow):
             self.tr("Create Rectangle"),
             lambda: self.toggleDrawMode(False, createMode="rectangle"),
             shortcuts["create_rectangle"],
-            "objects",
+            "icons8-rectangular-90",
             self.tr("Start drawing rectangles"),
             enabled=False,
         )
@@ -380,7 +380,7 @@ class MainWindow(QtWidgets.QMainWindow):
             self.tr("Create Circle"),
             lambda: self.toggleDrawMode(False, createMode="circle"),
             shortcuts["create_circle"],
-            "objects",
+            "icons8-circle-50",
             self.tr("Start drawing circles"),
             enabled=False,
         )
@@ -388,7 +388,7 @@ class MainWindow(QtWidgets.QMainWindow):
             self.tr("Create Line"),
             lambda: self.toggleDrawMode(False, createMode="line"),
             shortcuts["create_line"],
-            "objects",
+            "icons8-line-50",
             self.tr("Start drawing lines"),
             enabled=False,
         )
@@ -396,7 +396,7 @@ class MainWindow(QtWidgets.QMainWindow):
             self.tr("Create Point"),
             lambda: self.toggleDrawMode(False, createMode="point"),
             shortcuts["create_point"],
-            "objects",
+            "icons8-point-100",
             self.tr("Start drawing points"),
             enabled=False,
         )
@@ -404,26 +404,15 @@ class MainWindow(QtWidgets.QMainWindow):
             self.tr("Create LineStrip"),
             lambda: self.toggleDrawMode(False, createMode="linestrip"),
             shortcuts["create_linestrip"],
-            "objects",
+            "icons8-polyline-100",
             self.tr("Start drawing linestrip. Ctrl+LeftClick ends creation."),
             enabled=False,
         )
-
-        # 创建控制点模式
-        createControlPointMode = action(
-            self.tr("Create Control Point"),
-            lambda: self.toggleDrawMode(False, createMode="control_point"),
-            None,  # 暂无快捷键
-            "objects",
-            self.tr("Start drawing control points"),
-            enabled=False,
-        )
-
         createAiPolygonMode = action(
             self.tr("Create AI-Polygon"),
             lambda: self.toggleDrawMode(False, createMode="ai_polygon"),
             None,
-            "objects",
+            "icons8-radar-plot-50",
             self.tr("Start drawing ai_polygon. Ctrl+LeftClick ends creation."),
             enabled=False,
         )
@@ -439,7 +428,7 @@ class MainWindow(QtWidgets.QMainWindow):
             self.tr("Create AI-Mask"),
             lambda: self.toggleDrawMode(False, createMode="ai_mask"),
             None,
-            "objects",
+            "icons8-layer-mask-50",
             self.tr("Start drawing ai_mask. Ctrl+LeftClick ends creation."),
             enabled=False,
         )
@@ -455,7 +444,7 @@ class MainWindow(QtWidgets.QMainWindow):
             self.tr("Edit Polygons"),
             self.setEditMode,
             shortcuts["edit_polygon"],
-            "edit",
+            "icons8-compose-100",
             self.tr("Move and edit the selected polygons"),
             enabled=False,
         )
@@ -464,7 +453,7 @@ class MainWindow(QtWidgets.QMainWindow):
             self.tr("Delete Polygons"),
             self.deleteSelectedShape,
             shortcuts["delete_polygon"],
-            "cancel",
+            "icons8-delete-48",
             self.tr("Delete the selected polygons"),
             enabled=False,
         )
@@ -480,7 +469,7 @@ class MainWindow(QtWidgets.QMainWindow):
             self.tr("Copy Polygons"),
             self.copySelectedShape,
             shortcuts["copy_polygon"],
-            "copy_clipboard",
+            "icons8-copy-32",
             self.tr("Copy selected polygons to clipboard"),
             enabled=False,
         )
@@ -496,7 +485,7 @@ class MainWindow(QtWidgets.QMainWindow):
             self.tr("Undo last point"),
             self.canvas.undoLastPoint,
             shortcuts["undo_last_point"],
-            "undo",
+            "icons8-undo-60",
             self.tr("Undo last drawn point"),
             enabled=False,
         )
@@ -513,7 +502,7 @@ class MainWindow(QtWidgets.QMainWindow):
             self.tr("Undo\n"),
             self.undoShapeEdit,
             shortcuts["undo"],
-            "undo",
+            "icons8-undo-60",
             self.tr("Undo last add and edit of shape"),
             enabled=False,
         )
@@ -522,7 +511,7 @@ class MainWindow(QtWidgets.QMainWindow):
             self.tr("&Hide\nPolygons"),
             functools.partial(self.togglePolygons, False),
             shortcuts["hide_all_polygons"],
-            icon="eye",
+            icon="icons8-eye-64",
             tip=self.tr("Hide all polygons"),
             enabled=False,
         )
@@ -530,7 +519,7 @@ class MainWindow(QtWidgets.QMainWindow):
             self.tr("&Show\nPolygons"),
             functools.partial(self.togglePolygons, True),
             shortcuts["show_all_polygons"],
-            icon="eye",
+            icon="icons8-eye-64",
             tip=self.tr("Show all polygons"),
             enabled=False,
         )
@@ -538,7 +527,7 @@ class MainWindow(QtWidgets.QMainWindow):
             self.tr("&Toggle\nPolygons"),
             functools.partial(self.togglePolygons, None),
             shortcuts["toggle_all_polygons"],
-            icon="eye",
+            icon="icons8-eye-64",
             tip=self.tr("Toggle all polygons"),
             enabled=False,
         )
@@ -675,7 +664,7 @@ class MainWindow(QtWidgets.QMainWindow):
             self.tr("模型设置"),
             self.openAISettings,
             None,
-            "settings",
+            "icons8-facial-recognition-100.png",
             self.tr("配置AI模型参数"),
         )
 
@@ -683,7 +672,7 @@ class MainWindow(QtWidgets.QMainWindow):
             self.tr("目标检测"),
             self.runObjectDetection,
             None,
-            "objects",  # 使用objects图标
+            "icons8-facial-recognition-100",  # 使用facial-recognition图标
             self.tr("使用AI检测图像中的对象"),
             enabled=False,
         )
@@ -692,7 +681,7 @@ class MainWindow(QtWidgets.QMainWindow):
             self.tr("姿态估计"),
             self.runPoseEstimation,
             None,
-            "edit",  # 使用edit图标
+            "icons8-natural-user-interface-1-100",  # 使用natural-user-interface图标
             self.tr("检测图像中的人体姿态"),
             enabled=False,
         )
@@ -701,7 +690,7 @@ class MainWindow(QtWidgets.QMainWindow):
             self.tr("提交AI提示"),
             lambda: self._submit_ai_prompt(None),
             None,
-            "done",
+            "icons8-done-64",
             self.tr("使用AI提示检测对象"),
             enabled=False,
         )
@@ -728,7 +717,7 @@ class MainWindow(QtWidgets.QMainWindow):
             self.tr("&Edit Label"),
             self._edit_label,
             shortcuts["edit_label"],
-            "edit",
+            "icons8-label-50",
             self.tr("Modify the label of the selected polygon"),
             enabled=False,
         )
@@ -912,7 +901,7 @@ class MainWindow(QtWidgets.QMainWindow):
                 self.file_dock.toggleViewAction(),
                 None,
                 fill_drawing,
-                showLabelNames, 
+                showLabelNames,
                 None,
                 hideAll,
                 showAll,
@@ -1378,7 +1367,7 @@ class MainWindow(QtWidgets.QMainWindow):
         menu.clear()
         files = [f for f in self.recentFiles if f != current and exists(f)]
         for i, f in enumerate(files):
-            icon = utils.newIcon("labels")
+            icon = utils.newIcon("icons8-label-48")
             action = QtWidgets.QAction(
                 icon, "&%d %s" % (i + 1, QtCore.QFileInfo(f).fileName()), self
             )
