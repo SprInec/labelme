@@ -1452,12 +1452,29 @@ class MainWindow(QtWidgets.QMainWindow):
     def _apply_shape_color(self, shape, color):
         """应用颜色到形状"""
         shape.line_color = color
+
+        # 根据形状类型设置不同的填充透明度
+        if shape.shape_type == "point":
+            # 点标签使用更高的填充透明度
+            fill_alpha = 120
+            # 点标签的选中效果使用白色边框和原色填充
+            select_line_color = QtGui.QColor(255, 255, 255)
+            select_fill_alpha = 180
+        else:
+            fill_alpha = 30
+            select_line_color = QtGui.QColor(255, 255, 255)
+            select_fill_alpha = 80
+
         shape.fill_color = QtGui.QColor(
-            color.red(), color.green(), color.blue(), 30)  # 透明度从128改为80
-        shape.select_line_color = QtGui.QColor(255, 255, 255)
+            color.red(), color.green(), color.blue(), fill_alpha)
+
+        shape.select_line_color = select_line_color
         shape.select_fill_color = QtGui.QColor(
-            color.red(), color.green(), color.blue(), 30)  # 透明度从155改为100
+            color.red(), color.green(), color.blue(), select_fill_alpha)
+
+        # 设置顶点颜色
         shape.vertex_fill_color = color
+        # 高亮顶点使用白色
         shape.hvertex_fill_color = QtGui.QColor(255, 255, 255)
 
     def _update_same_label_colors(self, label, color):
@@ -1630,9 +1647,22 @@ class MainWindow(QtWidgets.QMainWindow):
         shape.line_color = QtGui.QColor(r, g, b)
         shape.vertex_fill_color = QtGui.QColor(r, g, b)
         shape.hvertex_fill_color = QtGui.QColor(255, 255, 255)
-        shape.fill_color = QtGui.QColor(r, g, b, 30)  # 透明度从128改为80
-        shape.select_line_color = QtGui.QColor(255, 255, 255)
-        shape.select_fill_color = QtGui.QColor(r, g, b, 30)  # 透明度从155改为100
+
+        # 根据形状类型设置不同的填充透明度
+        if shape.shape_type == "point":
+            # 点标签使用更高的填充透明度
+            fill_alpha = 120
+            select_fill_alpha = 180
+            # 使用白色边框
+            select_line_color = QtGui.QColor(255, 255, 255)
+        else:
+            fill_alpha = 30
+            select_fill_alpha = 80
+            select_line_color = QtGui.QColor(255, 255, 255)
+
+        shape.fill_color = QtGui.QColor(r, g, b, fill_alpha)
+        shape.select_line_color = select_line_color
+        shape.select_fill_color = QtGui.QColor(r, g, b, select_fill_alpha)
 
     def _get_rgb_by_label(self, label):
         """获取标签的RGB颜色"""

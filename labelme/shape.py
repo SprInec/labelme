@@ -26,6 +26,8 @@ class Shape(object):
     NEAR_VERTEX = 1
 
     PEN_WIDTH = 2
+    # 添加选中形状的线宽
+    SELECT_PEN_WIDTH = 4
 
     # The following class variables influence the drawing of all shape objects.
     line_color = None
@@ -36,6 +38,8 @@ class Shape(object):
     hvertex_fill_color = None
     point_type = P_ROUND
     point_size = 8
+    # 增加选中时的顶点大小，尤其对点标签有效
+    select_point_size = 12
     scale = 1.0
 
     def __init__(
@@ -190,8 +194,19 @@ class Shape(object):
 
         color = self.select_line_color if self.selected else self.line_color
         pen = QtGui.QPen(color)
-        # Try using integer sizes for smoother drawing(?)
-        pen.setWidth(self.PEN_WIDTH)
+        # 根据选中状态设置不同的线宽
+        pen.setWidth(
+            self.SELECT_PEN_WIDTH if self.selected else self.PEN_WIDTH)
+
+        # 如果是点类型并且被选中，使用虚线样式
+        if self.selected:
+            if self.shape_type == "point":
+                # 为点类型添加更明显的选中效果
+                pen.setStyle(QtCore.Qt.DotLine)
+                pen.setCapStyle(QtCore.Qt.RoundCap)
+            else:
+                pen.setStyle(QtCore.Qt.DashLine)
+
         painter.setPen(pen)
 
         if self.mask is not None:
@@ -292,8 +307,33 @@ class Shape(object):
             painter.drawPath(negative_vrtx_path)
             painter.fillPath(negative_vrtx_path, QtGui.QColor(255, 0, 0, 255))
 
+            # 为点类型添加选中时的外部轮廓环
+            if self.shape_type == "point" and self.selected and len(self.points) > 0:
+                # 保存当前画笔设置
+                painter.save()
+                # 创建外部轮廓环
+                outer_pen = QtGui.QPen(QtGui.QColor(255, 255, 0))
+                outer_pen.setWidth(2)
+                outer_pen.setStyle(QtCore.Qt.SolidLine)
+                painter.setPen(outer_pen)
+
+                # 计算外部环的尺寸（比点大一些）
+                point = self._scale_point(self.points[0])
+                radius = self.select_point_size * 1.2
+
+                # 绘制外部环
+                painter.drawEllipse(point, radius, radius)
+                painter.restore()
+
     def drawVertex(self, path, i):
-        d = self.point_size
+        # 选中状态时使用更大的顶点尺寸，点类型时额外增大
+        if self.selected and self.shape_type == "point":
+            d = self.select_point_size * 1.5
+        elif self.selected:
+            d = self.select_point_size
+        else:
+            d = self.point_size
+
         shape = self.point_type
         point = self._scale_point(self.points[i])
         if i == self._highlightIndex:
@@ -303,6 +343,11 @@ class Shape(object):
             self._vertex_fill_color = self.hvertex_fill_color
         else:
             self._vertex_fill_color = self.vertex_fill_color
+
+        # 如果是点类型且被选中，使用方形顶点以增强显示效果
+        if self.shape_type == "point" and self.selected:
+            shape = self.P_SQUARE
+
         if shape == self.P_SQUARE:
             path.addRect(point.x() - d / 2, point.y() - d / 2, d, d)
         elif shape == self.P_ROUND:
