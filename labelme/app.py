@@ -115,6 +115,10 @@ class MainWindow(QtWidgets.QMainWindow):
             *self._config["shape"]["hvertex_fill_color"]
         )
 
+        # 初始化显示标签名称设置为False
+        self._showLabelNames = False
+        Shape.show_label_names = False
+
         # Set point size from config file
         Shape.point_size = self._config["shape"]["point_size"]
 
@@ -130,11 +134,6 @@ class MainWindow(QtWidgets.QMainWindow):
         self._noSelectionSlot = False
 
         self._copied_shapes = None
-
-        # 是否显示标签名称
-        self._showLabelNames = False
-        # 初始化Shape类的显示标签名称设置
-        Shape.show_label_names = self._showLabelNames
 
         # Main widgets and related state.
         self.labelDialog = LabelDialog(
@@ -746,6 +745,13 @@ class MainWindow(QtWidgets.QMainWindow):
         if self._config["canvas"]["fill_drawing"]:
             fill_drawing.trigger()
 
+        # 添加显示标签名称选项
+        showLabelNames = self.createDockLikeAction(
+            self.tr("显示标签名称"),  # 标题
+            self.toggleShowLabelNames,  # 槽函数
+            False  # 默认未选中
+        )
+
         # Label list context menu.
         labelMenu = QtWidgets.QMenu()
         utils.addActions(labelMenu, (edit, delete))
@@ -906,19 +912,11 @@ class MainWindow(QtWidgets.QMainWindow):
                 self.file_dock.toggleViewAction(),
                 None,
                 fill_drawing,
+                showLabelNames, 
                 None,
                 hideAll,
                 showAll,
                 toggleAll,
-                None,
-                action(
-                    self.tr("显示标签名称"),
-                    self.toggleShowLabelNames,
-                    'Ctrl+L',
-                    'tag',
-                    self.tr("在标注上显示标签名称"),
-                    checkable=True,
-                ),  # 直接创建显示标签名称菜单项
                 None,
                 zoomIn,
                 zoomOut,
@@ -2978,17 +2976,32 @@ class MainWindow(QtWidgets.QMainWindow):
         # 保存当前主题设置
         self.currentTheme = "default"
 
-    def toggleShowLabelNames(self):
-        """切换是否在标注上显示标签名称"""
-        self._showLabelNames = not self._showLabelNames
+    def toggleShowLabelNames(self, checked=None):
+        """切换是否在标注上显示标签名称
 
-        # 检查actions中是否有showLabelNames
-        if hasattr(self.actions, 'showLabelNames'):
-            self.actions.showLabelNames.setChecked(self._showLabelNames)
+        Args:
+            checked: 如果是通过QAction的toggled信号调用的，将传入当前的选中状态
+        """
+        if checked is not None:
+            # 如果是通过QAction的toggled信号调用的
+            self._showLabelNames = checked
+        else:
+            # 直接调用时的行为
+            self._showLabelNames = not self._showLabelNames
+            # 更新QAction的状态
+            if hasattr(self.actions, 'showLabelNames'):
+                self.actions.showLabelNames.setChecked(self._showLabelNames)
 
-        # 在此更新 shape 类的状态
-        from labelme.shape import Shape
+        # 更新Shape类的显示状态
         Shape.show_label_names = self._showLabelNames
 
         # 刷新画布
         self.canvas.update()
+
+    def createDockLikeAction(self, title, slot, checked=False):
+        """创建一个类似于QDockWidget.toggleViewAction()返回的QAction"""
+        action = QtWidgets.QAction(title, self)
+        action.setCheckable(True)
+        action.setChecked(checked)
+        action.toggled.connect(slot)
+        return action
