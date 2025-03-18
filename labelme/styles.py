@@ -8,10 +8,11 @@ from PyQt5.QtCore import Qt
 LIGHT_STYLE = """
 /* 全局字体设置 */
 * {
-    font-family: "Microsoft YaHei UI Light", "Segoe UI Light", "Arial", sans-serif;
-    font-size: 9.5pt;
+    font-family: "Microsoft YaHei UI", "Segoe UI", "Arial", sans-serif;
+    font-size: 10pt;
     color: #333333;
-    letter-spacing: 0.3px;
+    letter-spacing: 0.4px;
+    font-weight: 400;
 }
 
 QMainWindow, QDialog {
@@ -791,10 +792,11 @@ QMainWindow, QDialog, QWidget, QLabel, QPushButton, QLineEdit, QTreeView, QListV
 DARK_STYLE = """
 /* 全局字体设置 */
 * {
-    font-family: "Microsoft YaHei UI Light", "Segoe UI Light", "Arial", sans-serif;
-    font-size: 9.5pt;
-    color: #dbdbdb;
-    letter-spacing: 0.3px;
+    font-family: "Microsoft YaHei UI", "Segoe UI", "Arial", sans-serif;
+    font-size: 10pt;
+    color: #e0e0e0;
+    letter-spacing: 0.4px;
+    font-weight: 400;
 }
 
 QMainWindow, QDialog {
