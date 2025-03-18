@@ -42,6 +42,9 @@ class Shape(object):
     select_point_size = 12
     scale = 1.0
 
+    # 显示标签名称的标志
+    show_label_names = False
+
     def __init__(
         self,
         label=None,
@@ -76,6 +79,8 @@ class Shape(object):
         }
 
         self._closed = False
+        # 添加悬停标志
+        self.hovered = False
 
         if line_color is not None:
             # Override the class line_color attribute
@@ -198,14 +203,23 @@ class Shape(object):
         pen.setWidth(
             self.SELECT_PEN_WIDTH if self.selected else self.PEN_WIDTH)
 
-        # 如果是点类型并且被选中，使用虚线样式
+        # 矩形选中时使用实线，其他形状使用虚线
         if self.selected:
             if self.shape_type == "point":
-                # 为点类型添加更明显的选中效果
+                # 点类型使用点线和圆头
                 pen.setStyle(QtCore.Qt.DotLine)
                 pen.setCapStyle(QtCore.Qt.RoundCap)
+            elif self.shape_type == "rectangle":
+                # 矩形使用实线，与悬停效果保持一致
+                pen.setStyle(QtCore.Qt.SolidLine)
             else:
                 pen.setStyle(QtCore.Qt.DashLine)
+        # 添加悬停效果特殊处理
+        elif self.hovered and self.shape_type == "point":
+            # 悬停时点使用实线
+            pen.setStyle(QtCore.Qt.SolidLine)
+            pen.setWidth(self.SELECT_PEN_WIDTH)
+            pen.setCapStyle(QtCore.Qt.RoundCap)
 
         painter.setPen(pen)
 
@@ -255,6 +269,29 @@ class Shape(object):
                         self._scale_point(self.points[1]),
                     )
                     line_path.addRect(rectangle)
+
+                    # 为矩形添加特殊的选中效果
+                    if self.selected and self.shape_type == "rectangle":
+                        # 添加内部发光效果
+                        painter.save()
+
+                        # 绘制内部轮廓（略小于原始矩形）
+                        inner_rect = rectangle.adjusted(1, 1, -1, -1)
+                        inner_pen = QtGui.QPen(self.select_line_color)
+                        inner_pen.setWidth(1)
+                        painter.setPen(inner_pen)
+                        painter.drawRect(inner_rect)
+
+                        # 绘制外部轮廓（略大于原始矩形）
+                        outer_rect = rectangle.adjusted(-1, -1, 1, 1)
+                        outer_pen = QtGui.QPen(self.select_line_color)
+                        outer_pen.setWidth(1)
+                        outer_pen.setStyle(QtCore.Qt.DotLine)
+                        painter.setPen(outer_pen)
+                        painter.drawRect(outer_rect)
+
+                        painter.restore()
+
                 if self.shape_type == "rectangle":
                     for i in range(len(self.points)):
                         self.drawVertex(vrtx_path, i)
@@ -300,6 +337,11 @@ class Shape(object):
                 painter.fillPath(vrtx_path, self._vertex_fill_color)
             if self.fill and self.mask is None:
                 color = self.select_fill_color if self.selected else self.fill_color
+                # 矩形选中时增强填充效果
+                if self.selected and self.shape_type == "rectangle":
+                    # 增加选中矩形的填充透明度
+                    r, g, b, a = color.getRgb()
+                    color = QtGui.QColor(r, g, b, min(a + 20, 255))  # 略微增加透明度
                 painter.fillPath(line_path, color)
 
             pen.setColor(QtGui.QColor(255, 0, 0, 255))
@@ -307,28 +349,146 @@ class Shape(object):
             painter.drawPath(negative_vrtx_path)
             painter.fillPath(negative_vrtx_path, QtGui.QColor(255, 0, 0, 255))
 
-            # 为点类型添加选中时的外部轮廓环
-            if self.shape_type == "point" and self.selected and len(self.points) > 0:
-                # 保存当前画笔设置
-                painter.save()
-                # 创建外部轮廓环
-                outer_pen = QtGui.QPen(QtGui.QColor(255, 255, 0))
-                outer_pen.setWidth(2)
-                outer_pen.setStyle(QtCore.Qt.SolidLine)
-                painter.setPen(outer_pen)
-
-                # 计算外部环的尺寸（比点大一些）
+            # 为点类型添加选中和悬停效果
+            if self.shape_type == "point" and len(self.points) > 0:
                 point = self._scale_point(self.points[0])
-                radius = self.select_point_size * 1.2
 
-                # 绘制外部环
-                painter.drawEllipse(point, radius, radius)
-                painter.restore()
+                # 选中状态的外部轮廓
+                if self.selected:
+                    # 保存当前画笔设置
+                    painter.save()
+                    # 创建外部轮廓环
+                    outer_pen = QtGui.QPen(QtGui.QColor(255, 255, 0))
+                    outer_pen.setWidth(2)
+                    outer_pen.setStyle(QtCore.Qt.SolidLine)
+                    painter.setPen(outer_pen)
+
+                    # 计算外部环的尺寸（比点大一些）
+                    radius = self.select_point_size * 1.2
+
+                    # 绘制外部环
+                    painter.drawEllipse(point, radius, radius)
+                    painter.restore()
+                # 悬停状态的效果
+                elif self.hovered:
+                    # 保存当前画笔设置
+                    painter.save()
+
+                    # 绘制外部发光效果
+                    for i in range(2):
+                        glow_size = self.select_point_size * (1.1 + i * 0.15)
+                        alpha = 120 - i * 40  # 渐变透明度
+                        glow_color = QtGui.QColor(255, 255, 255, alpha)
+                        glow_pen = QtGui.QPen(glow_color)
+                        glow_pen.setWidth(1)
+                        painter.setPen(glow_pen)
+                        painter.drawEllipse(point, glow_size/2, glow_size/2)
+
+                    # 绘制内部高亮圆
+                    highlight_color = self.vertex_fill_color.lighter(150)
+                    highlight_color.setAlpha(180)
+                    painter.setBrush(QtGui.QBrush(highlight_color))
+                    painter.setPen(QtCore.Qt.NoPen)
+                    painter.drawEllipse(
+                        point, self.point_size * 0.7, self.point_size * 0.7)
+
+                    painter.restore()
+
+        # 绘制标签名称
+        if Shape.show_label_names and self.label and len(self.points) > 0:
+            painter.save()
+
+            # 为不同类型的形状设置不同的标签位置
+            if self.shape_type == "rectangle":
+                # 矩形标签显示在左上角
+                rect = QtCore.QRectF(self._scale_point(
+                    self.points[0]), self._scale_point(self.points[1]))
+                label_pos = QtCore.QPointF(rect.x(), rect.y() - 20)  # 稍微往上移动一点
+            elif self.shape_type == "point":
+                # 点标签显示在点右侧
+                point = self._scale_point(self.points[0])
+                label_pos = QtCore.QPointF(
+                    point.x() + self.point_size * 1.5, point.y() - self.point_size)
+            elif self.shape_type == "circle":
+                # 圆形标签显示在圆心上方
+                center = self._scale_point(self.points[0])
+                radius = labelme.utils.distance(
+                    self._scale_point(self.points[0] - self.points[1]))
+                label_pos = QtCore.QPointF(
+                    center.x() - radius/2, center.y() - radius - 20)
+            elif self.shape_type == "line":
+                # 线段标签显示在中点上方
+                p1 = self._scale_point(self.points[0])
+                p2 = self._scale_point(self.points[1])
+                label_pos = QtCore.QPointF(
+                    (p1.x() + p2.x())/2, (p1.y() + p2.y())/2 - 15)
+            elif self.shape_type == "linestrip" or self.shape_type == "polygon":
+                # 多边形和折线标签显示在第一个点上方
+                p1 = self._scale_point(self.points[0])
+                label_pos = QtCore.QPointF(p1.x(), p1.y() - 15)
+            else:
+                # 其他形状默认在第一个点上方
+                p1 = self._scale_point(self.points[0])
+                label_pos = QtCore.QPointF(p1.x(), p1.y() - 15)
+
+            # 设置字体
+            font = QtGui.QFont()
+            font.setBold(True)
+            font.setPointSize(9)
+            painter.setFont(font)
+
+            # 计算文本区域
+            fm = painter.fontMetrics()
+            text_rect = fm.boundingRect(self.label)
+
+            # 创建标签背景矩形
+            bg_rect = QtCore.QRectF(
+                label_pos.x(),
+                label_pos.y(),
+                text_rect.width() + 10,
+                text_rect.height() + 6
+            )
+
+            # 使用形状颜色，但半透明
+            bg_color = QtGui.QColor(self.fill_color)
+            if self.selected:
+                # 选中状态下背景色更深
+                bg_color.setAlpha(180)
+            else:
+                bg_color.setAlpha(120)
+
+            # 绘制圆角矩形背景
+            painter.setPen(QtCore.Qt.NoPen)
+            painter.setBrush(bg_color)
+            painter.drawRoundedRect(bg_rect, 5, 5)
+
+            # 设置文本颜色 - 根据背景亮度自动调整
+            r, g, b = bg_color.getRgb()[:3]
+            brightness = (r * 299 + g * 587 + b * 114) / 1000
+            if brightness > 128:
+                # 深色文本用于浅色背景
+                text_color = QtGui.QColor(40, 40, 40)
+            else:
+                # 浅色文本用于深色背景
+                text_color = QtGui.QColor(250, 250, 250)
+
+            # 绘制文本
+            painter.setPen(text_color)
+            painter.drawText(
+                bg_rect,
+                QtCore.Qt.AlignCenter,
+                self.label
+            )
+
+            painter.restore()
 
     def drawVertex(self, path, i):
-        # 选中状态时使用更大的顶点尺寸，点类型时额外增大
+        # 选中状态时使用更大的顶点尺寸
         if self.selected and self.shape_type == "point":
             d = self.select_point_size * 1.5
+        elif self.selected and self.shape_type == "rectangle":
+            # 矩形选中时使用更大的顶点尺寸
+            d = self.select_point_size * 1.2
         elif self.selected:
             d = self.select_point_size
         else:
@@ -344,8 +504,11 @@ class Shape(object):
         else:
             self._vertex_fill_color = self.vertex_fill_color
 
-        # 如果是点类型且被选中，使用方形顶点以增强显示效果
+        # 点类型选中时保持圆形
         if self.shape_type == "point" and self.selected:
+            shape = self.P_ROUND
+        # 矩形选中时使用方形顶点增强显示效果
+        elif self.shape_type == "rectangle" and self.selected:
             shape = self.P_SQUARE
 
         if shape == self.P_SQUARE:
@@ -471,3 +634,7 @@ class Shape(object):
 
     def __setitem__(self, key, value):
         self.points[key] = value
+
+    def setHoverState(self, hovered):
+        """设置形状的悬停状态"""
+        self.hovered = hovered

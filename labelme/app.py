@@ -131,6 +131,11 @@ class MainWindow(QtWidgets.QMainWindow):
 
         self._copied_shapes = None
 
+        # 是否显示标签名称
+        self._showLabelNames = False
+        # 初始化Shape类的显示标签名称设置
+        Shape.show_label_names = self._showLabelNames
+
         # Main widgets and related state.
         self.labelDialog = LabelDialog(
             parent=self,
@@ -790,6 +795,7 @@ class MainWindow(QtWidgets.QMainWindow):
             fileMenuActions=(open_, opendir, save, saveAs, close, quit),
             aiMenuActions=(aiSettings, None, createAiPolygonMode, createAiMaskMode,
                            None, runObjectDetection, runPoseEstimation, submitAiPrompt),
+            # showLabelNames line removed to fix error
             lightTheme=lightTheme,  # 添加明亮主题动作
             darkTheme=darkTheme,    # 添加暗黑主题动作
             defaultTheme=defaultTheme,  # 添加原始主题动作
@@ -904,6 +910,15 @@ class MainWindow(QtWidgets.QMainWindow):
                 hideAll,
                 showAll,
                 toggleAll,
+                None,
+                action(
+                    self.tr("显示标签名称"),
+                    self.toggleShowLabelNames,
+                    'Ctrl+L',
+                    'tag',
+                    self.tr("在标注上显示标签名称"),
+                    checkable=True,
+                ),  # 直接创建显示标签名称菜单项
                 None,
                 zoomIn,
                 zoomOut,
@@ -1088,6 +1103,17 @@ class MainWindow(QtWidgets.QMainWindow):
                         self.setFitWindow(True)
                         self.actions.fitWindow.setChecked(True)
                         self.adjustScale(initial=True)
+
+#         # 添加显示标签名称的动作
+#         showLabelNames = action(
+#             self.tr("显示标签名称"),
+#             self.toggleShowLabelNames,
+#             'Ctrl+L',
+#             'tag',
+#             self.tr("在标注上显示标签名称"),
+#             checkable=True,
+#         )
+#         showLabelNames.setChecked(self._showLabelNames)
 
     def menu(self, title, actions=None):
         menu = self.menuBar().addMenu(title)
@@ -1460,6 +1486,12 @@ class MainWindow(QtWidgets.QMainWindow):
             # 点标签的选中效果使用白色边框和原色填充
             select_line_color = QtGui.QColor(255, 255, 255)
             select_fill_alpha = 180
+        elif shape.shape_type == "rectangle":
+            # 矩形标签使用较低的填充透明度
+            fill_alpha = 20
+            # 矩形选中效果使用原色边框，保持与悬停效果一致
+            select_line_color = color.lighter(120)
+            select_fill_alpha = 15  # 大幅降低选中时的透明度
         else:
             fill_alpha = 30
             select_line_color = QtGui.QColor(255, 255, 255)
@@ -1644,8 +1676,9 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def _update_shape_color(self, shape):
         r, g, b = self._get_rgb_by_label(shape.label)
-        shape.line_color = QtGui.QColor(r, g, b)
-        shape.vertex_fill_color = QtGui.QColor(r, g, b)
+        base_color = QtGui.QColor(r, g, b)
+        shape.line_color = base_color
+        shape.vertex_fill_color = base_color
         shape.hvertex_fill_color = QtGui.QColor(255, 255, 255)
 
         # 根据形状类型设置不同的填充透明度
@@ -1655,6 +1688,12 @@ class MainWindow(QtWidgets.QMainWindow):
             select_fill_alpha = 180
             # 使用白色边框
             select_line_color = QtGui.QColor(255, 255, 255)
+        elif shape.shape_type == "rectangle":
+            # 矩形标签使用较低的填充透明度
+            fill_alpha = 20
+            select_fill_alpha = 15
+            # 矩形选中使用原色边框，但略微增亮
+            select_line_color = base_color.lighter(120)
         else:
             fill_alpha = 30
             select_fill_alpha = 80
@@ -2938,3 +2977,18 @@ class MainWindow(QtWidgets.QMainWindow):
 
         # 保存当前主题设置
         self.currentTheme = "default"
+
+    def toggleShowLabelNames(self):
+        """切换是否在标注上显示标签名称"""
+        self._showLabelNames = not self._showLabelNames
+
+        # 检查actions中是否有showLabelNames
+        if hasattr(self.actions, 'showLabelNames'):
+            self.actions.showLabelNames.setChecked(self._showLabelNames)
+
+        # 在此更新 shape 类的状态
+        from labelme.shape import Shape
+        Shape.show_label_names = self._showLabelNames
+
+        # 刷新画布
+        self.canvas.update()

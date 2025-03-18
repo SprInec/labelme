@@ -242,6 +242,9 @@ class Canvas(QtWidgets.QWidget):
 
     def unHighlight(self):
         if self.hShape:
+            # 清除悬停状态
+            if hasattr(self.hShape, 'setHoverState'):
+                self.hShape.setHoverState(False)
             self.hShape.highlightClear()
             self.update()
         self.prevhShape = self.hShape
@@ -274,6 +277,13 @@ class Canvas(QtWidgets.QWidget):
             ).normalized()
             self.update()
             return
+
+        # 更新现有的悬停状态
+        need_update = False
+        for shape in self.shapes:
+            if hasattr(shape, 'hovered') and shape.hovered:
+                shape.setHoverState(False)
+                need_update = True
 
         # Polygon drawing.
         if self.drawing():
@@ -362,7 +372,32 @@ class Canvas(QtWidgets.QWidget):
         # - Highlight vertex
         # Update shape/vertex fill and tooltip value accordingly.
         self.setToolTip(self.tr("Image"))
+
+        # 先重置所有形状的悬停状态
+        for shape in self.shapes:
+            if hasattr(shape, 'hovered') and shape.hovered:
+                shape.setHoverState(False)
+                need_update = True
+
         for shape in reversed([s for s in self.shapes if self.isVisible(s)]):
+            # 处理所有类型标签的悬停效果和提示
+            if shape.containsPoint(pos):
+                # 设置悬停状态
+                if hasattr(shape, 'setHoverState'):
+                    shape.setHoverState(True)
+                    # 显示当前标签名称
+                    self.setToolTip(shape.label)
+                    self.setStatusTip(self.toolTip())
+                    if shape.shape_type == "point":
+                        self.overrideCursor(CURSOR_POINT)
+                    else:
+                        self.overrideCursor(CURSOR_GRAB)
+                    self.update()
+
+                    # 如果不需要处理顶点高亮，则直接处理下一个
+                    if shape.shape_type == "point":
+                        break
+
             # Look for a nearby vertex to highlight. If that fails,
             # check if we happen to be inside a shape.
             index = shape.nearestVertex(pos, self.epsilon)
