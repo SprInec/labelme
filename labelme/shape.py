@@ -403,7 +403,7 @@ class Shape(object):
                 # 矩形标签显示在左上角
                 rect = QtCore.QRectF(self._scale_point(
                     self.points[0]), self._scale_point(self.points[1]))
-                label_pos = QtCore.QPointF(rect.x(), rect.y() - 20)  # 稍微往上移动一点
+                label_pos = QtCore.QPointF(rect.x(), rect.y() - 40)  # 稍微往上移动一点
             elif self.shape_type == "point":
                 # 点标签显示在点右侧
                 point = self._scale_point(self.points[0])
