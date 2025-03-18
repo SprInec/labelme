@@ -140,10 +140,10 @@ class LabelDialog(QtWidgets.QDialog):
         self.setLayout(layout)
 
         # 设置初始大小
-        self.resize(530, 620)
+        self.resize(580, 650)
 
         # 设置对话框的最小尺寸
-        self.setMinimumWidth(530)
+        self.setMinimumWidth(580)
         self.setMinimumHeight(500)
 
         # completion
@@ -162,6 +162,24 @@ class LabelDialog(QtWidgets.QDialog):
             stringListModel.setStringList(labels)
         completer.setModel(stringListModel)
         self.edit.setCompleter(completer)
+
+        self.setStyleSheet("""
+    
+            QPushButton {
+                padding: 8px 20px;
+                border-radius: 6px;
+                font-size: 9pt;
+                margin: 5px;
+                min-width: 110px;
+            }
+            QPushButton#color_button {
+                padding: 0px;
+                min-width: 30px;
+                border-radius: 10px;
+                border: 1px solid #3d3d3d;
+                margin-top: 1px;
+            }
+        """)
 
     def addLabelHistory(self, label):
         if self.labelList.findItems(label, QtCore.Qt.MatchExactly):

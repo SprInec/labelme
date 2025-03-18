@@ -14,6 +14,7 @@ class ToolBar(QtWidgets.QToolBar):
         # 设置可调整大小
         self.setSizePolicy(QtWidgets.QSizePolicy.Preferred,
                            QtWidgets.QSizePolicy.Expanding)
+        
         # 允许工具栏在所有区域停靠
         self.setAllowedAreas(
             QtCore.Qt.LeftToolBarArea |

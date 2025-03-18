@@ -108,9 +108,9 @@ QMenu::indicator:exclusive:checked {
 QToolBar {
     background-color: #f8f9fa;
     border-bottom: 1px solid #e6e6e6;
-    spacing: 10px;
-    padding: 10px 12px;
-    min-width: 70px;
+    spacing: 8px;
+    padding: 10px 6px;
+    min-width: 30px;
 }
 
 QToolBar::separator {
@@ -120,19 +120,19 @@ QToolBar::separator {
 }
 
 QToolButton {
-    padding: 12px 20px;
+    padding: 6px 10px;
     border-radius: 8px;
     font-size: 8.5pt;
     color: #333333;
     background-color: transparent;
     margin: 3px;
-    min-width: 60px;
-    min-height: 60px;
+    min-width: 35px;
+    min-height: 35px;
     text-align: center;
 }
 
 QToolButton[popupMode="1"] {
-    padding-right: 24px;
+    padding-right: 6px;
 }
 
 QToolButton::menu-button {
@@ -243,28 +243,32 @@ QTreeView::branch:open:has-children:has-siblings {
 
 /* 自定义标签列表和多边形标签的样式 */
 #labelListWidget, #polygonListWidget {
-    padding: 15px;
-    margin: 10px 0;
+    padding: 12px;
+    margin: 8px 0;
     border-radius: 10px;
+    background-color: #f8f9fa;
+    border: none;
 }
 
 #labelListWidget QStandardItem, #polygonListWidget QStandardItem {
-    height: 30px;
-    padding: 4px 6px;
-    margin: 2px 0px;
-    border-radius: 5px;
+    height: 36px;
+    padding: 4px 10px;
+    margin: 3px 0px;
+    border-radius: 6px;
 }
 
 #labelListWidget QLabel, #polygonListWidget QLabel {
-    font-size: 9.5pt;
+    font-size: 10pt;
     color: #333333;
+    font-weight: 400;
+    letter-spacing: 0.2px;
 }
 
 #labelListContainer, #polygonListContainer, #flagWidgetContainer {
     background-color: #ffffff;
-    border: 1px solid #e6e6e6;
-    border-radius: 8px;
-    padding: 5px;
+    border: none;
+    border-radius: 12px;
+    padding: 10px;
 }
 
 /* 统一所有复选框样式 */
@@ -891,9 +895,9 @@ QMenu::indicator:exclusive:checked {
 QToolBar {
     background-color: #2d2d30;
     border-bottom: 1px solid #3e3e42;
-    spacing: 10px;
-    padding: 10px 12px;
-    min-width: 70px;
+    spacing: 8px;
+    padding: 10px 6px;
+    min-width: 30px;
 }
 
 QToolBar::separator {
@@ -903,19 +907,19 @@ QToolBar::separator {
 }
 
 QToolButton {
-    padding: 12px 20px;
+    padding: 6px 10px;
     border-radius: 8px;
     font-size: 8.5pt;
     color: #cccccc;
     background-color: transparent;
     margin: 3px;
-    min-width: 60px;
-    min-height: 60px;
+    min-width: 35px;
+    min-height: 35px;
     text-align: center;
 }
 
 QToolButton[popupMode="1"] {
-    padding-right: 24px;
+    padding-right: 6px;
 }
 
 QToolButton::menu-button {
@@ -1024,30 +1028,36 @@ QTreeView::branch:open:has-children:has-siblings {
     padding-left: 5px;
 }
 
-/* 自定义暗色主题标签列表和多边形标签的样式 */
+/* 自定义标签列表和多边形标签的样式 */
 #labelListWidget, #polygonListWidget {
-    padding: 15px;
-    margin: 10px 0;
+    padding: 12px;
+    margin: 8px 0;
     border-radius: 10px;
+    background-color: #2d2d30;
+    border: none;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
 }
 
 #labelListWidget QStandardItem, #polygonListWidget QStandardItem {
-    height: 30px;
-    padding: 4px 6px;
-    margin: 2px 0px;
-    border-radius: 5px;
+    height: 36px;
+    padding: 4px 10px;
+    margin: 3px 0px;
+    border-radius: 6px;
 }
 
 #labelListWidget QLabel, #polygonListWidget QLabel {
-    font-size: 9.5pt;
-    color: #cccccc;
+    font-size: 10pt;
+    color: #e0e0e0;
+    font-weight: 400;
+    letter-spacing: 0.2px;
 }
 
 #labelListContainer, #polygonListContainer, #flagWidgetContainer {
     background-color: #252526;
-    border: 1px solid #3e3e42;
-    border-radius: 8px;
-    padding: 5px;
+    border: none;
+    border-radius: 12px;
+    padding: 10px;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3);
 }
 
 /* 统一所有复选框样式 */
@@ -1500,7 +1510,7 @@ QListWidget::item:hover {
     background-color: #3e3e42;
 }
 QListWidget::item:selected {
-    background-color: #0e639c;
+    background-color: #094771;
     color: #ffffff;
 }
 QPushButton {
@@ -1528,6 +1538,8 @@ QWidget {
 """
 
 # 明亮主题调色板
+
+
 def get_light_palette():
     palette = QPalette()
     palette.setColor(QPalette.Window, QColor(250, 250, 250))
@@ -1549,6 +1561,8 @@ def get_light_palette():
     return palette
 
 # 暗黑主题调色板
+
+
 def get_dark_palette():
     palette = QPalette()
     palette.setColor(QPalette.Window, QColor(30, 30, 30))
