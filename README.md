@@ -1,6 +1,6 @@
 <h1 align="center">
-  <img src="labelme/icons/icon.png"><br/>labelme-dev
-</h1>
+  <img src="labelme/icons/icon.png"><br/>labelu
+</h1>u
 <h4 align="center">
   Image Polygonal Annotation with Python
 </h4>
