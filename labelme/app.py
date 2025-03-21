@@ -78,7 +78,8 @@ class MainWindow(QtWidgets.QMainWindow):
     ):
         if output is not None:
             logger.warning(
-                "argument output is deprecated, use output_file instead")
+                "argument output is deprecated, use output_file instead"
+            )
             if output_file is None:
                 output_file = output
 
@@ -119,6 +120,9 @@ class MainWindow(QtWidgets.QMainWindow):
         # 初始化显示标签名称设置为False
         self._showLabelNames = False
         Shape.show_label_names = False
+
+        # 添加用于记住上一次标签的变量
+        self._previous_label_text = None
 
         # Set point size from config file
         Shape.point_size = self._config["shape"]["point_size"]
@@ -1985,7 +1989,9 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def newShape(self):
         """调用此方法创建一个新形状"""
-        text = self.tr("请输入对象标签")
+        # 使用上一次的标签名，如果没有则使用默认提示
+        text = self._previous_label_text if self._previous_label_text else self.tr(
+            "请输入对象标签")
         flags = {}
         group_id = None
         description = ""
@@ -2005,11 +2011,20 @@ class MainWindow(QtWidgets.QMainWindow):
                 color=default_color,
             )
             if result is None:
+                # 用户取消了标签对话框，删除当前绘制的形状
+                if len(self.canvas.shapes) > 0:
+                    # 删除最后一个形状（即刚刚创建的）
+                    last_shape = self.canvas.shapes.pop()
+                    self.canvas.storeShapes()
+                    self.canvas.update()
                 return
 
             text, flags, group_id, description, color = result
 
             if text is not None and self.validateLabel(text):
+                # 保存当前使用的标签名称
+                self._previous_label_text = text
+
                 # 检查是否已存在同名标签
                 item = self.uniqLabelList.findItemByLabel(text)
                 if item and color == default_color:  # 用户没有修改颜色，使用已有标签的颜色
