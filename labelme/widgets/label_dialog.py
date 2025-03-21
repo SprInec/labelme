@@ -601,6 +601,11 @@ class LabelDialog(QtWidgets.QDialog):
     def cloudItemDoubleClicked(self, label_text):
         """流式布局中的标签被双击"""
         self.edit.setText(label_text)
+
+        # 确保清除所有标签的选中状态，防止视觉上的混乱
+        if hasattr(self, 'cloudContainer'):
+            self.cloudContainer.clearAllSelection()
+
         self.validate()
 
     def addLabelHistory(self, label):
@@ -1117,6 +1122,7 @@ class LabelCloudItem(QtWidgets.QWidget):
         self.dragging = False
         self.hover = False
         self.drop_hover = False  # 拖拽悬停状态
+        self._drag_start_position = None  # 拖拽起始位置
 
         # 清理文本，移除HTML标记
         if '<font' in text:
@@ -1243,7 +1249,7 @@ class LabelCloudItem(QtWidgets.QWidget):
 
     def mouseMoveEvent(self, event):
         """鼠标移动事件，处理拖拽"""
-        if not (event.buttons() & QtCore.Qt.LeftButton):
+        if not (event.buttons() & QtCore.Qt.LeftButton) or self._drag_start_position is None:
             return
 
         # 计算移动距离，超过阈值则开始拖拽
@@ -1283,14 +1289,20 @@ class LabelCloudItem(QtWidgets.QWidget):
         # 执行拖拽
         result = drag.exec_(QtCore.Qt.MoveAction)
 
-        # 拖拽结束
+        # 拖拽结束，重置状态
         self.dragging = False
+        self.selected = False  # 确保拖拽后不保持选中状态
+        self._drag_start_position = None
         self.update()
 
     def mouseReleaseEvent(self, event):
         """鼠标释放事件"""
         if event.button() == QtCore.Qt.LeftButton:
-            self.selected = False
+            # 如果不是拖放操作结束，则保持选中状态
+            # 拖放操作的结束通过drag.exec_后的代码处理
+            if not self.dragging:
+                # 点击操作保持选中状态
+                pass
             self.update()
 
     def mouseDoubleClickEvent(self, event):
@@ -1334,6 +1346,10 @@ class LabelCloudItem(QtWidgets.QWidget):
                 # 调用父控件的处理方法
                 parent.handleLabelDrop(event.mimeData().text(), self)
 
+            # 确保自身的选中状态被清除
+            self.selected = False
+            self.update()
+
     def sizeHint(self):
         """尺寸提示"""
         return QtCore.QSize(self.width(), self.height())
@@ -1354,6 +1370,21 @@ class LabelCloudContainer(QtWidgets.QWidget):
         """添加标签项到容器"""
         self.label_items.append(item)
         item.dragStarted.connect(self.onItemDragStarted)
+        item.clicked.connect(lambda: self.clearSelectionExcept(item))
+
+    def clearAllSelection(self):
+        """清除所有标签项的选中状态"""
+        for item in self.label_items:
+            if item.selected:
+                item.selected = False
+                item.update()
+
+    def clearSelectionExcept(self, current_item):
+        """清除除当前项外的所有选中状态"""
+        for item in self.label_items:
+            if item != current_item and item.selected:
+                item.selected = False
+                item.update()
 
     def onItemDragStarted(self, item):
         """标签项开始拖拽时的处理"""
@@ -1391,6 +1422,9 @@ class LabelCloudContainer(QtWidgets.QWidget):
 
         # 重置拖拽状态
         self.dragging_item = None
+
+        # 清除所有选中状态
+        self.clearAllSelection()
 
         # 如果有保存标签顺序的方法，则调用
         if hasattr(self.dialog, 'saveLabelOrder'):
@@ -1478,6 +1512,9 @@ class LabelCloudContainer(QtWidgets.QWidget):
 
             # 重置拖拽状态
             self.dragging_item = None
+
+            # 清除所有选中状态
+            self.clearAllSelection()
 
             # 如果有保存标签顺序的方法，则调用
             if hasattr(self.dialog, 'saveLabelOrder'):
