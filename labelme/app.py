@@ -151,7 +151,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.lastOpenDir = None
 
         self.flag_dock = self.flag_widget = None
-        self.flag_dock = QtWidgets.QDockWidget(self.tr("标记 0"), self)
+        self.flag_dock = QtWidgets.QDockWidget(self.tr("标记"), self)
         self.flag_dock.setObjectName("Flags")
         self.flag_widget = QtWidgets.QListWidget()
         if config["flags"]:
@@ -3056,22 +3056,128 @@ class MainWindow(QtWidgets.QMainWindow):
         self.actions.saveAuto.setChecked(enabled)
 
     def updateDockTitles(self):
-        """更新所有dock窗口的标题，显示当前项目数量"""
-        # 更新标记dock
-        flag_count = self.flag_widget.count()
-        self.flag_dock.setWindowTitle(self.tr(f"标记 {flag_count}"))
+        # 获取各个面板中的项目数量
+        file_count = len(self.fileListWidget) if self.fileListWidget else 0
+        label_count = len(self.labelList) if self.labelList else 0
+        shape_count = len(self.canvas.shapes) if self.canvas else 0
 
-        # 更新多边形标签dock
-        shape_count = len(self.labelList)  # 使用__len__方法而不是count
-        self.shape_dock.setWindowTitle(self.tr(f"多边形标签 {shape_count}"))
+        # 创建更新的计数徽章样式 - 浅灰色背景且尺寸增大
+        badge_style = """
+            QLabel { 
+                background-color: #E8F0FE; 
+                color: #2d81f7; 
+                border-radius: 8px; 
+                min-width: 26px; 
+                max-width: 60px;
+                height: 14px; 
+                font-size: 24px; 
+                font-weight: 700; 
+                margin-left: 10px;
+                padding: 0px 8px;
+                text-align: center;
+                font-family: 'Segoe UI', 'Roboto', 'Helvetica Neue', 'Arial', sans-serif;
+                border: none;
+            }
+        """
 
-        # 更新标签列表dock
-        label_count = self.uniqLabelList.count()
-        self.label_dock.setWindowTitle(self.tr(f"标签列表 {label_count}"))
+        # 标题容器样式保持不变
+        title_container_style = """
+            QWidget {
+                background-color: #F8F9FA;
+                padding: 3px;
+            }
+        """
 
-        # 更新文件列表dock
-        file_count = self.fileListWidget.count()
-        self.file_dock.setWindowTitle(self.tr(f"文件列表 {file_count}"))
+        # 为文件列表创建计数徽章
+        file_badge = QtWidgets.QLabel(f"{file_count}")
+        file_badge.setAlignment(QtCore.Qt.AlignCenter)
+        file_badge.setStyleSheet(badge_style)
+
+        # 创建文件列表标题 - 不设置文本标签样式
+        file_title_widget = QtWidgets.QWidget()
+        file_title_widget.setStyleSheet(title_container_style)
+        file_layout = QtWidgets.QHBoxLayout(file_title_widget)
+        file_layout.setContentsMargins(5, 2, 5, 2)
+        file_layout.setSpacing(0)
+
+        file_text = QtWidgets.QLabel(self.tr("文件列表"))
+        # 移除自定义标题样式
+        file_layout.addWidget(file_text)
+        file_layout.addWidget(file_badge)
+        file_layout.addStretch()
+
+        # 为标签列表创建计数徽章
+        label_badge = QtWidgets.QLabel(f"{label_count}")
+        label_badge.setAlignment(QtCore.Qt.AlignCenter)
+        label_badge.setStyleSheet(badge_style)
+
+        # 创建标签列表标题
+        label_title_widget = QtWidgets.QWidget()
+        label_title_widget.setStyleSheet(title_container_style)
+        label_layout = QtWidgets.QHBoxLayout(label_title_widget)
+        label_layout.setContentsMargins(5, 2, 5, 2)
+        label_layout.setSpacing(0)
+
+        label_text = QtWidgets.QLabel(self.tr("标签列表"))
+        # 移除自定义标题样式
+        label_layout.addWidget(label_text)
+        label_layout.addWidget(label_badge)
+        label_layout.addStretch()
+
+        # 为形状属性创建计数徽章
+        shape_badge = QtWidgets.QLabel(f"{shape_count}")
+        shape_badge.setAlignment(QtCore.Qt.AlignCenter)
+        shape_badge.setStyleSheet(badge_style)
+
+        # 创建形状属性标题
+        shape_title_widget = QtWidgets.QWidget()
+        shape_title_widget.setStyleSheet(title_container_style)
+        shape_layout = QtWidgets.QHBoxLayout(shape_title_widget)
+        shape_layout.setContentsMargins(5, 2, 5, 2)
+        shape_layout.setSpacing(0)
+
+        shape_text = QtWidgets.QLabel(self.tr("当前标注"))
+        # 移除自定义标题样式
+        shape_layout.addWidget(shape_text)
+        shape_layout.addWidget(shape_badge)
+        shape_layout.addStretch()
+
+        # 为文件信息创建标题
+        info_title_widget = QtWidgets.QWidget()
+        info_title_widget.setStyleSheet(title_container_style)
+        info_layout = QtWidgets.QHBoxLayout(info_title_widget)
+        info_layout.setContentsMargins(5, 2, 5, 2)
+        info_layout.setSpacing(0)
+
+        info_text = QtWidgets.QLabel(self.tr("文件信息"))
+        # 移除自定义标题样式
+        info_layout.addWidget(info_text)
+        info_layout.addStretch()
+
+        # 设置各个 dock 窗口的标题栏小部件
+        if hasattr(self, "file_dock"):
+            self.file_dock.setTitleBarWidget(file_title_widget)
+
+        if hasattr(self, "label_dock"):
+            self.label_dock.setTitleBarWidget(label_title_widget)
+
+        if hasattr(self, "shape_dock"):
+            self.shape_dock.setTitleBarWidget(shape_title_widget)
+
+        if hasattr(self, "file_info_dock"):
+            self.file_info_dock.setTitleBarWidget(info_title_widget)
+
+    def _darken_color(self, hex_color, percent):
+        """使颜色变暗一定百分比"""
+        # 从十六进制转换为rgb
+        h = hex_color.lstrip('#')
+        rgb = tuple(int(h[i:i+2], 16) for i in (0, 2, 4))
+
+        # 使颜色变暗
+        rgb_darker = tuple(max(0, c - int(c * percent / 100)) for c in rgb)
+
+        # 转回十六进制
+        return '#{:02x}{:02x}{:02x}'.format(*rgb_darker)
 
     def openShortcutsDialog(self):
         """打开快捷键设置对话框"""
