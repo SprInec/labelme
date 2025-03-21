@@ -4,6 +4,8 @@ import contextlib
 import os
 import os.path as osp
 import sys
+import warnings
+import logging
 
 import yaml
 from loguru import logger
@@ -58,6 +60,21 @@ def _setup_loguru(logger_level: str) -> None:
 
 
 def main():
+    # 过滤PyTorch相关的警告信息
+    warnings.filterwarnings("ignore", category=UserWarning, module="torch")
+    # 过滤 "Failed to load image Python extension" 警告
+    warnings.filterwarnings(
+        "ignore", message="Failed to load image Python extension")
+    # 过滤其他PyTorch相关的警告
+    warnings.filterwarnings("ignore", message=".*The PyTorch.*")
+    warnings.filterwarnings("ignore", message=".*torch.utils.tensorboard.*")
+    # 过滤mmdet和mmpose的警告
+    warnings.filterwarnings("ignore", message=".*mmdet.*")
+    warnings.filterwarnings("ignore", message=".*mmpose.*")
+
+    # 确保自己的警告可以看到
+    warnings.filterwarnings("default", message=".*labelme.*")
+
     parser = argparse.ArgumentParser()
     parser.add_argument("--version", "-V",
                         action="store_true", help="show version")
@@ -219,8 +236,14 @@ def main():
         win.settings.clear()
         sys.exit(0)
 
+    # 设置窗口启动为最大化
+    win.showMaximized()
+
+    # 设置最小尺寸
+    win.setMinimumSize(800, 600)
+
     with logger.catch(), contextlib.redirect_stderr(new_target=_LoggerIO()):
-        win.showMaximized()
+        win.show()
         win.raise_()
         sys.exit(app.exec_())
 

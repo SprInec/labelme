@@ -1030,7 +1030,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
         # 设置窗口最小尺寸，避免缩放太小
         self.setMinimumSize(1200, 800)
-        
+
         # 设置窗口默认最大化
         self.showMaximized()
 
@@ -2271,13 +2271,7 @@ class MainWindow(QtWidgets.QMainWindow):
         return True
 
     def resizeEvent(self, event):
-        if (
-            self.canvas
-            and hasattr(self, 'image')
-            and self.image is not None
-            and not self.image.isNull()
-            and self.zoomMode != self.MANUAL_ZOOM
-        ):
+        if self.canvas and hasattr(self, 'image') and self.image is not None and not self.image.isNull():
             self.adjustScale()
         super(MainWindow, self).resizeEvent(event)
 
