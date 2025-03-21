@@ -122,10 +122,17 @@ class UniqueLabelItemDelegate(QStyledItemDelegate):
 
             painter.save()
 
+            # 获取自定义样式
+            custom_style = index.data(Qt.UserRole + 10)
+            is_unused = custom_style and "font-style: italic" in custom_style
+
             # 绘制背景
             if self.is_dark:
                 if option.state & QStyle.State_Selected:
                     painter.fillRect(option.rect, QColor(0, 120, 212))
+                elif is_unused:
+                    # 未使用标签的暗色主题背景
+                    painter.fillRect(option.rect, QColor(80, 30, 30, 50))
                 elif option.state & QStyle.State_MouseOver:
                     painter.fillRect(option.rect, QColor(60, 60, 65))
                 else:
@@ -134,11 +141,29 @@ class UniqueLabelItemDelegate(QStyledItemDelegate):
             else:
                 if option.state & QStyle.State_Selected:
                     painter.fillRect(option.rect, QColor(210, 228, 255))
+                elif is_unused:
+                    # 未使用标签的亮色主题背景
+                    painter.fillRect(option.rect, QColor(255, 240, 240))
                 elif option.state & QStyle.State_MouseOver:
                     painter.fillRect(option.rect, QColor(235, 243, 254))
                 else:
                     painter.fillRect(option.rect, QColor(
                         255, 255, 255, 0))  # 透明背景
+
+            # 如果是未使用标签，绘制左边框标记
+            if is_unused:
+                mark_color = QColor(255, 109, 109)
+                painter.setPen(Qt.NoPen)
+                painter.setBrush(QBrush(mark_color))
+                # 增加左侧标记宽度，并使用圆角矩形
+                border_width = 8
+                painter.drawRoundedRect(
+                    option.rect.left(),
+                    option.rect.top() + 2,
+                    border_width,
+                    option.rect.height() - 4,
+                    3, 3
+                )
 
             # 绘制文本和颜色指示器
             text = index.data(Qt.DisplayRole)
@@ -150,6 +175,10 @@ class UniqueLabelItemDelegate(QStyledItemDelegate):
                 else:
                     text_color = QColor(
                         0, 0, 0) if option.state & QStyle.State_Selected else QColor(60, 60, 60)
+
+                # 如果是未使用标签，设置特殊颜色
+                if is_unused and not option.state & QStyle.State_Selected:
+                    text_color = QColor(255, 109, 109)
 
                 # 提取颜色信息和文本内容
                 label_color = None
@@ -175,6 +204,10 @@ class UniqueLabelItemDelegate(QStyledItemDelegate):
 
                 # 设置文本起始位置
                 text_left = option.rect.left() + 15
+
+                # 如果是未使用标签，增加额外的左侧padding
+                if is_unused:
+                    text_left += 5  # 增加额外的padding，与边框宽度相协调
 
                 # 绘制文本，直接使用纯文本内容
                 text_rect = QRect(
@@ -465,12 +498,14 @@ class UniqueLabelTreeWidgetItem(QStandardItem):
 
 class UniqueLabelTreeWidget(QWidget):
     itemDoubleClicked = QtCore.pyqtSignal(UniqueLabelTreeWidgetItem)
+    itemSelectionChanged = QtCore.pyqtSignal(str, str)  # 新增信号：标签名称, 形状类型
 
     def __init__(self, is_dark=False):
         super(UniqueLabelTreeWidget, self).__init__()
         self.categories = {}  # 存储所有分类
         self.labels_by_category = {}  # 按类别存储标签
         self.is_dark = is_dark
+        self.unused_labels = set()  # 新增：存储未使用标签的集合
 
         # 创建现代化的树状视图
         self.treeView = ModernUniqueTreeView(self, is_dark)
@@ -479,6 +514,9 @@ class UniqueLabelTreeWidget(QWidget):
 
         # 连接信号
         self.treeView.doubleClicked.connect(self.itemDoubleClickedEvent)
+        # 连接选择变化信号
+        self.treeView.selectionModel().selectionChanged.connect(
+            self.itemSelectionChangedEvent)
 
         # 设置布局
         layout = QHBoxLayout(self)
@@ -654,3 +692,111 @@ class UniqueLabelTreeWidget(QWidget):
     def expandAll(self):
         """展开所有项"""
         self.treeView.expandAll()
+
+    def highlightUnusedLabels(self, label_tree_widget):
+        """
+        检查哪些标签未在当前图片中使用，并对其进行强调显示
+
+        Args:
+            label_tree_widget: LabelTreeWidget实例，包含当前图片中已使用的标签
+        """
+        # 重置之前的未使用标签记录
+        self.unused_labels.clear()
+
+        # 获取当前图片中使用的所有标签
+        used_labels = set()
+        for i in range(label_tree_widget.model.rowCount()):
+            category_item = label_tree_widget.model.item(i, 0)
+            for j in range(category_item.rowCount()):
+                item = category_item.child(j, 0)
+                if item and hasattr(item, 'shape') and item.shape():
+                    shape = item.shape()
+                    if hasattr(shape, 'label'):
+                        used_labels.add(shape.label)
+
+        # 检查每个可用标签是否被使用
+        unused_style = """
+            font-style: italic;
+            font-weight: bold;
+            color: #FF6D6D;
+            border-radius: 6px;
+            border-left: 8px solid #FF6D6D;
+            background-color: rgba(255, 109, 109, 0.1);
+            padding-left: 8px;
+            margin: 2px 0px;
+        """
+
+        used_style = ""
+
+        # 遍历所有标签项，检查它们是否被使用
+        for i in range(self.model.rowCount()):
+            category_item = self.model.item(i, 0)
+            for j in range(category_item.rowCount()):
+                item = category_item.child(j, 0)
+                if item and hasattr(item, 'label'):
+                    label = item.label()
+                    if label not in used_labels:
+                        # 未使用的标签，添加到集合并应用强调样式
+                        self.unused_labels.add(label)
+                        item.setData(unused_style, Qt.UserRole + 10)  # 保存样式数据
+                    else:
+                        # 已使用的标签，恢复正常样式
+                        item.setData(used_style, Qt.UserRole + 10)
+
+        # 更新视图
+        self.treeView.viewport().update()
+
+    def resetHighlights(self):
+        """重置所有标签的高亮状态"""
+        self.unused_labels.clear()
+
+        for i in range(self.model.rowCount()):
+            category_item = self.model.item(i, 0)
+            for j in range(category_item.rowCount()):
+                item = category_item.child(j, 0)
+                if item:
+                    item.setData("", Qt.UserRole + 10)  # 清除样式数据
+
+        # 更新视图
+        self.treeView.viewport().update()
+
+    def itemSelectionChangedEvent(self, selected, deselected):
+        """处理项选择变化的事件"""
+        # 获取当前选择的项
+        selected_items = self.selectedItems()
+        if selected_items:
+            item = selected_items[0]  # 获取第一个选中项（单选模式）
+            label = item.label()
+            if not label:
+                return
+
+            # 获取形状类型（如果有）
+            shape_type = getattr(item, 'shape_type', None)
+
+            # 如果项本身没有形状类型，则从其所属分类推断
+            if not shape_type:
+                # 获取父项（分类）
+                parent = item.parent()
+                if parent:
+                    category_name = parent.text()
+                    if "(" in category_name:
+                        category_name = category_name.split(" (")[0]
+
+                    # 中文分类名转换为英文形状类型
+                    shape_type_mapping = {
+                        "多边形": "polygon",
+                        "矩形": "rectangle",
+                        "圆形": "circle",
+                        "线段": "line",
+                        "点": "point",
+                        "折线": "linestrip",
+                        "多点": "points",
+                        "蒙版": "mask",
+                        "标签": "polygon"  # 默认为多边形
+                    }
+                    shape_type = shape_type_mapping.get(
+                        category_name, "polygon")
+
+            # 发送信号
+            if label and shape_type:
+                self.itemSelectionChanged.emit(label, shape_type)

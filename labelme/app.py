@@ -182,6 +182,9 @@ class MainWindow(QtWidgets.QMainWindow):
                 self.uniqLabelList.addItem(item)
                 rgb = self._get_rgb_by_label(label)
                 self.uniqLabelList.setItemLabel(item, label, rgb)
+        # 连接标签选择变化信号
+        self.uniqLabelList.itemSelectionChanged.connect(
+            self.labelItemSelectedForDrawing)
         self.label_dock = QtWidgets.QDockWidget(self.tr("标签列表 0"), self)
         self.label_dock.setObjectName("Label List")
         self.label_dock.setWidget(self.uniqLabelList)
@@ -1693,25 +1696,29 @@ class MainWindow(QtWidgets.QMainWindow):
         # 连接复选框状态变化信号
         self.connectItemCheckState(label_list_item)
 
+        # 更新未使用标签的高亮状态
+        self.uniqLabelList.highlightUnusedLabels(self.labelList)
+
     def connectItemCheckState(self, item):
         """连接标签项的复选框状态变化信号"""
         item.model().itemChanged.connect(self.labelItemCheckStateChanged)
 
     def labelItemCheckStateChanged(self, item):
-        """处理标签项复选框状态变化"""
-        if hasattr(item, 'is_category') and item.is_category:
-            return  # 忽略分类项
-
+        """标签项复选框状态变化处理"""
         shape = item.shape()
-        if shape:
-            # 根据复选框状态设置形状可见性
-            if item.checkState() == Qt.Checked:
-                shape.setVisible(True)
-            else:
-                shape.setVisible(False)
+        if shape is None:
+            return
 
-            # 重绘画布
-            self.canvas.update()
+        # 根据复选框状态设置可见性
+        visible = item.checkState() == Qt.Checked
+        self.canvas.setShapeVisible(shape, visible)
+
+        # 仅仅在形状存在且当前未被选中时，自动选择该形状
+        if visible and shape not in self.canvas.selectedShapes and not self._noSelectionSlot:
+            self.canvas.selectShapes([shape])
+
+        # 更新未使用标签的高亮状态
+        self.uniqLabelList.highlightUnusedLabels(self.labelList)
 
     def _update_shape_color(self, shape):
         r, g, b = self._get_rgb_by_label(shape.label)
@@ -1797,6 +1804,9 @@ class MainWindow(QtWidgets.QMainWindow):
             self.labelList.updateAllCategoryCounts()  # 更新所有分类的数量
             self.updateDockTitles()
 
+            # 更新未使用标签的高亮状态
+            self.uniqLabelList.highlightUnusedLabels(self.labelList)
+
     def loadShapes(self, shapes, replace=True):
         self._noSelectionSlot = True
         for shape in shapes:
@@ -1820,6 +1830,9 @@ class MainWindow(QtWidgets.QMainWindow):
 
         # 修复所有标签项的颜色显示
         self.fixAllLabelColors()
+
+        # 更新未使用标签的高亮状态
+        self.uniqLabelList.highlightUnusedLabels(self.labelList)
 
     def fixAllLabelColors(self):
         """修复所有标签项的颜色显示"""
@@ -2282,12 +2295,21 @@ class MainWindow(QtWidgets.QMainWindow):
         if contrast is not None:
             dialog.slider_contrast.setValue(contrast)
         self.brightnessContrast_values[self.filename] = (brightness, contrast)
+
         if brightness is not None or contrast is not None:
-            dialog.onNewValue(None)
+            dialog.onValueChanged()
+
         self.paintCanvas()
         self.addRecentFile(self.filename)
         self.toggleActions(True)
         self.canvas.setFocus()
+
+        # 保存图像路径到配置
+        self.settings.setValue("filename", filename)
+
+        # 保存当前文件目录
+        self.settings.setValue("last_open_dir", osp.dirname(filename))
+
         self.status(str(self.tr("Loaded %s")) % osp.basename(str(filename)))
         # 更新dock标题
         self.updateDockTitles()
@@ -2295,6 +2317,10 @@ class MainWindow(QtWidgets.QMainWindow):
         self.setFitWindow(True)
         self.actions.fitWindow.setChecked(True)
         self.adjustScale(initial=True)
+
+        # 更新未使用标签的高亮状态
+        self.uniqLabelList.highlightUnusedLabels(self.labelList)
+
         return True
 
     def resizeEvent(self, event):
@@ -3058,19 +3084,21 @@ class MainWindow(QtWidgets.QMainWindow):
     def updateDockTitles(self):
         # 获取各个面板中的项目数量
         file_count = len(self.fileListWidget) if self.fileListWidget else 0
-        label_count = len(self.labelList) if self.labelList else 0
-        shape_count = len(self.canvas.shapes) if self.canvas else 0
+        label_count = self.uniqLabelList.count(
+        ) if self.uniqLabelList else 0  # 修改为使用uniqLabelList的count
+        # 已经使用正确的labelList计数
+        shape_count = len(self.labelList) if self.labelList else 0
 
         # 创建更新的计数徽章样式 - 浅灰色背景且尺寸增大
         badge_style = """
             QLabel { 
-                background-color: #E8F0FE; 
+                background-color: #dfeaf7; 
                 color: #2d81f7; 
                 border-radius: 8px; 
                 min-width: 26px; 
                 max-width: 60px;
                 height: 14px; 
-                font-size: 24px; 
+                font-size: 25px; 
                 font-weight: 700; 
                 margin-left: 10px;
                 padding: 0px 8px;
@@ -3331,3 +3359,64 @@ class MainWindow(QtWidgets.QMainWindow):
 
     def updateModeLabel(self, mode_text):
         self.modeLabel.setText(f"当前模式: {mode_text}")
+
+    def labelItemSelectedForDrawing(self, label_text, shape_type):
+        """当从标签列表中选择标签时，设置为绘制模式并使用该标签进行标注"""
+        # 确保有图像加载
+        if not self.canvas.pixmap:
+            self.status(self.tr("请先打开一个图像"))
+            return
+
+        # 确保当前有创建模式的权限
+        if not self.actions.createMode.isEnabled():
+            self.status(self.tr("当前模式下无法创建新标注"))
+            return
+
+        # 设置标签对话框中的文本
+        self.labelDialog.edit.setText(label_text)
+
+        # 记住这个标签供下次使用
+        self._previous_label_text = label_text
+
+        # 根据形状类型选择正确的创建模式
+        create_modes = {
+            "polygon": self.actions.createMode,
+            "rectangle": self.actions.createRectangleMode,
+            "circle": self.actions.createCircleMode,
+            "line": self.actions.createLineMode,
+            "point": self.actions.createPointMode,
+            "linestrip": self.actions.createLineStripMode,
+            "ai_polygon": self.actions.createAiPolygonMode,
+            "ai_mask": self.actions.createAiMaskMode
+        }
+
+        # 如果存在对应的创建模式动作，触发它
+        if shape_type in create_modes and create_modes[shape_type].isEnabled():
+            # 先将所有创建模式取消选中
+            for action in create_modes.values():
+                if hasattr(action, 'setChecked'):
+                    action.setChecked(False)
+
+            # 选中对应的创建模式
+            action = create_modes[shape_type]
+            if hasattr(action, 'setChecked'):
+                action.setChecked(True)
+
+            # 切换到该绘制模式
+            self.toggleDrawMode(False, createMode=shape_type)
+
+            # 更新状态栏
+            shape_type_names = {
+                "polygon": "多边形",
+                "rectangle": "矩形",
+                "circle": "圆形",
+                "line": "线段",
+                "point": "点",
+                "linestrip": "折线",
+                "ai_polygon": "AI多边形",
+                "ai_mask": "AI蒙版"
+            }
+
+            shape_type_name = shape_type_names.get(shape_type, shape_type)
+            self.status(
+                self.tr(f"已选择标签 '{label_text}'，使用{shape_type_name}工具绘制"))
