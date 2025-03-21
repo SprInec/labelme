@@ -59,8 +59,10 @@ def _setup_loguru(logger_level: str) -> None:
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--version", "-V", action="store_true", help="show version")
-    parser.add_argument("--reset-config", action="store_true", help="reset qt config")
+    parser.add_argument("--version", "-V",
+                        action="store_true", help="show version")
+    parser.add_argument(
+        "--reset-config", action="store_true", help="reset qt config")
     parser.add_argument(
         "--logger-level",
         default="debug",
@@ -218,7 +220,7 @@ def main():
         sys.exit(0)
 
     with logger.catch(), contextlib.redirect_stderr(new_target=_LoggerIO()):
-        win.show()
+        win.showMaximized()
         win.raise_()
         sys.exit(app.exec_())
 

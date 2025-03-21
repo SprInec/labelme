@@ -14,8 +14,8 @@ ai:
     text: ''
 detection:
   advanced:
-    max_size: 1333
-    min_size: 800
+    max_size: 1533
+    min_size: 500
     pre_nms_threshold: 0.5
     pre_nms_top_n: 1000
     score_threshold: 0.05

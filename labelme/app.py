@@ -996,8 +996,43 @@ class MainWindow(QtWidgets.QMainWindow):
             zoom,
         )
 
+        self.statusBar().setStyleSheet(
+            "QStatusBar::item {border: none;}")  # 移除状态栏项的边框
+
+        # 创建状态栏进度条
+        self.statusProgress = QtWidgets.QProgressBar()
+        self.statusProgress.setFixedHeight(16)  # 调整高度使其更现代
+        self.statusProgress.setFixedWidth(300)  # 加宽进度条
+        self.statusProgress.setTextVisible(False)  # 隐藏百分比文本
+        self.statusProgress.setStyleSheet("""
+            QProgressBar {
+                border: none;
+                border-radius: 6px;
+                background-color: #F0F0F0;
+                text-align: center;
+                margin: 0px 5px;
+                height: 12px;
+            }
+            QProgressBar::chunk {
+                background-color: #2196F3;
+                border-radius: 6px;
+                margin: 0px;
+            }
+        """)
+        self.statusProgress.setValue(0)
+        self.statusProgress.setVisible(False)  # 默认隐藏
+
+        # 添加到状态栏
+        self.statusBar().addPermanentWidget(self.statusProgress)
+
         self.statusBar().showMessage(str(self.tr("%s started.")) % __appname__)
         self.statusBar().show()
+
+        # 设置窗口最小尺寸，避免缩放太小
+        self.setMinimumSize(1200, 800)
+        
+        # 设置窗口默认最大化
+        self.showMaximized()
 
         if output_file is not None and self._config["auto_save"]:
             logger.warning(
@@ -2238,6 +2273,8 @@ class MainWindow(QtWidgets.QMainWindow):
     def resizeEvent(self, event):
         if (
             self.canvas
+            and hasattr(self, 'image')
+            and self.image is not None
             and not self.image.isNull()
             and self.zoomMode != self.MANUAL_ZOOM
         ):
@@ -2779,16 +2816,18 @@ class MainWindow(QtWidgets.QMainWindow):
             return
 
         try:
-            # 设置状态栏信息
-            self.status(self.tr("正在执行目标检测..."))
-            
+            # 开始显示进度条
+            self.startProgress(self.tr("正在执行目标检测..."))
+
             # 获取已存在的矩形框数量
             existing_rectangle_count = 0
             if self.canvas.shapes:
                 for shape in self.canvas.shapes:
                     if shape.shape_type == "rectangle":
                         existing_rectangle_count += 1
-            
+
+            self.setProgress(10)  # 更新进度
+
             # 将QImage转换为numpy数组
             image = self.image.convertToFormat(QtGui.QImage.Format_RGB888)
             width = image.width()
@@ -2798,10 +2837,12 @@ class MainWindow(QtWidgets.QMainWindow):
             img_array = np.frombuffer(
                 ptr, np.uint8).reshape((height, width, 3))
 
+            self.setProgress(20)  # 更新进度
+
             # 加载配置
             config_loader = ConfigLoader()
             detection_config = config_loader.get_detection_config()
-            
+
             # 从配置中获取参数
             model_name = detection_config.get("model_name")
             conf_threshold = detection_config.get("conf_threshold")
@@ -2811,17 +2852,14 @@ class MainWindow(QtWidgets.QMainWindow):
             max_detections = detection_config.get("max_detections")
             use_gpu_if_available = detection_config.get("use_gpu_if_available")
             advanced_params = detection_config.get("advanced")
-            
-            logger.info(f"使用模型: {model_name}, 置信度阈值: {conf_threshold}, NMS阈值: {nms_threshold}")
-            
-            # 创建进度条
-            progress = QtWidgets.QProgressDialog(
-                self.tr("正在执行目标检测..."), self.tr("取消"), 0, 100, self)
-            progress.setWindowModality(QtCore.Qt.WindowModal)
-            progress.setWindowTitle(self.tr("目标检测进度"))
-            progress.setValue(10)  # 初始进度
-            
+
+            self.setProgress(30)  # 更新进度
+
+            logger.info(
+                f"使用模型: {model_name}, 置信度阈值: {conf_threshold}, NMS阈值: {nms_threshold}")
+
             # 运行目标检测
+            self.setProgress(40)  # 更新进度 - 开始模型推理
             shape_dicts = object_detection.detect_objects(
                 img_array,
                 model_name=model_name,
@@ -2834,11 +2872,11 @@ class MainWindow(QtWidgets.QMainWindow):
                 advanced_params=advanced_params,
                 start_group_id=existing_rectangle_count  # 传递起始group_id
             )
-            
-            progress.setValue(80)  # 更新进度
+
+            self.setProgress(80)  # 更新进度 - 模型推理完成
 
             if not shape_dicts:
-                progress.setValue(100)
+                self.endProgress(self.tr("未检测到任何对象"))
                 self.errorMessage(
                     self.tr("提示"),
                     self.tr("未检测到任何对象"),
@@ -2858,17 +2896,19 @@ class MainWindow(QtWidgets.QMainWindow):
                 for point in shape_dict["points"]:
                     shape.addPoint(QtCore.QPointF(point[0], point[1]))
                 shapes.append(shape)
-                
-            progress.setValue(90)  # 更新进度
+
+            self.setProgress(90)  # 更新进度 - 开始加载形状
 
             # 加载检测结果，使用replace=False保留原有形状
             self.loadShapes(shapes, replace=False)
             self.setDirty()
-            self.status(self.tr(f"检测到 {len(shapes)} 个对象"))
-            
-            progress.setValue(100)  # 完成
+
+            # 完成并显示结果消息
+            result_message = self.tr(f"检测到 {len(shapes)} 个对象")
+            self.endProgress(result_message)
 
         except Exception as e:
+            self.endProgress(self.tr("检测失败"))
             self.errorMessage(
                 self.tr("目标检测错误"),
                 self.tr(f"运行目标检测时出错: {str(e)}"),
@@ -2885,16 +2925,9 @@ class MainWindow(QtWidgets.QMainWindow):
             return
 
         try:
-            # 设置状态栏信息
-            self.status(self.tr("正在执行人体姿态估计..."))
-            
-            # 创建进度条
-            progress = QtWidgets.QProgressDialog(
-                self.tr("正在执行人体姿态估计..."), self.tr("取消"), 0, 100, self)
-            progress.setWindowModality(QtCore.Qt.WindowModal)
-            progress.setWindowTitle(self.tr("姿态估计进度"))
-            progress.setValue(10)  # 初始进度
-            
+            # 开始显示进度条
+            self.startProgress(self.tr("正在执行人体姿态估计..."))
+
             # 将QImage转换为numpy数组
             image = self.image.convertToFormat(QtGui.QImage.Format_RGB888)
             width = image.width()
@@ -2903,8 +2936,8 @@ class MainWindow(QtWidgets.QMainWindow):
             ptr.setsize(height * width * 3)
             img_array = np.frombuffer(
                 ptr, np.uint8).reshape((height, width, 3))
-                
-            progress.setValue(20)  # 更新进度
+
+            self.setProgress(20)  # 更新进度
 
             # 获取现有的person边界框
             existing_person_boxes = []
@@ -2922,23 +2955,24 @@ class MainWindow(QtWidgets.QMainWindow):
                             existing_person_boxes.append([x1, y1, x2, y2])
                             # 记录框的group_id，用于关联姿态关键点
                             existing_person_boxes_ids.append(shape.group_id)
-                            
-            progress.setValue(30)  # 更新进度
+
+            self.setProgress(30)  # 更新进度
 
             # 加载配置
             config_loader = ConfigLoader()
             pose_config = config_loader.get_pose_estimation_config()
-            
+
             # 获取是否使用已有目标检测结果的设置
-            use_detection_results = pose_config.get("use_detection_results", True)
-            
+            use_detection_results = pose_config.get(
+                "use_detection_results", True)
+
             # 记录日志
             if existing_person_boxes and use_detection_results:
                 logger.info(f"找到 {len(existing_person_boxes)} 个已有的person框")
             else:
                 logger.info("未找到已有的person框或未启用使用已有框")
-                
-            progress.setValue(40)  # 更新进度
+
+            self.setProgress(40)  # 更新进度 - 开始模型推理
 
             # 运行人体姿态估计，传递已有的person框和group_id
             shape_dicts = pose_estimation.estimate_poses(
@@ -2947,11 +2981,11 @@ class MainWindow(QtWidgets.QMainWindow):
                 existing_person_boxes_ids=existing_person_boxes_ids,
                 use_detection_results=use_detection_results
             )
-            
-            progress.setValue(80)  # 更新进度
+
+            self.setProgress(80)  # 更新进度 - 模型推理完成
 
             if not shape_dicts:
-                progress.setValue(100)  # 完成
+                self.endProgress(self.tr("未检测到任何人体姿态"))
                 self.errorMessage(
                     self.tr("提示"),
                     self.tr("未检测到任何人体姿态"),
@@ -2971,17 +3005,19 @@ class MainWindow(QtWidgets.QMainWindow):
                 for point in shape_dict["points"]:
                     shape.addPoint(QtCore.QPointF(point[0], point[1]))
                 shapes.append(shape)
-                
-            progress.setValue(90)  # 更新进度
+
+            self.setProgress(90)  # 更新进度 - 开始加载形状
 
             # 加载检测结果，使用replace=False保留原有形状
             self.loadShapes(shapes, replace=False)
             self.setDirty()
-            self.status(self.tr(f"检测到 {len(shapes)} 个人体姿态"))
-            
-            progress.setValue(100)  # 完成
+
+            # 完成并显示结果消息
+            result_message = self.tr(f"检测到 {len(shapes)} 个人体姿态关键点")
+            self.endProgress(result_message)
 
         except Exception as e:
+            self.endProgress(self.tr("姿态估计失败"))
             self.errorMessage(
                 self.tr("人体姿态估计错误"),
                 self.tr(f"运行人体姿态估计时出错: {str(e)}"),
@@ -3022,7 +3058,25 @@ class MainWindow(QtWidgets.QMainWindow):
         if event.key() == QtCore.Qt.Key_Delete or event.key() == QtCore.Qt.Key_Backspace:
             if self.canvas.selectedShapes:
                 self.deleteSelectedShape()
-        # 调用父类方法处理其他键盘事件
+            return
+
+        # F11键切换全屏模式
+        if event.key() == QtCore.Qt.Key_F11:
+            self.toggleFullScreen()
+            return
+
+        # 空格键切换选中标签的显示状态
+        if event.key() == QtCore.Qt.Key_Space:
+            selectedItems = self.labelList.selectedItems()
+            if selectedItems:
+                for item in selectedItems:
+                    if item.checkState() == QtCore.Qt.Checked:
+                        item.setCheckState(QtCore.Qt.Unchecked)
+                    else:
+                        item.setCheckState(QtCore.Qt.Checked)
+                return
+
+        # 如果没有使用上面的快捷键，则将事件传递给父类处理
         super(MainWindow, self).keyPressEvent(event)
 
     def _get_default_label_color(self, label):
@@ -3112,3 +3166,37 @@ class MainWindow(QtWidgets.QMainWindow):
         action.setChecked(checked)
         action.toggled.connect(slot)
         return action
+
+    def startProgress(self, message, max_value=100):
+        """开始进度条并显示消息"""
+        self.status(message)
+        self.statusProgress.setMaximum(max_value)
+        self.statusProgress.setValue(0)
+        self.statusProgress.setVisible(True)
+        QtWidgets.QApplication.processEvents()  # 确保UI更新
+
+    def setProgress(self, value):
+        """设置进度条的值"""
+        if value < 0:
+            value = 0
+        if value > self.statusProgress.maximum():
+            value = self.statusProgress.maximum()
+        self.statusProgress.setValue(value)
+        QtWidgets.QApplication.processEvents()  # 确保UI更新
+
+    def endProgress(self, message="完成"):
+        """结束进度条并显示消息"""
+        self.statusProgress.setValue(self.statusProgress.maximum())
+        self.status(message)
+        # 短暂延迟后隐藏进度条
+        QtCore.QTimer.singleShot(
+            1000, lambda: self.statusProgress.setVisible(False))
+        QtWidgets.QApplication.processEvents()  # 确保UI更新
+
+    def toggleFullScreen(self):
+        """切换全屏模式"""
+        if self.isFullScreen():
+            self.showNormal()  # 先恢复正常窗口大小
+            self.showMaximized()  # 然后最大化
+        else:
+            self.showFullScreen()
