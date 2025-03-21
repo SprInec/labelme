@@ -48,6 +48,7 @@ class ObjectDetector:
             model_name: 模型名称，可选值: 
                 - fasterrcnn_resnet50_fpn, maskrcnn_resnet50_fpn, retinanet_resnet50_fpn (torchvision模型)
                 - rtmdet_tiny, rtmdet_s, rtmdet_m, rtmdet_l (RTMDet模型)
+                - yolov7, yolov7-tiny, yolov7x, yolov7-w6, yolov7-e6, yolov7-d6, yolov7-e6e (YOLOv7模型)
             conf_threshold: 置信度阈值
             device: 运行设备 ('cpu' 或 'cuda')
             filter_classes: 过滤类别列表
@@ -92,6 +93,9 @@ class ObjectDetector:
         # 检查是否是RTMDet模型
         self.is_rtmdet = self.model_name.startswith("rtmdet")
 
+        # 检查是否是YOLO模型
+        self.is_yolo = self.model_name.startswith("yolo")
+
         # 检查CUDA可用性
         if self.use_gpu_if_available and torch.cuda.is_available() and self.device == 'cuda':
             self.device = 'cuda'
@@ -108,6 +112,8 @@ class ObjectDetector:
             # 判断是否为RTMDet模型
             if self.is_rtmdet:
                 return self._load_rtmdet_model()
+            elif self.is_yolo:
+                return self._load_yolov7_model()
             else:
                 return self._load_torchvision_model()
         except Exception as e:
@@ -361,6 +367,58 @@ class ObjectDetector:
             logger.error(f"加载RTMDet模型失败: {e}")
             raise
 
+    def _load_yolov7_model(self):
+        """加载YOLOv7模型"""
+        try:
+            # 尝试导入YOLOv7相关依赖
+            try:
+                from labelme._automation.yolo_detection import YOLOv7Detector
+                HAS_YOLO = True
+            except ImportError:
+                HAS_YOLO = False
+                logger.warning(
+                    "YOLOv7依赖未安装，无法使用YOLOv7模型。请安装torch和torchvision")
+                raise ImportError("YOLOv7依赖未安装，无法使用YOLOv7模型")
+
+            # 获取模型路径
+            yolo_model_maps = {
+                "yolov7": "yolov7.pt",
+                "yolov7-tiny": "yolov7-tiny.pt",
+                "yolov7x": "yolov7x.pt",
+                "yolov7-w6": "yolov7-w6.pt",
+                "yolov7-e6": "yolov7-e6.pt",
+                "yolov7-d6": "yolov7-d6.pt",
+                "yolov7-e6e": "yolov7-e6e.pt"
+            }
+
+            model_file = yolo_model_maps.get(self.model_name, "yolov7.pt")
+
+            # 尝试下载模型
+            try:
+                from labelme._automation.model_downloader import download_yolov7_model
+                model_path = download_yolov7_model(model_file)
+            except Exception as e:
+                logger.warning(f"下载模型失败: {e}，尝试在本地查找模型")
+                # 尝试在默认位置查找模型
+                model_path = os.path.join(os.path.dirname(
+                    os.path.abspath(__file__)), 'weights', model_file)
+
+                if not os.path.exists(model_path):
+                    raise FileNotFoundError(f"模型文件不存在: {model_path}")
+
+            # 加载YOLOv7检测器
+            detector = YOLOv7Detector(model_path, self.device)
+
+            # 存储类别名称
+            self.class_names = detector.classes
+
+            logger.info(f"YOLOv7模型加载成功: {self.model_name}")
+            return detector
+
+        except Exception as e:
+            logger.error(f"加载YOLOv7模型失败: {e}")
+            raise
+
     def detect(self, image: np.ndarray) -> Tuple[List[List[float]], List[int], List[float]]:
         """
         检测图像中的对象
@@ -379,6 +437,8 @@ class ObjectDetector:
             # 判断是否使用RTMDet模型
             if self.is_rtmdet:
                 return self._detect_rtmdet(image)
+            elif self.is_yolo:
+                return self._detect_yolov7(image)
             else:
                 return self._detect_torchvision(image)
         except Exception as e:
@@ -483,6 +543,46 @@ class ObjectDetector:
             f"RTMDet检测完成: 找到 {len(boxes_list)} 个对象, 耗时 {time.time() - t_start:.3f} [s]")
 
         return boxes_list, class_ids, scores_list
+
+    def _detect_yolov7(self, image: np.ndarray) -> Tuple[List[List[float]], List[int], List[float]]:
+        """使用YOLOv7模型进行检测"""
+        # 记录开始时间
+        t_start = time.time()
+
+        # 过滤类别ID
+        filter_class_ids = None
+        if self.filter_classes:
+            filter_class_ids = []
+            for i, name in enumerate(self.class_names):
+                if name in self.filter_classes:
+                    filter_class_ids.append(i)
+
+        # 运行检测
+        pred_boxes, pred_scores, pred_classes = self.model.detect(
+            image,
+            conf_thres=self.conf_threshold,
+            iou_thres=self.nms_threshold,
+            classes=filter_class_ids
+        )
+
+        # 转换结果格式
+        boxes = []
+        class_ids = []
+        scores = []
+
+        for i in range(len(pred_boxes)):
+            box = pred_boxes[i].tolist()
+            score = float(pred_scores[i])
+            class_id = int(pred_classes[i])
+
+            boxes.append(box)
+            class_ids.append(class_id)
+            scores.append(score)
+
+        logger.debug(
+            f"YOLOv7检测完成: 找到 {len(boxes)} 个对象, 耗时 {time.time() - t_start:.3f} [s]")
+
+        return boxes, class_ids, scores
 
     def visualize(self, image: np.ndarray, boxes: List[List[float]],
                   class_ids: List[int], scores: List[float]) -> np.ndarray:

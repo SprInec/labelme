@@ -295,6 +295,28 @@ class AISettingsDialog(QtWidgets.QDialog):
         self.detection_torchvision_advanced_group.setVisible(is_torchvision)
         self.detection_mmdet_advanced_group.setVisible(is_mmdet)
 
+        # 更新提示信息
+        if is_yolo:
+            # 检查是否安装了YOLOv7依赖
+            try:
+                import torch
+                has_torch = True
+            except ImportError:
+                has_torch = False
+
+            if not has_torch:
+                QtWidgets.QMessageBox.warning(
+                    self,
+                    self.tr("依赖缺失"),
+                    self.tr("YOLO模型依赖未安装，请安装torch和torchvision后再使用YOLO模型。"
+                            "系统将自动切换到Faster R-CNN模型。")
+                )
+                # 切换到Faster R-CNN
+                for i in range(self.detection_model_combo.count()):
+                    if self.detection_model_combo.itemData(i) == "fasterrcnn_resnet50_fpn":
+                        self.detection_model_combo.setCurrentIndex(i)
+                        break
+
         # 类别过滤仅适用于Torchvision和MMDet
         self.detection_classes_widget.setVisible(
             is_torchvision or is_mmdet or is_yolo)
@@ -857,9 +879,17 @@ class AISettingsDialog(QtWidgets.QDialog):
         """姿态估计模型改变时的处理函数"""
         model_key = self.pose_model_name.currentData()
 
-        # 对于所有模型，都显示绘制骨骼和使用已有检测结果选项
+        # 对于所有模型，都显示绘制骨骼选项
         self.pose_draw_skeleton.setVisible(True)
-        self.pose_use_detection_results_widget.setVisible(True)
+
+        # 根据模型类型显示或隐藏"使用已有检测结果"选项
+        # YOLOv7模型不支持从边界框检测姿态
+        is_yolov7 = model_key == "yolov7_w6_pose"
+        self.pose_use_detection_results_widget.setVisible(not is_yolov7)
+
+        # 如果当前模型是YOLOv7，取消选中"使用已有检测结果"选项
+        if is_yolov7:
+            self.pose_use_detection_results.setChecked(False)
 
         # 显示或隐藏自定义模型路径控件
         is_custom = model_key == "custom"
