@@ -3,91 +3,452 @@ import html
 from PyQt5 import QtCore
 from PyQt5 import QtGui
 from PyQt5 import QtWidgets
-from PyQt5.QtCore import Qt
-from PyQt5.QtGui import QPalette, QStandardItem, QStandardItemModel
-from PyQt5.QtWidgets import QStyle, QTreeView
+from PyQt5.QtCore import Qt, QSize, QRect
+from PyQt5.QtGui import QPalette, QStandardItem, QStandardItemModel, QColor, QBrush, QFont, QPainter, QPen
+from PyQt5.QtWidgets import QStyle, QTreeView, QStyledItemDelegate, QWidget, QHBoxLayout, QAbstractItemView
 
 
-class HTMLDelegate(QtWidgets.QStyledItemDelegate):
-    def __init__(self, parent=None):
-        super(HTMLDelegate, self).__init__()
+class UniqueLabelCategoryDelegate(QStyledItemDelegate):
+    """分类项的自定义代理，用于呈现更现代的分类项样式"""
+
+    def __init__(self, parent=None, is_dark=False):
+        super(UniqueLabelCategoryDelegate, self).__init__(parent)
+        self.is_dark = is_dark
+
+    def paint(self, painter, option, index):
+        if not index.parent().isValid() and index.column() == 0:  # 顶层项(分类)
+            option = QtWidgets.QStyleOptionViewItem(option)
+            self.initStyleOption(option, index)
+
+            painter.save()
+
+            # 绘制背景
+            if self.is_dark:
+                if option.state & QStyle.State_Selected:
+                    painter.fillRect(option.rect, QColor(45, 90, 120))
+                elif option.state & QStyle.State_MouseOver:
+                    painter.fillRect(option.rect, QColor(50, 50, 55))
+                else:
+                    painter.fillRect(option.rect, QColor(35, 35, 40))
+            else:
+                if option.state & QStyle.State_Selected:
+                    painter.fillRect(option.rect, QColor(220, 235, 252))
+                elif option.state & QStyle.State_MouseOver:
+                    painter.fillRect(option.rect, QColor(240, 244, 249))
+                else:
+                    painter.fillRect(option.rect, QColor(248, 249, 250))
+
+            # 获取图标
+            icon = index.data(Qt.DecorationRole)
+            if icon and not icon.isNull():
+                icon_size = option.decorationSize
+                icon_rect = QRect(option.rect.left() + 10,
+                                  option.rect.top() + (option.rect.height() - icon_size.height()) // 2,
+                                  icon_size.width(), icon_size.height())
+                icon.paint(painter, icon_rect, Qt.AlignCenter)
+                text_left = icon_rect.right() + 10
+            else:
+                text_left = option.rect.left() + 10
+
+            # 绘制文本
+            text = index.data(Qt.DisplayRole)
+            if isinstance(text, str):
+                # 分解文本提取分类名和计数
+                if "(" in text:
+                    try:
+                        parts = text.rsplit(" (", 1)
+                        category_name = parts[0]
+                        count = parts[1][:-1]  # 移除右括号
+                    except:
+                        category_name = text
+                        count = ""
+                else:
+                    category_name = text
+                    count = ""
+
+                # 设置文本颜色
+                if self.is_dark:
+                    text_color = "#ffffff" if option.state & QStyle.State_Selected else "#e0e0e0"
+                    count_color = "#aaaaaa"
+                else:
+                    text_color = "#000000" if option.state & QStyle.State_Selected else "#333333"
+                    count_color = "#777777"
+
+                # 绘制分类名
+                font = painter.font()
+                font.setBold(True)
+                font.setPointSize(10)
+                painter.setFont(font)
+                painter.setPen(QColor(text_color))
+                text_rect = QRect(text_left, option.rect.top(),
+                                  option.rect.width() - text_left - 50, option.rect.height())
+                painter.drawText(text_rect, Qt.AlignVCenter, category_name)
+
+                # 绘制计数
+                if count:
+                    font.setBold(False)
+                    font.setPointSize(9)
+                    painter.setFont(font)
+                    painter.setPen(QColor(count_color))
+                    count_rect = QRect(text_rect.right(), option.rect.top(),
+                                       40, option.rect.height())
+                    painter.drawText(count_rect, Qt.AlignVCenter, f"({count})")
+
+            painter.restore()
+        else:
+            # 非分类项使用默认绘制方法
+            super(UniqueLabelCategoryDelegate, self).paint(
+                painter, option, index)
+
+    def sizeHint(self, option, index):
+        if not index.parent().isValid():  # 分类项
+            return QSize(option.rect.width(), 38)  # 分类项高度增加
+        else:
+            return super(UniqueLabelCategoryDelegate, self).sizeHint(option, index)
+
+
+class UniqueLabelItemDelegate(QStyledItemDelegate):
+    """子项的自定义代理，用于呈现更现代的子项样式"""
+
+    def __init__(self, parent=None, is_dark=False):
+        super(UniqueLabelItemDelegate, self).__init__(parent)
+        self.is_dark = is_dark
         self.doc = QtGui.QTextDocument(self)
 
     def paint(self, painter, option, index):
-        painter.save()
+        if index.parent().isValid() and index.column() == 0:  # 子项
+            option = QtWidgets.QStyleOptionViewItem(option)
+            self.initStyleOption(option, index)
 
-        options = QtWidgets.QStyleOptionViewItem(option)
+            painter.save()
 
-        self.initStyleOption(options, index)
-        self.doc.setHtml(options.text)
-        options.text = ""
+            # 绘制背景
+            if self.is_dark:
+                if option.state & QStyle.State_Selected:
+                    painter.fillRect(option.rect, QColor(0, 120, 212))
+                elif option.state & QStyle.State_MouseOver:
+                    painter.fillRect(option.rect, QColor(60, 60, 65))
+                else:
+                    painter.fillRect(
+                        option.rect, QColor(40, 40, 45, 0))  # 透明背景
+            else:
+                if option.state & QStyle.State_Selected:
+                    painter.fillRect(option.rect, QColor(210, 228, 255))
+                elif option.state & QStyle.State_MouseOver:
+                    painter.fillRect(option.rect, QColor(235, 243, 254))
+                else:
+                    painter.fillRect(option.rect, QColor(
+                        255, 255, 255, 0))  # 透明背景
 
-        style = (
-            QtWidgets.QApplication.style()
-            if options.widget is None
-            else options.widget.style()
-        )
-        style.drawControl(QStyle.CE_ItemViewItem, options, painter)
+            # 绘制文本和颜色指示器
+            text = index.data(Qt.DisplayRole)
+            if text:
+                # 设置默认文本颜色
+                if self.is_dark:
+                    text_color = QColor(
+                        255, 255, 255) if option.state & QStyle.State_Selected else QColor(220, 220, 220)
+                else:
+                    text_color = QColor(
+                        0, 0, 0) if option.state & QStyle.State_Selected else QColor(60, 60, 60)
 
-        ctx = QtGui.QAbstractTextDocumentLayout.PaintContext()
+                # 提取颜色信息和文本内容
+                label_color = None
+                if "<font" in text:
+                    import re
+                    # 提取颜色信息
+                    color_match = re.search(r'color=[\'"]([^\'"]*)[\'"]', text)
+                    if color_match:
+                        label_color = QColor(color_match.group(1))
 
-        if option.state & QStyle.State_Selected:
-            ctx.palette.setColor(
-                QPalette.Text,
-                option.palette.color(
-                    QPalette.Active, QPalette.HighlightedText),
-            )
+                    # 提取纯文本内容，同时移除 "●" 字符和</font>标签
+                    content = re.sub(r'<[^>]*>●|</font>', '', text).strip()
+                else:
+                    content = text
+
+                # 设置字体
+                font = painter.font()
+                font.setFamily("Microsoft YaHei")
+                font.setPointSize(10)  # 保持现有大小
+                font.setBold(False)
+                painter.setFont(font)
+                painter.setPen(text_color)
+
+                # 设置文本起始位置
+                text_left = option.rect.left() + 15
+
+                # 绘制文本，直接使用纯文本内容
+                text_rect = QRect(
+                    text_left,
+                    option.rect.top(),
+                    option.rect.width() - text_left - 40,  # 留出右侧空间给颜色指示器
+                    option.rect.height()
+                )
+
+                painter.drawText(text_rect, Qt.AlignVCenter, content)
+
+                # 在文本右侧绘制颜色指示器
+                if label_color:
+                    # 计算颜色指示器位置 - 放在文本右侧固定距离处
+                    content_width = option.fontMetrics.width(content)
+                    color_rect = QRect(
+                        text_left + content_width + 15,  # 文本宽度加间距
+                        option.rect.top() + (option.rect.height() - 20) // 2,  # 垂直居中
+                        20,  # 颜色圆点大小
+                        20   # 颜色圆点大小
+                    )
+
+                    # 绘制颜色圆点
+                    painter.setPen(Qt.NoPen)
+                    painter.setBrush(QBrush(label_color))
+                    painter.drawEllipse(color_rect)
+
+                    # 添加细边框使颜色圆点更加清晰
+                    painter.setPen(QPen(QColor(200, 200, 200, 100), 1.0))
+                    painter.setBrush(Qt.NoBrush)
+                    painter.drawEllipse(color_rect)
+
+            painter.restore()
         else:
-            ctx.palette.setColor(
-                QPalette.Text,
-                option.palette.color(QPalette.Active, QPalette.Text),
-            )
-
-        textRect = style.subElementRect(QStyle.SE_ItemViewItemText, options)
-
-        if index.column() != 0:
-            textRect.adjust(5, 0, 0, 0)
-
-        margin = (option.rect.height() - options.fontMetrics.height()) // 2
-        margin = margin - 2
-        textRect.setTop(textRect.top() + margin)
-
-        painter.translate(textRect.topLeft())
-        painter.setClipRect(textRect.translated(-textRect.topLeft()))
-        self.doc.documentLayout().draw(painter, ctx)
-
-        painter.restore()
+            # 非子项使用默认绘制方法
+            super(UniqueLabelItemDelegate, self).paint(painter, option, index)
 
     def sizeHint(self, option, index):
-        return QtCore.QSize(
-            int(self.doc.idealWidth()),
-            int(self.doc.size().height() - 2),
-        )
+        if index.parent().isValid():  # 子项
+            # 确保有足够大的高度
+            return QSize(option.rect.width(), 48)
+        else:
+            return super(UniqueLabelItemDelegate, self).sizeHint(option, index)
+
+
+class ModernUniqueTreeView(QTreeView):
+    """现代化的树视图控件，样式类似文件资源管理器"""
+
+    def __init__(self, parent=None, is_dark=False):
+        super(ModernUniqueTreeView, self).__init__(parent)
+        self.is_dark = is_dark
+        self.setRootIsDecorated(True)  # 显示根项的展开/折叠控件
+        self.setItemsExpandable(True)
+        self.setAnimated(True)
+        self.setIndentation(20)
+        self.setUniformRowHeights(False)  # 允许不同高度的行
+        self.setIconSize(QSize(20, 20))
+        self.setHeaderHidden(True)
+        self.setAlternatingRowColors(False)
+        self.setSelectionMode(QAbstractItemView.SingleSelection)  # 保持原有的单选模式
+        self.setDragEnabled(False)  # 不需要拖拽功能
+        self.setFocusPolicy(Qt.StrongFocus)
+
+        # 启用平滑滚动
+        self.setVerticalScrollMode(QAbstractItemView.ScrollPerPixel)
+        self.setHorizontalScrollMode(QAbstractItemView.ScrollPerPixel)
+
+        # 设置代理
+        self.category_delegate = UniqueLabelCategoryDelegate(self, is_dark)
+        self.item_delegate = UniqueLabelItemDelegate(self, is_dark)
+        self.setItemDelegate(self.category_delegate)
+        self.setItemDelegateForColumn(0, self.item_delegate)
+
+        # 设置样式
+        self.setThemeStyleSheet()
+
+    def setThemeStyleSheet(self):
+        """根据主题设置样式表"""
+        if self.is_dark:
+            self.setStyleSheet("""
+                QTreeView {
+                    background-color: #252526;
+                    border: none;
+                    outline: none;
+                    padding: 5px;
+                    selection-background-color: transparent;
+                }
+                QTreeView::item {
+                    border-radius: 4px;
+                    margin: 2px 4px;
+                    padding: 4px;
+                    font-size: 14px;
+                    font-family: "Microsoft YaHei UI", "Segoe UI", Arial, sans-serif;
+                }
+                QTreeView::branch {
+                    background-color: transparent;
+                }
+                QTreeView::branch:has-children:!has-siblings:closed,
+                QTreeView::branch:closed:has-children:has-siblings {
+                    image: url(:/icons/right-arrow-dark.png);
+                }
+                QTreeView::branch:open:has-children:!has-siblings,
+                QTreeView::branch:open:has-children:has-siblings {
+                    image: url(:/icons/down-arrow-dark.png);
+                }
+                QScrollBar:vertical {
+                    background-color: #2a2a2b;
+                    width: 8px;
+                    margin: 0px;
+                }
+                QScrollBar::handle:vertical {
+                    background-color: #5a5a5c;
+                    min-height: 30px;
+                    border-radius: 4px;
+                }
+                QScrollBar::handle:vertical:hover {
+                    background-color: #777779;
+                }
+                QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical,
+                QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
+                    background: none;
+                    height: 0px;
+                }
+                QScrollBar:horizontal {
+                    background-color: #2a2a2b;
+                    height: 8px;
+                    margin: 0px;
+                }
+                QScrollBar::handle:horizontal {
+                    background-color: #5a5a5c;
+                    min-width: 30px;
+                    border-radius: 4px;
+                }
+                QScrollBar::handle:horizontal:hover {
+                    background-color: #777779;
+                }
+                QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal,
+                QScrollBar::add-page:horizontal, QScrollBar::sub-page:horizontal {
+                    background: none;
+                    width: 0px;
+                }
+            """)
+        else:
+            self.setStyleSheet("""
+                QTreeView {
+                    background-color: white;
+                    border: none;
+                    outline: none;
+                    padding: 5px;
+                    selection-background-color: transparent;
+                }
+                QTreeView::item {
+                    border-radius: 4px;
+                    margin: 2px 4px;
+                    padding: 4px;
+                    font-size: 14px;
+                    font-family: "Microsoft YaHei UI", "Segoe UI", Arial, sans-serif;
+                }
+                QTreeView::branch {
+                    background-color: transparent;
+                }
+                QTreeView::branch:has-children:!has-siblings:closed,
+                QTreeView::branch:closed:has-children:has-siblings {
+                    image: url(:/icons/right-arrow.png);
+                }
+                QTreeView::branch:open:has-children:!has-siblings,
+                QTreeView::branch:open:has-children:has-siblings {
+                    image: url(:/icons/down-arrow.png);
+                }
+                QScrollBar:vertical {
+                    background-color: #f6f6f6;
+                    width: 8px;
+                    margin: 0px;
+                }
+                QScrollBar::handle:vertical {
+                    background-color: #d0d0d0;
+                    min-height: 30px;
+                    border-radius: 4px;
+                }
+                QScrollBar::handle:vertical:hover {
+                    background-color: #b0b0b0;
+                }
+                QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical,
+                QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
+                    background: none;
+                    height: 0px;
+                }
+                QScrollBar:horizontal {
+                    background-color: #f6f6f6;
+                    height: 8px;
+                    margin: 0px;
+                }
+                QScrollBar::handle:horizontal {
+                    background-color: #d0d0d0;
+                    min-width: 30px;
+                    border-radius: 4px;
+                }
+                QScrollBar::handle:horizontal:hover {
+                    background-color: #b0b0b0;
+                }
+                QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal,
+                QScrollBar::add-page:horizontal, QScrollBar::sub-page:horizontal {
+                    background: none;
+                    width: 0px;
+                }
+            """)
+
+    def drawBranches(self, painter, rect, index):
+        """自定义分支绘制，使用更现代的展开/折叠图标"""
+        if not index.parent().isValid():  # 顶层项
+            item = self.model().itemFromIndex(index)
+            if item and hasattr(item, 'rowCount') and item.rowCount() > 0:
+                painter.save()
+
+                # 绘制展开/折叠图标 - 改用圆形背景加箭头的现代样式
+                mid_y = rect.top() + rect.height() // 2
+                right_x = rect.left() + rect.width() - 10
+
+                # 绘制圆形背景
+                if self.is_dark:
+                    bg_color = QColor(60, 60, 66)
+                    arrow_color = QColor(220, 220, 220)
+                else:
+                    bg_color = QColor(240, 240, 245)
+                    arrow_color = QColor(100, 100, 100)
+
+                # 圆形背景
+                painter.setPen(Qt.NoPen)
+                painter.setBrush(QBrush(bg_color))
+                painter.drawEllipse(right_x - 8, mid_y - 8, 16, 16)
+
+                # 箭头
+                painter.setPen(
+                    QPen(arrow_color, 2.0, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
+
+                if self.isExpanded(index):
+                    # 绘制展开图标（向下箭头）
+                    painter.drawLine(right_x - 4, mid_y -
+                                     1, right_x, mid_y + 3)
+                    painter.drawLine(right_x, mid_y + 3,
+                                     right_x + 4, mid_y - 1)
+                else:
+                    # 绘制折叠图标（向右箭头）
+                    painter.drawLine(right_x - 2, mid_y -
+                                     4, right_x + 3, mid_y)
+                    painter.drawLine(right_x + 3, mid_y,
+                                     right_x - 2, mid_y + 4)
+
+                painter.restore()
+        # 不绘制子项的分支线
+
+    def setDarkMode(self, is_dark):
+        """切换暗色/亮色主题"""
+        self.is_dark = is_dark
+        self.category_delegate.is_dark = is_dark
+        self.item_delegate.is_dark = is_dark
+        self.setThemeStyleSheet()
+        self.viewport().update()
 
 
 class UniqueLabelTreeWidgetItem(QStandardItem):
-    def __init__(self, text=None, label=None, is_category=False, shape_type=None):
+    def __init__(self, text=None, label=None, is_category=False, shape_type=None, is_dark=False):
         super(UniqueLabelTreeWidgetItem, self).__init__()
         self.setText(text or "")
         self.setLabel(label)
         self.is_category = is_category
         self.shape_type = shape_type
+        self.is_dark = is_dark
+
+        # 存储是否为分类项的标志
+        self.setData(is_category, Qt.UserRole + 2)
 
         self.setEditable(False)
         self.setSelectable(True)
-
-        # 如果是分类项，设置粗体
-        if is_category:
-            font = self.font()
-            font.setBold(True)
-            self.setFont(font)
-
-            # 为分类项设置更现代的字体大小
-            font.setPointSize(10)
-            self.setFont(font)
-
-            # 为分类项设置更暗的颜色
-            self.setForeground(QtGui.QColor(51, 51, 51))
 
     def setLabel(self, label):
         self.setData(label, Qt.UserRole)
@@ -98,38 +459,68 @@ class UniqueLabelTreeWidgetItem(QStandardItem):
     def __hash__(self):
         return id(self)
 
+    def __repr__(self):
+        return '{}("{}")'.format(self.__class__.__name__, self.text())
 
-class UniqueLabelTreeWidget(QTreeView):
+
+class UniqueLabelTreeWidget(QWidget):
     itemDoubleClicked = QtCore.pyqtSignal(UniqueLabelTreeWidgetItem)
 
-    def __init__(self):
+    def __init__(self, is_dark=False):
         super(UniqueLabelTreeWidget, self).__init__()
         self.categories = {}  # 存储所有分类
         self.labels_by_category = {}  # 按类别存储标签
+        self.is_dark = is_dark
 
-        self.setWindowFlags(Qt.Window)
+        # 创建现代化的树状视图
+        self.treeView = ModernUniqueTreeView(self, is_dark)
         self.model = QStandardItemModel()
-        self.setModel(self.model)
-        self.setItemDelegate(HTMLDelegate())
-        self.setSelectionMode(QtWidgets.QAbstractItemView.SingleSelection)
-        self.setHeaderHidden(True)
-
-        # 设置动画
-        self.setAnimated(True)
-        self.setIndentation(20)  # 设置缩进
-
-        # 设置图标大小
-        self.setIconSize(QtCore.QSize(20, 20))
-
-        self.expandAll()
+        self.treeView.setModel(self.model)
 
         # 连接信号
-        self.doubleClicked.connect(self.itemDoubleClickedEvent)
+        self.treeView.doubleClicked.connect(self.itemDoubleClickedEvent)
 
-    def itemDoubleClickedEvent(self, index):
-        item = self.model.itemFromIndex(index)
-        if item and not getattr(item, 'is_category', False):
-            self.itemDoubleClicked.emit(item)
+        # 设置布局
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.addWidget(self.treeView)
+        self.setLayout(layout)
+
+        # 设置窗口样式
+        if self.is_dark:
+            self.setStyleSheet("background-color: #252526; border: none;")
+        else:
+            self.setStyleSheet("background-color: white; border: none;")
+
+    def setDarkMode(self, is_dark):
+        """切换暗色/亮色主题"""
+        self.is_dark = is_dark
+        self.treeView.setDarkMode(is_dark)
+
+        # 更新窗口样式
+        if self.is_dark:
+            self.setStyleSheet("background-color: #252526; border: none;")
+        else:
+            self.setStyleSheet("background-color: white; border: none;")
+
+        # 更新现有项的样式
+        self.updateAllItemsTheme()
+
+    def updateAllItemsTheme(self):
+        """更新所有项的主题样式"""
+        for category_name, category_item in self.categories.items():
+            category_item.is_dark = self.is_dark
+
+            # 更新分类下的所有子项
+            for i in range(category_item.rowCount()):
+                child_item = category_item.child(i, 0)
+                if isinstance(child_item, UniqueLabelTreeWidgetItem):
+                    child_item.is_dark = self.is_dark
+
+        # 更新分类数量显示
+        self.updateAllCategoryCounts()
+        # 刷新视图
+        self.treeView.viewport().update()
 
     def count(self):
         # 计算所有标签项的数量（不包括分类项）
@@ -138,6 +529,12 @@ class UniqueLabelTreeWidget(QTreeView):
             category_item = self.model.item(i, 0)
             count += category_item.rowCount()
         return count
+
+    def itemDoubleClickedEvent(self, index):
+        item = self.model.itemFromIndex(index)
+        # 确保项是UniqueLabelTreeWidgetItem类型并且不是分类
+        if isinstance(item, UniqueLabelTreeWidgetItem) and not item.is_category:
+            self.itemDoubleClicked.emit(item)
 
     def findItemByLabel(self, label):
         """根据标签查找项"""
@@ -155,12 +552,13 @@ class UniqueLabelTreeWidget(QTreeView):
             return self.categories[category_name]
 
         # 创建新分类
-        category_item = UniqueLabelTreeWidgetItem(category_name, None, True)
+        category_item = UniqueLabelTreeWidgetItem(
+            category_name, None, True, None, self.is_dark)
         self.model.appendRow(category_item)
         self.categories[category_name] = category_item
         if category_name not in self.labels_by_category:
             self.labels_by_category[category_name] = []
-        self.expandAll()  # 展开所有项
+        self.treeView.expand(category_item.index())  # 展开分类项
         return category_item
 
     def createItemFromLabel(self, label, shape_type=None):
@@ -168,11 +566,18 @@ class UniqueLabelTreeWidget(QTreeView):
         if self.findItemByLabel(label):
             raise ValueError(f"Item for label '{label}' already exists")
 
-        item = UniqueLabelTreeWidgetItem(label=label, shape_type=shape_type)
+        item = UniqueLabelTreeWidgetItem(
+            label=label, shape_type=shape_type, is_dark=self.is_dark)
         return item
 
     def addItem(self, item):
         """添加项到对应的分类中"""
+        if not isinstance(item, UniqueLabelTreeWidgetItem):
+            raise TypeError("item must be UniqueLabelTreeWidgetItem")
+
+        # 设置项的颜色主题
+        item.is_dark = self.is_dark
+
         label = item.label()
         if not label:
             return
@@ -204,7 +609,7 @@ class UniqueLabelTreeWidget(QTreeView):
         if label not in self.labels_by_category[category_name]:
             self.labels_by_category[category_name].append(label)
 
-        self.expandAll()  # 确保展开显示
+        self.treeView.expand(category_item.index())  # 确保展开显示
         self.updateCategoryCount(category_name)
 
     def setItemLabel(self, item, label, color=None):
@@ -220,8 +625,13 @@ class UniqueLabelTreeWidget(QTreeView):
 
     def selectedItems(self):
         """获取选中的项"""
-        return [self.model.itemFromIndex(i) for i in self.selectedIndexes()
-                if not getattr(self.model.itemFromIndex(i), 'is_category', False)]
+        items = []
+        for index in self.treeView.selectedIndexes():
+            item = self.model.itemFromIndex(index)
+            # 确保项是UniqueLabelTreeWidgetItem类型并且不是分类
+            if isinstance(item, UniqueLabelTreeWidgetItem) and not item.is_category:
+                items.append(item)
+        return items
 
     def clear(self):
         """清空所有项"""
@@ -240,3 +650,7 @@ class UniqueLabelTreeWidget(QTreeView):
         """更新所有分类的数量显示"""
         for category_name in list(self.categories.keys()):
             self.updateCategoryCount(category_name)
+
+    def expandAll(self):
+        """展开所有项"""
+        self.treeView.expandAll()

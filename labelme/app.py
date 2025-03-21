@@ -37,15 +37,10 @@ from labelme.widgets import BrightnessContrastDialog
 from labelme.widgets import Canvas
 from labelme.widgets import FileDialogPreview
 from labelme.widgets import LabelDialog
-from labelme.widgets import LabelListWidget
-from labelme.widgets import LabelListWidgetItem
-from labelme.widgets import LabelQLineEdit
 from labelme.widgets import LabelTreeWidget
 from labelme.widgets import LabelTreeWidgetItem
 from labelme.widgets import ToolBar
-from labelme.widgets import UniqueLabelQListWidget
 from labelme.widgets import UniqueLabelTreeWidget
-from labelme.widgets import UniqueLabelTreeWidgetItem
 from labelme.widgets import ZoomWidget
 from labelme.widgets.ai_settings_dialog import AISettingsDialog
 from labelme.widgets.shortcuts_dialog import ShortcutsDialog
@@ -156,7 +151,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.lastOpenDir = None
 
         self.flag_dock = self.flag_widget = None
-        self.flag_dock = QtWidgets.QDockWidget(self.tr("标记 (0)"), self)
+        self.flag_dock = QtWidgets.QDockWidget(self.tr("标记 0"), self)
         self.flag_dock.setObjectName("Flags")
         self.flag_widget = QtWidgets.QListWidget()
         if config["flags"]:
@@ -169,7 +164,7 @@ class MainWindow(QtWidgets.QMainWindow):
         # self.labelList.itemChanged.connect(self.labelItemChanged)  # LabelTreeWidget没有这个信号
         # self.labelList.itemDropped.connect(self.labelOrderChanged)  # LabelTreeWidget没有这个信号
         self.shape_dock = QtWidgets.QDockWidget(
-            self.tr("多边形标签 (0)"), self)
+            self.tr("多边形标签 0"), self)
         self.shape_dock.setObjectName("Labels")
         self.shape_dock.setWidget(self.labelList)
 
@@ -187,7 +182,7 @@ class MainWindow(QtWidgets.QMainWindow):
                 self.uniqLabelList.addItem(item)
                 rgb = self._get_rgb_by_label(label)
                 self.uniqLabelList.setItemLabel(item, label, rgb)
-        self.label_dock = QtWidgets.QDockWidget(self.tr("标签列表 (0)"), self)
+        self.label_dock = QtWidgets.QDockWidget(self.tr("标签列表 0"), self)
         self.label_dock.setObjectName("Label List")
         self.label_dock.setWidget(self.uniqLabelList)
 
@@ -202,7 +197,7 @@ class MainWindow(QtWidgets.QMainWindow):
         fileListLayout.setSpacing(0)
         fileListLayout.addWidget(self.fileSearch)
         fileListLayout.addWidget(self.fileListWidget)
-        self.file_dock = QtWidgets.QDockWidget(self.tr("文件列表 (0)"), self)
+        self.file_dock = QtWidgets.QDockWidget(self.tr("文件列表 0"), self)
         self.file_dock.setObjectName("Files")
         fileListWidget = QtWidgets.QWidget()
         fileListWidget.setLayout(fileListLayout)
@@ -3064,19 +3059,19 @@ class MainWindow(QtWidgets.QMainWindow):
         """更新所有dock窗口的标题，显示当前项目数量"""
         # 更新标记dock
         flag_count = self.flag_widget.count()
-        self.flag_dock.setWindowTitle(self.tr(f"标记 ({flag_count})"))
+        self.flag_dock.setWindowTitle(self.tr(f"标记 {flag_count}"))
 
         # 更新多边形标签dock
         shape_count = len(self.labelList)  # 使用__len__方法而不是count
-        self.shape_dock.setWindowTitle(self.tr(f"多边形标签 ({shape_count})"))
+        self.shape_dock.setWindowTitle(self.tr(f"多边形标签 {shape_count}"))
 
         # 更新标签列表dock
         label_count = self.uniqLabelList.count()
-        self.label_dock.setWindowTitle(self.tr(f"标签列表 ({label_count})"))
+        self.label_dock.setWindowTitle(self.tr(f"标签列表 {label_count}"))
 
         # 更新文件列表dock
         file_count = self.fileListWidget.count()
-        self.file_dock.setWindowTitle(self.tr(f"文件列表 ({file_count})"))
+        self.file_dock.setWindowTitle(self.tr(f"文件列表 {file_count}"))
 
     def openShortcutsDialog(self):
         """打开快捷键设置对话框"""
