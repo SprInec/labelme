@@ -144,32 +144,74 @@ class Canvas(QtWidgets.QWidget):
         self._createMode = value
 
     def _compute_and_cache_image_embedding(self) -> None:
+        if self.pixmap is None:
+            logger.warning("Pixmap is not set yet")
+            return
+
         if self._sam is None:
-            logger.warning("SAM model is not set yet")
+            logger.warning("AI model is not initialized yet")
             return
 
         sam: osam.types.Model = self._sam
 
-        image: np.ndarray = labelme.utils.img_qt_to_arr(self.pixmap.toImage())
-        if image.tobytes() in self._sam_embedding:
-            return
+        try:
+            image: np.ndarray = labelme.utils.img_qt_to_arr(
+                self.pixmap.toImage())
+            if image is None or image.size == 0:
+                logger.warning("Invalid image")
+                return
 
-        logger.debug("Computing image embeddings for model {!r}", sam.name)
-        self._sam_embedding[image.tobytes()] = sam.encode_image(
-            image=imgviz.asrgb(image)
-        )
+            if image.tobytes() in self._sam_embedding:
+                return
+
+            logger.debug("Computing image embeddings for model {!r}", sam.name)
+            self._sam_embedding[image.tobytes()] = sam.encode_image(
+                image=imgviz.asrgb(image)
+            )
+        except Exception as e:
+            logger.error(f"计算图像嵌入失败: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
 
     def initializeAiModel(self, model_name):
         if self.pixmap is None:
             logger.warning("Pixmap is not set yet")
             return
 
-        if self._sam is None or self._sam.name != model_name:
-            logger.debug("Initializing AI model {!r}", model_name)
-            self._sam = osam.apis.get_model_type_by_name(model_name)()
-            self._sam_embedding.clear()
+        try:
+            # 如果model_name是UI显示名称而不是标识符，需要转换
+            # 从错误日志中看到传入的名称是"Sam2 (balanced)"等UI显示名称
+            # 而非"sam2:latest"等标识符
+            api_model_name = model_name
 
-        self._compute_and_cache_image_embedding()
+            # 检查是否是UI显示名称，如果是，则转换为对应的模型标识符
+            ui_name_to_id = {
+                "SegmentAnything (accuracy)": "sam:latest",
+                "SegmentAnything (balanced)": "sam:300m",
+                "SegmentAnything (speed)": "sam:100m",
+                "EfficientSam (accuracy)": "efficientsam:latest",
+                "EfficientSam (speed)": "efficientsam:10m",
+                "Sam2 (accuracy)": "sam2:large",
+                "Sam2 (balanced)": "sam2:latest",  # 对应Sam2BasePlus
+                "Sam2 (speed)": "sam2:small",
+                "Sam2 (tiny)": "sam2:tiny"
+            }
+
+            if model_name in ui_name_to_id:
+                api_model_name = ui_name_to_id[model_name]
+                logger.info(
+                    f"将UI显示名称 '{model_name}' 转换为模型标识符 '{api_model_name}'")
+
+            if self._sam is None or self._sam.name != api_model_name:
+                logger.debug("Initializing AI model {!r}", api_model_name)
+                self._sam = osam.apis.get_model_type_by_name(api_model_name)()
+                self._sam_embedding.clear()
+
+            self._compute_and_cache_image_embedding()
+        except Exception as e:
+            logger.error(f"初始化AI模型失败: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
 
     def storeShapes(self):
         shapesBackup = []
@@ -1162,48 +1204,105 @@ def _update_shape_with_sam(
             f"createMode must be 'ai_polygon' or 'ai_mask', not {createMode}"
         )
 
-    response: osam.types.GenerateResponse = osam.apis.generate(
-        osam.types.GenerateRequest(
-            model=model_name,
-            image_embedding=image_embedding,
-            prompt=osam.types.Prompt(
-                points=[[point.x(), point.y()] for point in shape.points],
-                point_labels=shape.point_labels,
-            ),
-        )
-    )
-    if not response.annotations:
-        logger.warning("No annotations returned by model {!r}", model_name)
-        return
+    try:
+        logger.info(f"使用模型 {model_name} 进行分割")
 
-    if createMode == "ai_mask":
-        y1: int
-        x1: int
-        y2: int
-        x2: int
-        if response.annotations[0].bounding_box is None:
-            y1, x1, y2, x2 = imgviz.instances.mask_to_bbox(
-                [response.annotations[0].mask]
-            )[0].astype(int)
-        else:
-            y1 = response.annotations[0].bounding_box.ymin
-            x1 = response.annotations[0].bounding_box.xmin
-            y2 = response.annotations[0].bounding_box.ymax
-            x2 = response.annotations[0].bounding_box.xmax
-        shape.setShapeRefined(
-            shape_type="mask",
-            points=[QtCore.QPointF(x1, y1), QtCore.QPointF(x2, y2)],
-            point_labels=[1, 1],
-            mask=response.annotations[0].mask[y1: y2 + 1, x1: x2 + 1],
-        )
-    elif createMode == "ai_polygon":
-        points = polygon_from_mask.compute_polygon_from_mask(
-            mask=response.annotations[0].mask
-        )
-        if len(points) < 2:
+        if not shape.points:
+            logger.warning("形状没有点")
             return
-        shape.setShapeRefined(
-            shape_type="polygon",
-            points=[QtCore.QPointF(point[0], point[1]) for point in points],
-            point_labels=[1] * len(points),
+
+        points = [[point.x(), point.y()] for point in shape.points]
+        point_labels = shape.point_labels
+
+        if len(points) != len(point_labels):
+            logger.warning(
+                f"点数量 ({len(points)}) 与标签数量 ({len(point_labels)}) 不匹配")
+            # 确保长度一致
+            point_labels = [1] * len(points)
+
+        logger.info(f"点: {points}")
+        logger.info(f"标签: {point_labels}")
+
+        response: osam.types.GenerateResponse = osam.apis.generate(
+            osam.types.GenerateRequest(
+                model=model_name,
+                image_embedding=image_embedding,
+                prompt=osam.types.Prompt(
+                    points=points,
+                    point_labels=point_labels,
+                ),
+            )
         )
+
+        logger.info(
+            f"获取到注释数量: {len(response.annotations) if response.annotations else 0}")
+
+        if not response.annotations:
+            logger.warning("模型 {!r} 未返回任何注释", model_name)
+            return
+
+        if createMode == "ai_mask":
+            y1: int
+            x1: int
+            y2: int
+            x2: int
+            if response.annotations[0].bounding_box is None:
+                mask = response.annotations[0].mask
+                if mask is None or mask.size == 0:
+                    logger.warning("返回的掩码为空")
+                    return
+
+                logger.info(f"掩码形状: {mask.shape}")
+                bbox = imgviz.instances.mask_to_bbox([mask])
+                if len(bbox) == 0:
+                    logger.warning("无法从掩码计算边界框")
+                    return
+
+                y1, x1, y2, x2 = bbox[0].astype(int)
+                logger.info(f"从掩码计算的边界框: [{x1}, {y1}, {x2}, {y2}]")
+            else:
+                y1 = response.annotations[0].bounding_box.ymin
+                x1 = response.annotations[0].bounding_box.xmin
+                y2 = response.annotations[0].bounding_box.ymax
+                x2 = response.annotations[0].bounding_box.xmax
+                logger.info(f"模型提供的边界框: [{x1}, {y1}, {x2}, {y2}]")
+
+            mask_roi = response.annotations[0].mask[y1: y2 + 1, x1: x2 + 1]
+            if mask_roi is None or mask_roi.size == 0:
+                logger.warning("裁剪后的掩码为空")
+                return
+
+            logger.info(f"裁剪后的掩码形状: {mask_roi.shape}")
+
+            shape.setShapeRefined(
+                shape_type="mask",
+                points=[QtCore.QPointF(x1, y1), QtCore.QPointF(x2, y2)],
+                point_labels=[1, 1],
+                mask=mask_roi,
+            )
+        elif createMode == "ai_polygon":
+            mask = response.annotations[0].mask
+            if mask is None or mask.size == 0:
+                logger.warning("返回的掩码为空")
+                return
+
+            logger.info(f"多边形掩码形状: {mask.shape}")
+
+            points = polygon_from_mask.compute_polygon_from_mask(mask=mask)
+
+            if len(points) < 2:
+                logger.warning("计算的多边形点数过少")
+                return
+
+            logger.info(f"计算的多边形点数: {len(points)}")
+
+            shape.setShapeRefined(
+                shape_type="polygon",
+                points=[QtCore.QPointF(point[0], point[1])
+                        for point in points],
+                point_labels=[1] * len(points),
+            )
+    except Exception as e:
+        logger.error(f"使用AI模型更新形状时出错: {e}")
+        import traceback
+        logger.error(traceback.format_exc())

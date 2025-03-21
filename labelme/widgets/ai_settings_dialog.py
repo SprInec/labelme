@@ -454,19 +454,22 @@ class AISettingsDialog(QtWidgets.QDialog):
         # 分割蒙版设置
         mask_config = self.config.get("mask", {})
         if mask_config:
-            # 模型类型
-            model_type = mask_config.get("model_type", "sam")
-            for i in range(self.mask_model_combo.count()):
-                if self.mask_model_combo.itemData(i) == model_type:
-                    self.mask_model_combo.setCurrentIndex(i)
-                    break
-
             # 模型名称
-            model_name = mask_config.get("model_name", "vit_h")
+            model_name = mask_config.get("model_name", "sam:latest")
             for i in range(self.mask_model_combo.count()):
                 if self.mask_model_combo.itemData(i) == model_name:
                     self.mask_model_combo.setCurrentIndex(i)
                     break
+
+            # 置信度阈值
+            if hasattr(self, 'mask_conf_threshold') and self.mask_conf_threshold is not None:
+                self.mask_conf_threshold.setValue(
+                    mask_config.get("conf_threshold", 0.5))
+
+            # 多边形简化容差
+            if hasattr(self, 'mask_simplify_tolerance') and self.mask_simplify_tolerance is not None:
+                self.mask_simplify_tolerance.setValue(
+                    mask_config.get("simplify_tolerance", 1.0))
 
             # 多点预测总数
             self.mask_points_per_side.setValue(
@@ -486,6 +489,23 @@ class AISettingsDialog(QtWidgets.QDialog):
                 if self.mask_interactive_mode.itemData(i) == interactive_mode:
                     self.mask_interactive_mode.setCurrentIndex(i)
                     break
+
+            # 高级参数
+            if hasattr(self, 'mask_max_segments') and self.mask_max_segments is not None:
+                self.mask_max_segments.setValue(
+                    mask_config.get("max_segments", 5))
+
+            if hasattr(self, 'mask_min_area') and self.mask_min_area is not None:
+                self.mask_min_area.setValue(
+                    mask_config.get("min_area", 100))
+
+            if hasattr(self, 'mask_preprocess') and self.mask_preprocess is not None:
+                self.mask_preprocess.setChecked(
+                    mask_config.get("preprocess", True))
+
+            if hasattr(self, 'mask_postprocess') and self.mask_postprocess is not None:
+                self.mask_postprocess.setChecked(
+                    mask_config.get("postprocess", True))
 
         # 更新AI Prompt
         prompt_config = self.config.get("prompt", {})
@@ -579,17 +599,20 @@ class AISettingsDialog(QtWidgets.QDialog):
         # 更新分割蒙版配置
         mask_config = {}
 
-        # 获取模型类型
-        model_type_idx = self.mask_model_combo.currentIndex()
-        mask_config["model_type"] = self.mask_model_combo.itemData(
-            model_type_idx)
-
         # 获取模型名称
-        model_name_idx = self.mask_model_combo.currentIndex()
-        mask_config["model_name"] = self.mask_model_combo.itemData(
-            model_name_idx)
+        model_idx = self.mask_model_combo.currentIndex()
+        model_name = self.mask_model_combo.itemData(model_idx)
+        mask_config["model_name"] = model_name
+
+        # 设置模型类型（根据模型名称前缀）
+        if ":" in model_name:
+            mask_config["model_type"] = model_name.split(":")[0]
+        else:
+            mask_config["model_type"] = "sam"  # 默认类型
 
         # 更新其他参数
+        mask_config["conf_threshold"] = self.mask_conf_threshold.value()
+        mask_config["simplify_tolerance"] = self.mask_simplify_tolerance.value()
         mask_config["points_per_side"] = self.mask_points_per_side.value()
         mask_config["device"] = self.mask_device.currentText()
         mask_config["use_gpu_if_available"] = self.mask_use_gpu.isChecked()
@@ -607,10 +630,18 @@ class AISettingsDialog(QtWidgets.QDialog):
 
         new_config["mask"] = mask_config
 
+        # 更新默认AI模型
+        if "ai" not in new_config:
+            new_config["ai"] = {}
+
+        # 确保使用的是模型标识符而不是UI显示名称
+        new_config["ai"]["default"] = model_name
+
         # 更新AI Prompt配置
         prompt_config = {}
         prompt_config["text"] = self.text_prompt_input.toPlainText()
         prompt_config["score_threshold"] = self.score_threshold.value()
+        prompt_config["iou_threshold"] = self.iou_threshold.value()
         new_config["prompt"] = prompt_config
 
         # 保存配置
@@ -733,22 +764,23 @@ class AISettingsDialog(QtWidgets.QDialog):
         # AI Mask模型选择
         self.mask_model_combo = QtWidgets.QComboBox()
         MODEL_NAMES = [
-            ("efficientsam:10m", "EfficientSam (speed)"),
-            ("efficientsam:latest", "EfficientSam (accuracy)"),
-            ("sam:100m", "SegmentAnything (speed)"),
-            ("sam:300m", "SegmentAnything (balanced)"),
             ("sam:latest", "SegmentAnything (accuracy)"),
-            ("sam2:small", "Sam2 (speed)"),
-            ("sam2:latest", "Sam2 (balanced)"),
+            ("sam:300m", "SegmentAnything (balanced)"),
+            ("sam:100m", "SegmentAnything (speed)"),
+            ("efficientsam:latest", "EfficientSam (accuracy)"),
+            ("efficientsam:10m", "EfficientSam (speed)"),
             ("sam2:large", "Sam2 (accuracy)"),
+            ("sam2:latest", "Sam2 (balanced)"),
+            ("sam2:small", "Sam2 (speed)"),
+            ("sam2:tiny", "Sam2 (tiny)")
         ]
         for model_name, model_ui_name in MODEL_NAMES:
             self.mask_model_combo.addItem(model_ui_name, userData=model_name)
         layout.addRow(self.tr("AI蒙版模型:"), self.mask_model_combo)
 
-        # 当前选择的模型
-        self.current_model_label = QtWidgets.QLabel(self.tr("当前使用的模型:"))
-        layout.addRow(self.current_model_label)
+        # 模型状态标签
+        self.model_status_label = QtWidgets.QLabel(self.tr("模型状态: 未加载"))
+        layout.addRow(self.tr(""), self.model_status_label)
 
         # AI Prompt设置
         prompt_group = QtWidgets.QGroupBox(self.tr("AI提示设置"))

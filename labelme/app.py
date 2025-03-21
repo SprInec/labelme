@@ -420,7 +420,7 @@ class MainWindow(QtWidgets.QMainWindow):
         createAiPolygonMode.changed.connect(
             lambda: self.canvas.initializeAiModel(
                 model_name=self._config["ai"].get(
-                    "default", "EfficientSam (speed)")
+                    "default", "sam:latest")
             )
             if self.canvas.createMode == "ai_polygon"
             else None
@@ -436,7 +436,7 @@ class MainWindow(QtWidgets.QMainWindow):
         createAiMaskMode.changed.connect(
             lambda: self.canvas.initializeAiModel(
                 model_name=self._config["ai"].get(
-                    "default", "EfficientSam (speed)")
+                    "default", "sam:latest")
             )
             if self.canvas.createMode == "ai_mask"
             else None

@@ -119,6 +119,28 @@ class ConfigLoader:
                     "max_poses": 20,
                     "min_keypoints": 5
                 }
+            },
+            "mask": {
+                "model_type": "sam",
+                "model_name": "sam:latest",
+                "points_per_side": 32,
+                "device": "cpu",
+                "use_gpu_if_available": True,
+                "interactive_mode": "points",
+                "max_segments": 5,
+                "min_area": 100,
+                "preprocess": True,
+                "postprocess": True,
+                "conf_threshold": 0.5,
+                "simplify_tolerance": 1.0
+            },
+            "prompt": {
+                "text": "",
+                "score_threshold": 0.1,
+                "iou_threshold": 0.5
+            },
+            "ai": {
+                "default": "sam:latest"
             }
         }
         return default_config
@@ -142,6 +164,10 @@ class ConfigLoader:
     def get_rtmpose_config(self) -> Dict[str, Any]:
         """获取RTMPose配置"""
         return self.config.get("rtmpose", self._get_default_config()["rtmpose"])
+
+    def get_mask_config(self) -> Dict[str, Any]:
+        """获取分割蒙版配置"""
+        return self.config.get("mask", self._get_default_config()["mask"])
 
     def save_config(self, new_config: Dict[str, Any]) -> bool:
         """保存配置到文件"""
