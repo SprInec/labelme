@@ -136,7 +136,7 @@ class LabelDialog(QtWidgets.QDialog):
         text="Enter object label",
         parent=None,
         labels=None,
-        sort_labels=True,
+        sort_labels=False,
         show_text_field=True,
         completion="startswith",
         fit_to_content=None,
@@ -149,6 +149,12 @@ class LabelDialog(QtWidgets.QDialog):
 
         # 保存对主应用程序的引用
         self.app = app
+
+        # 获取标签云布局配置
+        self._use_cloud_layout = False
+        if app and hasattr(app, '_config'):
+            self._use_cloud_layout = app._config.get(
+                'label_cloud_layout', False)
 
         super(LabelDialog, self).__init__(parent)
         self.edit = LabelQLineEdit()
@@ -170,87 +176,20 @@ class LabelDialog(QtWidgets.QDialog):
             layout_edit.addWidget(self.edit_group_id, 2)
             layout.addLayout(layout_edit)
 
-        # label_list
-        self.labelList = QtWidgets.QListWidget()
-        if self._fit_to_content["row"]:
-            self.labelList.setHorizontalScrollBarPolicy(
-                QtCore.Qt.ScrollBarAlwaysOff)
-        if self._fit_to_content["column"]:
-            self.labelList.setVerticalScrollBarPolicy(
-                QtCore.Qt.ScrollBarAlwaysOff)
+        # 创建主布局
+        self.main_layout = layout
 
-        # 设置标签列表样式
-        self.labelList.setStyleSheet("""
-            QListWidget {
-                background-color: #FFFFFF;
-                border: 1px solid #ddd;
-                border-radius: 8px;
-                padding: 10px;
-                outline: none;
-                padding-right: 15px; /* 为滚动条留出空间 */
-            }
-            QListWidget::item {
-                border-radius: 8px;
-                padding: 10px;
-                margin: 10px 5px;  /* 增加垂直和水平间距 */
-            }
-            QListWidget::item:selected {
-                color: white;
-                border: none;
-            }
-            /* 滚动条样式 */
-            QScrollBar:vertical {
-                background-color: #f0f0f0;
-                width: 8px;
-                margin: 10px 0 10px 0;
-                border-radius: 4px;
-            }
-            QScrollBar::handle:vertical {
-                background-color: #c0c0c0;
-                min-height: 30px;
-                border-radius: 4px;
-            }
-            QScrollBar::handle:vertical:hover {
-                background-color: #a0a0a0;
-            }
-            QScrollBar::add-line:vertical, 
-            QScrollBar::sub-line:vertical {
-                height: 0px;
-            }
-            QScrollBar::add-page:vertical, 
-            QScrollBar::sub-page:vertical {
-                background: none;
-            }
-        """)
+        # 创建标准列表布局和流式标签云布局
+        self.createStandardListLayout(layout, labels, sort_labels)
 
-        # 设置自定义代理
-        self.label_delegate = LabelItemDelegate(self.labelList)
-        self.labelList.setItemDelegate(self.label_delegate)
-        self._sort_labels = sort_labels
-        if labels:
-            # 添加标签并应用样式
-            for label in labels:
-                item = QtWidgets.QListWidgetItem(label)
-                self.labelList.addItem(item)
-                self._set_label_item_style(item, label)
-        if self._sort_labels:
-            self.labelList.sortItems()
+        if self._use_cloud_layout:
+            # 如果启用标签云布局，则创建并显示
+            self.createCloudLayout(layout, labels)
+            # 隐藏标准列表
+            self.labelList.setVisible(False)
         else:
-            self.labelList.setDragDropMode(
-                QtWidgets.QAbstractItemView.InternalMove)
-        self.labelList.currentItemChanged.connect(self.labelSelected)
-        self.labelList.itemDoubleClicked.connect(self.labelDoubleClicked)
-        # 设置最小高度，确保初始显示合理
-        self.labelList.setMinimumHeight(200)  # 增加最小高度
-        # 设置大小策略为垂直方向可扩展
-        sizePolicy = QtWidgets.QSizePolicy(
-            QtWidgets.QSizePolicy.Expanding,  # 水平方向也可扩展
-            QtWidgets.QSizePolicy.Expanding
-        )
-        self.labelList.setSizePolicy(sizePolicy)
-
-        self.edit.setListWidget(self.labelList)
-        layout.addWidget(self.labelList)
+            # 否则显示标准列表
+            self.labelList.setVisible(True)
 
         # label_flags
         if flags is None:
@@ -344,15 +283,224 @@ class LabelDialog(QtWidgets.QDialog):
             }
         """)
 
+    def createStandardListLayout(self, layout, labels, sort_labels):
+        """创建标准的列表布局"""
+        # label_list
+        self.labelList = QtWidgets.QListWidget()
+        if self._fit_to_content["row"]:
+            self.labelList.setHorizontalScrollBarPolicy(
+                QtCore.Qt.ScrollBarAlwaysOff)
+        if self._fit_to_content["column"]:
+            self.labelList.setVerticalScrollBarPolicy(
+                QtCore.Qt.ScrollBarAlwaysOff)
+
+        # 设置标签列表样式
+        self.labelList.setStyleSheet("""
+            QListWidget {
+                background-color: #FFFFFF;
+                border: 1px solid #ddd;
+                border-radius: 8px;
+                padding: 10px;
+                outline: none;
+                padding-right: 15px; /* 为滚动条留出空间 */
+            }
+            QListWidget::item {
+                border-radius: 8px;
+                padding: 10px;
+                margin: 10px 5px;  /* 增加垂直和水平间距 */
+            }
+            QListWidget::item:selected {
+                color: white;
+                border: none;
+            }
+            QListWidget::item:hover {
+                cursor: grab;  /* 鼠标悬停时显示抓取光标 */
+            }
+            QListWidget::item:pressed {
+                cursor: grabbing;  /* 鼠标按下时显示抓取中光标 */
+            }
+            /* 滚动条样式 */
+            QScrollBar:vertical {
+                background-color: #f0f0f0;
+                width: 8px;
+                margin: 10px 0 10px 0;
+                border-radius: 4px;
+            }
+            QScrollBar::handle:vertical {
+                background-color: #c0c0c0;
+                min-height: 30px;
+                border-radius: 4px;
+            }
+            QScrollBar::handle:vertical:hover {
+                background-color: #a0a0a0;
+            }
+            QScrollBar::add-line:vertical, 
+            QScrollBar::sub-line:vertical {
+                height: 0px;
+            }
+            QScrollBar::add-page:vertical, 
+            QScrollBar::sub-page:vertical {
+                background: none;
+            }
+        """)
+
+        # 设置自定义代理
+        self.label_delegate = LabelItemDelegate(self.labelList)
+        self.labelList.setItemDelegate(self.label_delegate)
+        self._sort_labels = sort_labels
+
+        # 启用拖放功能
+        self.labelList.setDragEnabled(True)
+        self.labelList.setAcceptDrops(True)
+        self.labelList.setDragDropMode(
+            QtWidgets.QAbstractItemView.InternalMove)
+        self.labelList.setDefaultDropAction(QtCore.Qt.MoveAction)
+
+        if labels:
+            # 添加标签并应用样式
+            for label in labels:
+                item = QtWidgets.QListWidgetItem(label)
+                self.labelList.addItem(item)
+                self._set_label_item_style(item, label)
+        if self._sort_labels:
+            self.labelList.sortItems()
+        # 不需要else语句，因为上面已经设置了拖放模式
+
+        self.labelList.currentItemChanged.connect(self.labelSelected)
+        self.labelList.itemDoubleClicked.connect(self.labelDoubleClicked)
+        # 设置最小高度，确保初始显示合理
+        self.labelList.setMinimumHeight(200)  # 增加最小高度
+        # 设置大小策略为垂直方向可扩展
+        sizePolicy = QtWidgets.QSizePolicy(
+            QtWidgets.QSizePolicy.Expanding,  # 水平方向也可扩展
+            QtWidgets.QSizePolicy.Expanding
+        )
+        self.labelList.setSizePolicy(sizePolicy)
+
+        self.edit.setListWidget(self.labelList)
+        layout.addWidget(self.labelList)
+
+    def createCloudLayout(self, layout, labels):
+        """创建标签云流式布局"""
+        # 创建一个滚动区域，用于包含流式布局的标签
+        self.scrollArea = QtWidgets.QScrollArea()
+        self.scrollArea.setWidgetResizable(True)
+        self.scrollArea.setFrameShape(QtWidgets.QFrame.NoFrame)
+        self.scrollArea.setStyleSheet("""
+            QScrollArea {
+                background-color: #FFFFFF;
+                border: 1px solid #ddd;
+                border-radius: 8px;
+                padding: 5px;
+            }
+            QScrollBar:vertical {
+                background-color: #f0f0f0;
+                width: 8px;
+                margin: 10px 0 10px 0;
+                border-radius: 4px;
+            }
+            QScrollBar::handle:vertical {
+                background-color: #c0c0c0;
+                min-height: 30px;
+                border-radius: 4px;
+            }
+            QScrollBar::handle:vertical:hover {
+                background-color: #a0a0a0;
+            }
+            QScrollBar::add-line:vertical, 
+            QScrollBar::sub-line:vertical {
+                height: 0px;
+            }
+            QScrollBar::add-page:vertical, 
+            QScrollBar::sub-page:vertical {
+                background: none;
+            }
+        """)
+
+        # 创建一个容器窗口
+        self.cloudContainer = QtWidgets.QWidget()
+        # 创建流式布局
+        self.cloudLayout = FlowLayout()
+        self.cloudContainer.setLayout(self.cloudLayout)
+
+        # 添加标签到流式布局
+        if labels:
+            for label in labels:
+                self.addLabelToCloud(label)
+
+        # 将容器添加到滚动区域
+        self.scrollArea.setWidget(self.cloudContainer)
+        # 将滚动区域添加到主布局
+        layout.addWidget(self.scrollArea)
+        # 最低高度设置
+        self.scrollArea.setMinimumHeight(200)
+
+    def addLabelToCloud(self, label_text):
+        """添加标签到标签云布局"""
+        # 创建一个标签项小部件
+        label_widget = LabelCloudItem(label_text, self)
+
+        # 获取标签颜色
+        rgb_color = None
+        if self.app:
+            clean_text = label_text.replace("●", "").strip()
+            if '<font' in clean_text:
+                clean_text = re.sub(r'<[^>]*>|</[^>]*>',
+                                    '', clean_text).strip()
+            rgb_color = self.app._get_rgb_by_label(clean_text)
+
+        if not rgb_color:
+            # 默认使用绿色
+            rgb_color = (0, 255, 0)
+
+        # 设置标签项颜色
+        label_widget.setLabelColor(QtGui.QColor(*rgb_color))
+
+        # 将标签小部件添加到流式布局
+        self.cloudLayout.addWidget(label_widget)
+
+        # 连接双击信号
+        label_widget.doubleClicked.connect(
+            lambda: self.cloudItemDoubleClicked(label_text))
+        # 连接选中信号
+        label_widget.clicked.connect(
+            lambda: self.cloudItemSelected(label_text))
+
+    def toggleCloudLayout(self, use_cloud=None):
+        """切换布局模式"""
+        if use_cloud is None:
+            self._use_cloud_layout = not self._use_cloud_layout
+        else:
+            self._use_cloud_layout = use_cloud
+
+        # 根据布局模式显示/隐藏对应的控件
+        if hasattr(self, 'scrollArea'):
+            self.scrollArea.setVisible(self._use_cloud_layout)
+        if hasattr(self, 'labelList'):
+            self.labelList.setVisible(not self._use_cloud_layout)
+
+    def cloudItemSelected(self, label_text):
+        """流式布局中的标签被选中"""
+        self.edit.setText(label_text)
+
+    def cloudItemDoubleClicked(self, label_text):
+        """流式布局中的标签被双击"""
+        self.edit.setText(label_text)
+        self.validate()
+
     def addLabelHistory(self, label):
+        # 添加到列表视图
         if self.labelList.findItems(label, QtCore.Qt.MatchExactly):
             return
         item = QtWidgets.QListWidgetItem(label)
         self.labelList.addItem(item)
-        # 设置样式
         self._set_label_item_style(item, label)
         if self._sort_labels:
             self.labelList.sortItems()
+
+        # 添加到标签云视图
+        if hasattr(self, 'cloudLayout'):
+            self.addLabelToCloud(label)
 
     def labelSelected(self, item):
         self.edit.setText(item.text())
@@ -471,6 +619,12 @@ class LabelDialog(QtWidgets.QDialog):
         if self._fit_to_content["column"]:
             pass
 
+        # 检查布局模式配置是否变化
+        if self.app and hasattr(self.app, '_config'):
+            new_layout_mode = self.app._config.get('label_cloud_layout', False)
+            if new_layout_mode != self._use_cloud_layout:
+                self.toggleCloudLayout(new_layout_mode)
+
         # if text is None, the previous label in self.edit is kept
         if text is None:
             text = self.edit.text()
@@ -526,13 +680,23 @@ class LabelDialog(QtWidgets.QDialog):
             self.edit_group_id.clear()
         else:
             self.edit_group_id.setText(str(group_id))
-        items = self.labelList.findItems(text, QtCore.Qt.MatchFixedString)
-        if items:
-            if len(items) != 1:
-                logger.warning("Label list has duplicate '{}'".format(text))
-            self.labelList.setCurrentItem(items[0])
-            row = self.labelList.row(items[0])
-            self.edit.completer().setCurrentRow(row)
+
+        # 根据当前布局模式选择设置选中项
+        if self._use_cloud_layout:
+            # 在标签云视图中查找并选中项
+            # 注意：流式布局中没有直接的选中状态，但我们可以确保文本输入框显示正确的文本
+            pass
+        else:
+            # 在标准列表视图中查找并选中项
+            items = self.labelList.findItems(text, QtCore.Qt.MatchFixedString)
+            if items:
+                if len(items) != 1:
+                    logger.warning(
+                        "Label list has duplicate '{}'".format(text))
+                self.labelList.setCurrentItem(items[0])
+                row = self.labelList.row(items[0])
+                self.edit.completer().setCurrentRow(row)
+
         self.edit.setFocus(QtCore.Qt.PopupFocusReason)
 
         # 确保对话框显示在屏幕中央
@@ -547,6 +711,8 @@ class LabelDialog(QtWidgets.QDialog):
             self.move(x, y)
 
         if self.exec_():
+            # 保存标签排序结果
+            self.saveLabelOrder()
             return (
                 self.edit.text(),
                 self.getFlags(),
@@ -635,3 +801,242 @@ class LabelDialog(QtWidgets.QDialog):
 
         # 使用自定义数据保存边框颜色
         item.setData(QtCore.Qt.UserRole+1, color)
+
+    def saveLabelOrder(self):
+        """保存当前标签排序顺序到应用程序"""
+        if self.app and hasattr(self.app, 'save_label_order'):
+            labels = []
+            for i in range(self.labelList.count()):
+                item = self.labelList.item(i)
+                # 从标签文本中提取纯文本标签名
+                text = item.text()
+                clean_text = text.replace("●", "").strip()
+                if '<font' in clean_text:
+                    clean_text = re.sub(
+                        r'<[^>]*>|</[^>]*>', '', clean_text).strip()
+                labels.append(clean_text)
+            try:
+                self.app.save_label_order(labels)
+            except Exception as e:
+                logger.warning(f"无法保存标签顺序: {e}")
+
+
+class FlowLayout(QtWidgets.QLayout):
+    """流式布局实现，自动将部件排列在一行，超出则换行"""
+
+    def __init__(self, parent=None, margin=0, spacing=-1):
+        super(FlowLayout, self).__init__(parent)
+        if parent is not None:
+            self.setContentsMargins(margin, margin, margin, margin)
+        self.setSpacing(spacing)
+        self._items = []
+
+    def __del__(self):
+        while self.count():
+            self.takeAt(0)
+
+    def addItem(self, item):
+        self._items.append(item)
+
+    def count(self):
+        return len(self._items)
+
+    def itemAt(self, index):
+        if 0 <= index < len(self._items):
+            return self._items[index]
+        return None
+
+    def takeAt(self, index):
+        if 0 <= index < len(self._items):
+            return self._items.pop(index)
+        return None
+
+    def expandingDirections(self):
+        return QtCore.Qt.Orientations(QtCore.Qt.Orientation(0))
+
+    def hasHeightForWidth(self):
+        return True
+
+    def heightForWidth(self, width):
+        height = self._doLayout(QtCore.QRect(0, 0, width, 0), True)
+        return height
+
+    def setGeometry(self, rect):
+        super(FlowLayout, self).setGeometry(rect)
+        self._doLayout(rect, False)
+
+    def sizeHint(self):
+        return self.minimumSize()
+
+    def minimumSize(self):
+        size = QtCore.QSize()
+        for item in self._items:
+            size = size.expandedTo(item.minimumSize())
+        margin = self.contentsMargins().left() + self.contentsMargins().right()
+        margin += self.contentsMargins().top() + self.contentsMargins().bottom()
+        size += QtCore.QSize(margin, margin)
+        return size
+
+    def _doLayout(self, rect, testOnly):
+        x = rect.x()
+        y = rect.y()
+        lineHeight = 0
+
+        for item in self._items:
+            wid = item.widget()
+            spaceX = self.spacing()
+            spaceY = self.spacing()
+            nextX = x + item.sizeHint().width() + spaceX
+            if nextX - spaceX > rect.right() and lineHeight > 0:
+                x = rect.x()
+                y = y + lineHeight + spaceY
+                nextX = x + item.sizeHint().width() + spaceX
+                lineHeight = 0
+
+            if not testOnly:
+                item.setGeometry(QtCore.QRect(
+                    QtCore.QPoint(x, y), item.sizeHint()))
+
+            x = nextX
+            lineHeight = max(lineHeight, item.sizeHint().height())
+
+        return y + lineHeight - rect.y()
+
+
+class LabelCloudItem(QtWidgets.QWidget):
+    """流式布局中的标签项小部件"""
+
+    # 定义自定义信号
+    clicked = QtCore.pyqtSignal()
+    doubleClicked = QtCore.pyqtSignal()
+
+    def __init__(self, text, parent=None):
+        super(LabelCloudItem, self).__init__(parent)
+        self.text = text
+        self.selected = False
+        self.color = QtGui.QColor(0, 255, 0)  # 默认绿色
+
+        # 清理文本，移除HTML标记
+        if '<font' in text:
+            self.clean_text = re.sub(r'<[^>]*>●|</font>', '', text).strip()
+        else:
+            self.clean_text = text
+
+        # 设置固定高度
+        self.setFixedHeight(44)
+
+        # 计算文本宽度并设置宽度
+        fm = QtGui.QFontMetrics(self.font())
+        text_width = fm.width(self.clean_text)
+        self.setFixedWidth(text_width + 45)  # 左边框 + 文本 + 右边距
+
+        # 鼠标样式
+        self.setCursor(QtCore.Qt.PointingHandCursor)
+
+        # 启用鼠标跟踪以捕获悬停事件
+        self.setMouseTracking(True)
+
+    def setLabelColor(self, color):
+        """设置标签颜色"""
+        self.color = color
+        self.update()
+
+    def paintEvent(self, event):
+        """绘制标签项"""
+        painter = QtGui.QPainter(self)
+        painter.setRenderHint(QtGui.QPainter.Antialiasing)
+
+        # 圆角半径
+        radius = 8
+
+        # 标签区域
+        rect = self.rect().adjusted(2, 2, -2, -2)
+
+        # 创建路径
+        path = QtGui.QPainterPath()
+        path.addRoundedRect(QtCore.QRectF(rect), radius, radius)
+
+        # 绘制背景
+        bg_color = QtGui.QColor(self.color)
+        bg_color.setAlpha(25)  # 10%透明度
+        painter.fillPath(path, bg_color)
+
+        # 左边框宽度
+        border_width = 12
+
+        # 绘制左边框
+        border_path = QtGui.QPainterPath()
+        border_rect = QtCore.QRectF(
+            rect.left(),
+            rect.top(),
+            border_width,
+            rect.height()
+        )
+        # 只对左边使用圆角
+        border_path.addRoundedRect(border_rect, radius, radius)
+        # 裁剪掉右边的圆角
+        clip_path = QtGui.QPainterPath()
+        clip_path.addRect(
+            rect.left(),
+            rect.top(),
+            border_width / 2,  # 只显示左边的一半
+            rect.height()
+        )
+        # 应用裁剪
+        border_path = border_path.intersected(clip_path)
+
+        # 填充左边框
+        painter.fillPath(border_path, self.color)
+
+        # 选中状态或悬停状态高亮
+        if self.selected:
+            highlight_color = QtGui.QColor(0, 120, 215, 178)  # 70%透明度
+            painter.fillPath(path, highlight_color)
+            painter.setPen(QtGui.QColor(255, 255, 255))
+        elif self.underMouse():
+            hover_color = QtGui.QColor(0, 0, 0, 13)  # 5%透明度
+            painter.fillPath(path, hover_color)
+            painter.setPen(QtGui.QColor(0, 0, 0))
+        else:
+            painter.setPen(QtGui.QColor(0, 0, 0))
+
+        # 文本区域
+        text_rect = QtCore.QRect(
+            rect.left() + border_width + 6,  # 左边框宽度 + 间距
+            rect.top(),
+            rect.width() - (border_width + 12),  # 左右边距
+            rect.height()
+        )
+
+        # 绘制文本
+        painter.drawText(text_rect, QtCore.Qt.AlignVCenter, self.clean_text)
+
+    def mousePressEvent(self, event):
+        """鼠标按下事件"""
+        if event.button() == QtCore.Qt.LeftButton:
+            self.selected = True
+            self.update()
+            self.clicked.emit()
+
+    def mouseReleaseEvent(self, event):
+        """鼠标释放事件"""
+        if event.button() == QtCore.Qt.LeftButton:
+            self.selected = False
+            self.update()
+
+    def mouseDoubleClickEvent(self, event):
+        """鼠标双击事件"""
+        if event.button() == QtCore.Qt.LeftButton:
+            self.doubleClicked.emit()
+
+    def enterEvent(self, event):
+        """鼠标进入事件"""
+        self.update()
+
+    def leaveEvent(self, event):
+        """鼠标离开事件"""
+        self.update()
+
+    def sizeHint(self):
+        """尺寸提示"""
+        return QtCore.QSize(self.width(), self.height())

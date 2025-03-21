@@ -11,6 +11,7 @@ import colorsys
 import random
 import yaml
 import PIL.Image
+import json
 
 import imgviz
 import natsort
@@ -908,6 +909,23 @@ class MainWindow(QtWidgets.QMainWindow):
                 None,
                 fill_drawing,
                 showLabelNames,
+            ),
+        )
+
+        # 创建标签云流式布局动作
+        self.cloud_layout_action = self.createDockLikeAction(
+            self.tr("标签云流式布局"),
+            self.toggleLabelCloudLayout,
+            self._config.get("label_cloud_layout", False)
+        )
+
+        # 将标签云流式布局动作添加到视图菜单
+        self.menus.view.addAction(self.cloud_layout_action)
+
+        # 添加其他视图菜单选项
+        utils.addActions(
+            self.menus.view,
+            (
                 None,
                 hideAll,
                 showAll,
@@ -1592,30 +1610,56 @@ class MainWindow(QtWidgets.QMainWindow):
         self._config["label_colors"][label] = (
             color.red(), color.green(), color.blue())
 
-    def get_label_default_color(self, label):
-        """获取标签的默认颜色"""
-        # 先尝试从配置中获取颜色
-        if self._config["shape_color"] != "auto":
-            return QtGui.QColor(*self._config["shape_color"])
+    def _get_rgb_by_label(self, label):
+        """获取标签的RGB颜色"""
+        # 检查label_colors配置
+        if (
+            self._config["shape_color"] == "manual"
+            and self._config["label_colors"]
+            and label in self._config["label_colors"]
+        ):
+            color_hex = self._config["label_colors"][label]
+            # 将十六进制转为RGB
+            r = int(color_hex[1:3], 16)
+            g = int(color_hex[3:5], 16)
+            b = int(color_hex[5:7], 16)
+            return (r, g, b)
 
-        # 如果是自动颜色，使用标签对应的颜色
+        # 查找已存在的标签项
         item = self.uniqLabelList.findItemByLabel(label)
-        if item is not None:
-            # 尝试从标签项中提取颜色
+        if item:
+            # 尝试从标签项文本中提取颜色
             text = item.text()
             if "●" in text:
                 try:
-                    # 尝试从文本中解析颜色
                     color_str = text.split('color="')[1].split('">')[0]
                     r = int(color_str[1:3], 16)
                     g = int(color_str[3:5], 16)
                     b = int(color_str[5:7], 16)
-                    return QtGui.QColor(r, g, b)
+                    return (r, g, b)
                 except (IndexError, ValueError):
                     pass
 
-        # 否则根据标签计算默认颜色
-        return self._get_default_label_color(label)
+        # 如果是auto模式，生成唯一颜色
+        if self._config["shape_color"] == "auto":
+            # 创建新的标签项
+            if not item:
+                item = self.uniqLabelList.createItemFromLabel(label)
+                self.uniqLabelList.addItem(item)
+
+            # 使用黄金比例生成唯一颜色
+            hash_value = sum(ord(c) for c in label) % 100
+            hue = (hash_value * 0.618033988749895) % 1.0
+            r, g, b = [int(x * 255)
+                       for x in colorsys.hsv_to_rgb(hue, 0.8, 0.95)]
+            return (r, g, b)
+
+        # 使用默认颜色
+        elif self._config["default_shape_color"]:
+            return self._config["default_shape_color"]
+
+        # 最后的默认值
+        return (0, 255, 0)  # 默认绿色
 
     def fileSearchChanged(self):
         self.importDirImages(
@@ -1751,51 +1795,51 @@ class MainWindow(QtWidgets.QMainWindow):
         shape.select_line_color = select_line_color
         shape.select_fill_color = QtGui.QColor(r, g, b, select_fill_alpha)
 
-    def _get_rgb_by_label(self, label):
-        """获取标签的RGB颜色"""
-        # 检查label_colors配置
-        if (
-            self._config["shape_color"] == "manual"
-            and self._config["label_colors"]
-            and label in self._config["label_colors"]
-        ):
-            return self._config["label_colors"][label]
+    def save_label_order(self, labels):
+        """保存标签的排序顺序
 
-        # 查找已存在的标签项
-        item = self.uniqLabelList.findItemByLabel(label)
-        if item:
-            # 尝试从标签项文本中提取颜色
-            text = item.text()
-            if "●" in text:
-                try:
-                    color_str = text.split('color="')[1].split('">')[0]
-                    r = int(color_str[1:3], 16)
-                    g = int(color_str[3:5], 16)
-                    b = int(color_str[5:7], 16)
-                    return (r, g, b)
-                except (IndexError, ValueError):
-                    pass
+        Args:
+            labels (list): 排序后的标签列表
+        """
+        if not self._config:
+            self._config = {}
 
-        # 如果是auto模式，生成唯一颜色
-        if self._config["shape_color"] == "auto":
-            # 创建新的标签项
-            if not item:
-                item = self.uniqLabelList.createItemFromLabel(label)
-                self.uniqLabelList.addItem(item)
+        # 更新标签顺序
+        self._config['label_order'] = labels
 
-            # 使用黄金比例生成唯一颜色
-            hash_value = sum(ord(c) for c in label) % 100
-            hue = (hash_value * 0.618033988749895) % 1.0
-            r, g, b = [int(x * 255)
-                       for x in colorsys.hsv_to_rgb(hue, 0.8, 0.95)]
-            return (r, g, b)
+        # 将更新后的配置保存到文件
+        if self._config_file and os.path.isfile(self._config_file):
+            with open(self._config_file, 'w') as f:
+                json.dump(self._config, f, indent=4)
 
-        # 使用默认颜色
-        elif self._config["default_shape_color"]:
-            return self._config["default_shape_color"]
+        # 更新UI中的标签顺序
+        self._update_label_menu_from_config()
 
-        # 最后的默认值
-        return (0, 255, 0)  # 默认绿色
+    def _update_label_menu_from_config(self):
+        """根据配置更新标签菜单顺序"""
+        if not self._config or not hasattr(self, 'labelMenu'):
+            return
+
+        # 如果存在label_order配置项
+        if 'label_order' in self._config:
+            # 清空当前标签菜单
+            self.labelMenu.clear()
+
+            # 按照保存的顺序重新添加标签
+            for label in self._config['label_order']:
+                if label:
+                    # 检查颜色
+                    color = None
+                    if self._config['label_colors'] and label in self._config['label_colors']:
+                        color = self._config['label_colors'][label]
+
+                    # 创建动作
+                    action = QtWidgets.QAction(label, self)
+                    if color:
+                        rgb = (int(color[1:3], 16), int(
+                            color[3:5], 16), int(color[5:7], 16))
+                        action.setIcon(labelme.utils.newIcon('circle', rgb))
+                    self.labelMenu.addAction(action)
 
     def remLabels(self, shapes):
         if shapes:
@@ -1864,9 +1908,9 @@ class MainWindow(QtWidgets.QMainWindow):
             label = shape["label"]
             points = shape["points"]
             shape_type = shape["shape_type"]
-            flags: dict = shape["flags"] or {}
-            description = shape.get("description", "")
+            flags = shape["flags"]
             group_id = shape["group_id"]
+            description = shape["description"]
             other_data = shape["other_data"]
 
             if not points:
@@ -1878,7 +1922,6 @@ class MainWindow(QtWidgets.QMainWindow):
                 shape_type=shape_type,
                 group_id=group_id,
                 description=description,
-                mask=shape["mask"],
             )
             for x, y in points:
                 shape.addPoint(QtCore.QPointF(x, y))
@@ -2906,7 +2949,6 @@ class MainWindow(QtWidgets.QMainWindow):
 
             logger.info(
                 f"使用模型: {model_name}, 置信度阈值: {conf_threshold}, NMS阈值: {nms_threshold}")
-
             # 运行目标检测
             self.setProgress(40)  # 更新进度 - 开始模型推理
             shape_dicts = object_detection.detect_objects(
@@ -3422,3 +3464,905 @@ class MainWindow(QtWidgets.QMainWindow):
             shape_type_name = shape_type_names.get(shape_type, shape_type)
             self.status(
                 self.tr(f"已选择标签 '{label_text}'，使用{shape_type_name}工具绘制"))
+
+    def _get_label_default_color(self, label):
+        """生成标签默认颜色"""
+        hash_value = sum(ord(c) for c in label) % 100
+        hue = (hash_value * 0.618033988749895) % 1.0
+        r, g, b = [int(x * 255) for x in colorsys.hsv_to_rgb(hue, 0.8, 0.95)]
+        return QtGui.QColor(r, g, b)
+
+    def get_label_default_color(self, label):
+        """获取标签的默认颜色"""
+        # 先尝试从配置中获取颜色
+        if self._config["shape_color"] != "auto":
+            return QtGui.QColor(*self._config["shape_color"])
+
+        # 如果是自动颜色，使用标签对应的颜色
+        item = self.uniqLabelList.findItemByLabel(label)
+        if item is not None:
+            # 尝试从标签项中提取颜色
+            text = item.text()
+            if "●" in text:
+                try:
+                    # 尝试从文本中解析颜色
+                    color_str = text.split('color="')[1].split('">')[0]
+                    r = int(color_str[1:3], 16)
+                    g = int(color_str[3:5], 16)
+                    b = int(color_str[5:7], 16)
+                    return QtGui.QColor(r, g, b)
+                except (IndexError, ValueError):
+                    pass
+
+        # 否则根据标签计算默认颜色
+        return self._get_default_label_color(label)
+
+    def loadLabels(self, shapes):
+        s = []
+        for shape in shapes:
+            label = shape["label"]
+            points = shape["points"]
+            shape_type = shape["shape_type"]
+            flags = shape["flags"]
+            group_id = shape["group_id"]
+            description = shape["description"]
+            other_data = shape["other_data"]
+
+            if not points:
+                # skip point-empty shape
+                continue
+
+            shape = Shape(
+                label=label,
+                shape_type=shape_type,
+                group_id=group_id,
+                description=description,
+            )
+            for x, y in points:
+                shape.addPoint(QtCore.QPointF(x, y))
+            shape.close()
+
+            default_flags = {}
+            if self._config["label_flags"]:
+                for pattern, keys in self._config["label_flags"].items():
+                    if re.match(pattern, label):
+                        for key in keys:
+                            default_flags[key] = False
+            shape.flags = default_flags
+            shape.flags.update(flags)
+            shape.other_data = other_data
+
+            s.append(shape)
+        self.loadShapes(s)
+
+    def loadConfig(self, config_file=None, config_from_args=None):
+        # 初始化默认配置
+        default_config = {
+            "auto_save": False,
+            "store_data": False,
+            "keep_prev": False,
+            "keep_prev_scale": False,
+            "keep_prev_brightness": False,
+            "keep_prev_contrast": False,
+            "canvas": {
+                "grid_show": False,
+                "grid_size": 30,
+                "paint_label": False,
+                "paint_label_font_size": 9,
+                "label_font_family": "Noto Sans Regular",
+                "label_font_weight": "medium",
+                "paint_label_fill": True,
+                "show_texts": True,
+                "fill_drawing": False,
+                "epsilon": 10.0,
+            },
+            "label_flags": None,
+            "shape": {
+                "line_color": [0, 255, 0, 128],
+                "fill_color": [180, 235, 180, 60],
+                "vertex_fill_color": [0, 255, 0, 255],
+                "select_line_color": [255, 255, 255, 128],
+                "select_fill_color": [0, 255, 0, 155],
+                "hvertex_fill_color": [255, 255, 255, 255],
+            },
+            "shape_color": "auto",  # 或manual
+            "default_shape_color": [0, 255, 0],  # 当shape_color为非auto时使用
+            "label_colors": {},  # 存储每个标签对应的颜色
+            "label_order": [],  # 存储标签的自定义顺序
+            "label_cloud_layout": False,  # 标签云流式布局，默认关闭
+            "flag_dock": {
+                "show": True,
+            },
+            "label_dock": {
+                "show": True,
+            },
+            "shape_dock": {
+                "show": True,
+            },
+            "file_dock": {
+                "show": True,
+            },
+        }
+
+        # 如果提供了配置文件和配置参数
+        # ...现有代码...
+
+        # 如果有配置文件
+        if config_file and os.path.isfile(config_file):
+            self._config_file = config_file
+            with open(config_file) as f:
+                try:
+                    user_config = yaml.safe_load(f) or {}
+                except yaml.YAMLError as e:
+                    logger.error(f"Error parsing config file: {e}")
+                    user_config = {}
+                # 合并用户配置到默认配置
+                self._update_dict(default_config, user_config)
+
+        # 加载完配置后初始化标签菜单
+        if self._config.get('label_order'):
+            self._update_label_menu_from_config()
+
+        # 设置UI状态
+        if hasattr(self, 'toggle_label_cloud_layout_action'):
+            self.toggle_label_cloud_layout_action.setChecked(
+                self._config["label_cloud_layout"])
+
+        return default_config
+
+    def toggleLabelCloudLayout(self, enabled=None):
+        """切换标签云流式布局显示模式"""
+        if enabled is None:
+            enabled = not self._config["label_cloud_layout"]
+        self._config["label_cloud_layout"] = enabled
+        self.cloud_layout_action.setChecked(enabled)
+
+        # 保存配置
+        if self._config_file and os.path.isfile(self._config_file):
+            with open(self._config_file, 'w') as f:
+                yaml.safe_dump(self._config, f, default_flow_style=False)
+
+        # 更新标签对话框的布局方式
+        # 下次打开标签对话框时会应用新的布局设置
+
+    def createUIBeforeShow(self):
+        # 创建动作和菜单
+        action = functools.partial(utils.newAction, self)
+        shortcuts = self._config.get("shortcuts", {})
+        open_ = action(
+            self.tr("打开文件"),
+            self.openFile,
+            shortcuts.get("open", "Ctrl+O"),
+            "file",
+            self.tr("打开图像或标注文件"),
+        )
+        opendir = action(
+            self.tr("Open Dir"),
+            self.openDirDialog,
+            shortcuts["open_dir"],
+            "icons8-folder-64",
+            self.tr("Open Dir"),
+        )
+        save = action(
+            self.tr("&Save\n"),
+            self.saveFile,
+            shortcuts["save"],
+            "icons8-save-60",
+            self.tr("Save labels to file"),
+            enabled=False,
+        )
+        saveAs = action(
+            self.tr("&Save As"),
+            self.saveFileAs,
+            shortcuts["save_as"],
+            "save-as",
+            self.tr("Save labels to a different file"),
+            enabled=False,
+        )
+        deleteFile = action(
+            self.tr("&Delete File"),
+            self.deleteFile,
+            shortcuts["delete_file"],
+            "icons8-delete-48",
+            self.tr("Delete current label file"),
+            enabled=False,
+        )
+        changeOutputDir = action(
+            self.tr("输出路径"),
+            slot=self.changeOutputDirDialog,
+            shortcut=shortcuts["save_to"],
+            icon="icons8-file-64",
+            tip=self.tr("Change where annotations are loaded/saved"),
+        )
+        saveAuto = action(
+            text=self.tr("自动保存"),
+            slot=self.toggleAutoSave,
+            tip=self.tr("自动保存标注文件"),
+            checkable=True,
+            enabled=True,
+        )
+        saveWithImageData = action(
+            text=self.tr("同时保存图像数据"),
+            slot=self.enableSaveImageWithData,
+            tip=self.tr("在标注文件中保存图像数据"),
+            checkable=True,
+            checked=False,  # 默认关闭同时保存图像数据
+        )
+        close = action(
+            self.tr("&Close"),
+            self.closeFile,
+            shortcuts["close"],
+            "close",
+            self.tr("Close current file"),
+        )
+        toggle_keep_prev_mode = action(
+            self.tr("Keep Previous Annotation"),
+            self.toggleKeepPrevMode,
+            shortcuts["toggle_keep_prev_mode"],
+            None,
+            self.tr('Toggle "keep previous annotation" mode'),
+            checkable=True,
+        )
+        toggle_keep_prev_mode.setChecked(self._config["keep_prev"])
+        createMode = action(
+            self.tr("Create Polygons"),
+            lambda: self.toggleDrawMode(False, createMode="polygon"),
+            shortcuts["create_polygon"],
+            "icons8-polygon-100",
+            self.tr("Start drawing polygons"),
+            enabled=False,
+        )
+        createRectangleMode = action(
+            self.tr("Create Rectangle"),
+            lambda: self.toggleDrawMode(False, createMode="rectangle"),
+            shortcuts["create_rectangle"],
+            "icons8-rectangular-90",
+            self.tr("Start drawing rectangles"),
+            enabled=False,
+        )
+        createCircleMode = action(
+            self.tr("Create Circle"),
+            lambda: self.toggleDrawMode(False, createMode="circle"),
+            shortcuts["create_circle"],
+            "icons8-circle-50",
+            self.tr("Start drawing circles"),
+            enabled=False,
+        )
+        createLineMode = action(
+            self.tr("Create Line"),
+            lambda: self.toggleDrawMode(False, createMode="line"),
+            shortcuts["create_line"],
+            "icons8-line-50",
+            self.tr("Start drawing lines"),
+            enabled=False,
+        )
+        createPointMode = action(
+            self.tr("Create Point"),
+            lambda: self.toggleDrawMode(False, createMode="point"),
+            shortcuts["create_point"],
+            "icons8-point-100",
+            self.tr("Start drawing points"),
+            enabled=False,
+        )
+        createLineStripMode = action(
+            self.tr("Create LineStrip"),
+            lambda: self.toggleDrawMode(False, createMode="linestrip"),
+            shortcuts["create_linestrip"],
+            "icons8-polyline-100",
+            self.tr("Start drawing linestrip. Ctrl+LeftClick ends creation."),
+            enabled=False,
+        )
+        createAiPolygonMode = action(
+            self.tr("Create AI-Polygon"),
+            lambda: self.toggleDrawMode(False, createMode="ai_polygon"),
+            None,
+            "icons8-radar-plot-50",
+            self.tr("Start drawing ai_polygon. Ctrl+LeftClick ends creation."),
+            enabled=False,
+        )
+        createAiPolygonMode.changed.connect(
+            lambda: self.canvas.initializeAiModel(
+                model_name=self._config["ai"].get(
+                    "default", "sam:latest")
+            )
+            if self.canvas.createMode == "ai_polygon"
+            else None
+        )
+        createAiMaskMode = action(
+            self.tr("Create AI-Mask"),
+            lambda: self.toggleDrawMode(False, createMode="ai_mask"),
+            None,
+            "icons8-layer-mask-50",
+            self.tr("Start drawing ai_mask. Ctrl+LeftClick ends creation."),
+            enabled=False,
+        )
+        createAiMaskMode.changed.connect(
+            lambda: self.canvas.initializeAiModel(
+                model_name=self._config["ai"].get(
+                    "default", "sam:latest")
+            )
+            if self.canvas.createMode == "ai_mask"
+            else None
+        )
+        editMode = action(
+            self.tr("Edit Polygons"),
+            self.setEditMode,
+            shortcuts["edit_polygon"],
+            "icons8-compose-100",
+            self.tr("Move and edit the selected polygons"),
+            enabled=False,
+        )
+        delete = action(
+            self.tr("Delete Polygons"),
+            self.deleteSelectedShape,
+            shortcuts["delete_polygon"],
+            "icons8-delete-48",
+            self.tr("Delete the selected polygons"),
+            enabled=False,
+        )
+        duplicate = action(
+            self.tr("Duplicate Polygons"),
+            self.duplicateSelectedShape,
+            shortcuts["duplicate_polygon"],
+            "copy",
+            self.tr("Create a duplicate of the selected polygons"),
+            enabled=False,
+        )
+        copy = action(
+            self.tr("Copy Polygons"),
+            self.copySelectedShape,
+            shortcuts["copy_polygon"],
+            "icons8-copy-32",
+            self.tr("Copy selected polygons to clipboard"),
+            enabled=False,
+        )
+        paste = action(
+            self.tr("Paste Polygons"),
+            self.pasteSelectedShape,
+            shortcuts["paste_polygon"],
+            "paste",
+            self.tr("Paste copied polygons"),
+            enabled=False,
+        )
+        undoLastPoint = action(
+            self.tr("Undo last point"),
+            self.canvas.undoLastPoint,
+            shortcuts["undo_last_point"],
+            "icons8-undo-60",
+            self.tr("Undo last drawn point"),
+            enabled=False,
+        )
+        removePoint = action(
+            text=self.tr("Remove Selected Point"),
+            slot=self.removeSelectedPoint,
+            shortcut=shortcuts["remove_selected_point"],
+            icon="edit",
+            tip=self.tr("Remove selected point from polygon"),
+            enabled=False,
+        )
+        undo = action(
+            self.tr("Undo\n"),
+            self.undoShapeEdit,
+            shortcuts["undo"],
+            "icons8-undo-60",
+            self.tr("Undo last add and edit of shape"),
+            enabled=False,
+        )
+        hideAll = action(
+            self.tr("&Hide\nPolygons"),
+            functools.partial(self.togglePolygons, False),
+            shortcuts["hide_all_polygons"],
+            icon="icons8-eye-64",
+            tip=self.tr("Hide all polygons"),
+            enabled=False,
+        )
+        showAll = action(
+            self.tr("&Show\nPolygons"),
+            functools.partial(self.togglePolygons, True),
+            shortcuts["show_all_polygons"],
+            icon="icons8-eye-64",
+            tip=self.tr("Show all polygons"),
+            enabled=False,
+        )
+        toggleAll = action(
+            self.tr("&Toggle\nPolygons"),
+            functools.partial(self.togglePolygons, None),
+            shortcuts["toggle_all_polygons"],
+            icon="icons8-eye-64",
+            tip=self.tr("Toggle all polygons"),
+            enabled=False,
+        )
+        help = action(
+            self.tr("&Tutorial"),
+            self.tutorial,
+            icon="help",
+            tip=self.tr("Show tutorial page"),
+        )
+        zoom = QtWidgets.QWidgetAction(self)
+        zoomBoxLayout = QtWidgets.QVBoxLayout()
+        zoomLabel = QtWidgets.QLabel(self.tr("Zoom"))
+        zoomLabel.setAlignment(Qt.AlignCenter)
+        zoomBoxLayout.addWidget(zoomLabel)
+        zoomBoxLayout.addWidget(self.zoomWidget)
+        zoom.setDefaultWidget(QtWidgets.QWidget())
+        zoom.defaultWidget().setLayout(zoomBoxLayout)
+        self.zoomWidget.setWhatsThis(
+            str(
+                self.tr(
+                    "Zoom in or out of the image. Also accessible with "
+                    "{} and {} from the canvas."
+                )
+            ).format(
+                utils.fmtShortcut(
+                    "{},{}".format(shortcuts["zoom_in"], shortcuts["zoom_out"])
+                ),
+                utils.fmtShortcut(self.tr("Ctrl+Wheel")),
+            )
+        )
+        self.zoomWidget.setEnabled(False)
+        zoomIn = action(
+            self.tr("Zoom &In"),
+            functools.partial(self.addZoom, 1.1),
+            shortcuts["zoom_in"],
+            "zoom-in",
+            self.tr("Increase zoom level"),
+            enabled=False,
+        )
+        zoomOut = action(
+            self.tr("&Zoom Out"),
+            functools.partial(self.addZoom, 0.9),
+            shortcuts["zoom_out"],
+            "zoom-out",
+            self.tr("Decrease zoom level"),
+            enabled=False,
+        )
+        zoomOrg = action(
+            self.tr("&Original size"),
+            functools.partial(self.setZoom, 100),
+            shortcuts["zoom_to_original"],
+            "zoom",
+            self.tr("Zoom to original size"),
+            enabled=False,
+        )
+        keepPrevScale = action(
+            self.tr("&Keep Previous Scale"),
+            self.enableKeepPrevScale,
+            tip=self.tr("Keep previous zoom scale"),
+            checkable=True,
+            checked=self._config["keep_prev_scale"],
+            enabled=True,
+        )
+        fitWindow = action(
+            self.tr("&Fit Window"),
+            self.setFitWindow,
+            shortcuts["fit_window"],
+            "fit-window",
+            self.tr("Zoom follows window size"),
+            checkable=True,
+            enabled=False,
+        )
+        fitWidth = action(
+            self.tr("Fit &Width"),
+            self.setFitWidth,
+            shortcuts["fit_width"],
+            "fit-width",
+            self.tr("Zoom follows window width"),
+            checkable=True,
+            enabled=False,
+        )
+        brightnessContrast = action(
+            self.tr("&Brightness Contrast"),
+            self.brightnessContrast,
+            None,
+            "color",
+            self.tr("Adjust brightness and contrast"),
+            enabled=False,
+        )
+        lightTheme = action(
+            self.tr("明亮主题"),
+            self.setLightTheme,
+            None,
+            "color",
+            self.tr("切换至明亮主题"),
+            checkable=True,
+            checked=self.currentTheme == "light",
+        )
+        darkTheme = action(
+            self.tr("暗黑主题"),
+            self.setDarkTheme,
+            None,
+            "color-fill",
+            self.tr("切换至暗黑主题"),
+            checkable=True,
+            checked=self.currentTheme == "dark",
+        )
+        defaultTheme = action(
+            self.tr("原始主题"),
+            self.setDefaultTheme,
+            None,
+            "color-fill",
+            self.tr("恢复原始主题"),
+            checkable=True,
+            checked=self.currentTheme == "default",
+        )
+        themeActionGroup = QtWidgets.QActionGroup(self)
+        themeActionGroup.setExclusive(True)
+        themeActionGroup.addAction(lightTheme)
+        themeActionGroup.addAction(darkTheme)
+        themeActionGroup.addAction(defaultTheme)
+        ai_settings = action(
+            self.tr("半自动标注配置"),
+            self.openAISettings,
+            None,
+            "settings",
+            self.tr("配置半自动标注功能"),
+            enabled=True,
+        )
+        runObjectDetection = action(
+            self.tr("目标检测"),
+            self.runObjectDetection,
+            None,
+            "icons8-facial-recognition-100",  # 使用facial-recognition图标
+            self.tr("使用AI检测图像中的对象"),
+            enabled=False,
+        )
+        runPoseEstimation = action(
+            self.tr("姿态估计"),
+            self.runPoseEstimation,
+            None,
+            "icons8-natural-user-interface-1-100",  # 使用natural-user-interface图标
+            self.tr("检测图像中的人体姿态"),
+            enabled=False,
+        )
+        submitAiPrompt = action(
+            self.tr("提交AI提示"),
+            lambda: self._submit_ai_prompt(None),
+            None,
+            "icons8-done-64",
+            self.tr("使用AI提示检测对象"),
+            enabled=False,
+        )
+        zoomActions = (
+            self.zoomWidget,
+            zoomIn,
+            zoomOut,
+            zoomOrg,
+            fitWindow,
+            fitWidth,
+        )
+        self.zoomMode = self.FIT_WINDOW
+        fitWindow.setChecked(Qt.Checked)
+        self.scalers = {
+            self.FIT_WINDOW: self.scaleFitWindow,
+            self.FIT_WIDTH: self.scaleFitWidth,
+            # Set to one to scale to 100% when loading files.
+            self.MANUAL_ZOOM: lambda: 1,
+        }
+        edit = action(
+            self.tr("&Edit Label"),
+            self._edit_label,
+            shortcuts["edit_label"],
+            "icons8-label-50",
+            self.tr("Modify the label of the selected polygon"),
+            enabled=False,
+        )
+        fill_drawing = action(
+            self.tr("Fill Drawing Polygon"),
+            self.canvas.setFillDrawing,
+            None,
+            "color",
+            self.tr("Fill polygon while drawing"),
+            checkable=True,
+            enabled=True,
+        )
+        if self._config["canvas"]["fill_drawing"]:
+            fill_drawing.trigger()
+        showLabelNames = self.createDockLikeAction(
+            self.tr("显示标签名称"),  # 标题
+            self.toggleShowLabelNames,  # 槽函数
+            False  # 默认未选中
+        )
+        labelMenu = QtWidgets.QMenu()
+        utils.addActions(labelMenu, (edit, delete))
+        self.labelList.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.labelList.customContextMenuRequested.connect(
+            self.popLabelListMenu)
+        self.actions = utils.struct(
+            saveAuto=saveAuto,
+            saveWithImageData=saveWithImageData,
+            changeOutputDir=changeOutputDir,
+            save=save,
+            saveAs=saveAs,
+            open=open_,
+            close=close,
+            deleteFile=deleteFile,
+            toggleKeepPrevMode=toggle_keep_prev_mode,
+            delete=delete,
+            edit=edit,
+            duplicate=duplicate,
+            copy=copy,
+            paste=paste,
+            undoLastPoint=undoLastPoint,
+            undo=undo,
+            removePoint=removePoint,
+            createMode=createMode,
+            editMode=editMode,
+            createRectangleMode=createRectangleMode,
+            createCircleMode=createCircleMode,
+            createLineMode=createLineMode,
+            createPointMode=createPointMode,
+            createLineStripMode=createLineStripMode,
+            createAiPolygonMode=createAiPolygonMode,
+            createAiMaskMode=createAiMaskMode,
+            zoom=zoom,
+            zoomIn=zoomIn,
+            zoomOut=zoomOut,
+            zoomOrg=zoomOrg,
+            keepPrevScale=keepPrevScale,
+            fitWindow=fitWindow,
+            fitWidth=fitWidth,
+            brightnessContrast=brightnessContrast,
+            zoomActions=zoomActions,
+            openNextImg=openNextImg,
+            openPrevImg=openPrevImg,
+            fileMenuActions=(open_, opendir, save, saveAs, close, quit),
+            aiMenuActions=(ai_settings, None, createAiPolygonMode, createAiMaskMode,
+                           None, runObjectDetection, runPoseEstimation, submitAiPrompt),
+            # showLabelNames line removed to fix error
+            lightTheme=lightTheme,  # 添加明亮主题动作
+            darkTheme=darkTheme,    # 添加暗黑主题动作
+            defaultTheme=defaultTheme,  # 添加原始主题动作
+            themeActions=(lightTheme, darkTheme, defaultTheme),  # 添加主题动作组
+            tool=(),
+            # XXX: need to add some actions here to activate the shortcut
+            editMenu=(
+                edit,
+                duplicate,
+                copy,
+                paste,
+                delete,
+                None,
+                undo,
+                undoLastPoint,
+                None,
+                removePoint,
+                None,
+                toggle_keep_prev_mode,
+            ),
+            # menu shown at right click
+            menu=(
+                createMode,
+                createRectangleMode,
+                createCircleMode,
+                createLineMode,
+                createPointMode,
+                createLineStripMode,
+                createAiPolygonMode,
+                createAiMaskMode,
+                editMode,
+                edit,
+                duplicate,
+                copy,
+                paste,
+                delete,
+                undo,
+                undoLastPoint,
+                removePoint,
+            ),
+            onLoadActive=(
+                close,
+                createMode,
+                createRectangleMode,
+                createCircleMode,
+                createLineMode,
+                createPointMode,
+                createLineStripMode,
+                createAiPolygonMode,
+                createAiMaskMode,
+                editMode,
+                brightnessContrast,
+                runObjectDetection,  # 添加运行目标检测
+                runPoseEstimation,   # 添加运行人体姿态估计
+            ),
+            onShapesPresent=(saveAs, hideAll, showAll, toggleAll),
+        )
+        self.canvas.vertexSelected.connect(self.actions.removePoint.setEnabled)
+        self.menus = utils.struct(
+            file=self.menu(self.tr("&文件")),
+            edit=self.menu(self.tr("&编辑")),
+            view=self.menu(self.tr("&视图")),
+            ai=self.menu(self.tr("&半自动标注")),
+            shortcuts=self.menu(self.tr("&快捷键")),
+            help=self.menu(self.tr("&帮助")),
+            theme=self.menu(self.tr("&主题")),  # 添加主题菜单
+            recentFiles=QtWidgets.QMenu(self.tr("打开最近文件")),
+            labelList=labelMenu,
+        )
+        if self.currentTheme == "dark":
+            self.setDarkTheme(update_actions=False)  # 添加参数，表示不更新动作选中状态
+        elif self.currentTheme == "default":
+            self.setDefaultTheme(update_actions=False)  # 添加参数，表示不更新动作选中状态
+        else:
+            self.setLightTheme(update_actions=False)  # 添加参数，表示不更新动作选中状态
+        utils.addActions(
+            self.menus.file,
+            (
+                open_,
+                openNextImg,
+                openPrevImg,
+                opendir,
+                self.menus.recentFiles,
+                save,
+                saveAs,
+                saveAuto,
+                changeOutputDir,
+                saveWithImageData,
+                close,
+                deleteFile,
+                None,
+                quit,
+            ),
+        )
+        utils.addActions(self.menus.help, (help,))
+        utils.addActions(
+            self.menus.view,
+            (
+                self.flag_dock.toggleViewAction(),
+                self.label_dock.toggleViewAction(),
+                self.shape_dock.toggleViewAction(),
+                self.file_dock.toggleViewAction(),
+                None,
+                fill_drawing,
+                showLabelNames,
+                # 添加标签云流式布局选项
+                self.createDockLikeAction(
+                    self.tr("标签云流式布局"),
+                    self.toggleLabelCloudLayout,
+                    self._config.get("label_cloud_layout", False)
+                ),
+                None,
+                fitWindow,
+                fitWidth,
+                None,
+                brightnessContrast,
+            ),
+        )
+        utils.addActions(self.menus.ai, self.actions.aiMenuActions)
+        utils.addActions(
+            self.menus.theme,
+            self.actions.themeActions
+        )
+        shortcuts_menu = action(
+            self.tr("快捷键设置"),
+            self.openShortcutsDialog,
+            None,
+            "settings",
+            self.tr("自定义快捷键设置"),
+        )
+        utils.addActions(self.menus.shortcuts, (shortcuts_menu,))
+        self.menus.file.aboutToShow.connect(self.updateFileMenu)
+        menubar = self.menuBar()
+        menubar.clear()
+        menubar.addMenu(self.menus.file)
+        menubar.addMenu(self.menus.edit)
+        menubar.addMenu(self.menus.view)
+        menubar.addMenu(self.menus.ai)
+        menubar.addMenu(self.menus.theme)  # 添加主题菜单到菜单栏
+        menubar.addMenu(self.menus.shortcuts)
+        menubar.addMenu(self.menus.help)
+        utils.addActions(self.canvas.menus[0], self.actions.menu)
+        utils.addActions(
+            self.canvas.menus[1],
+            (
+                action("&Copy here", self.copyShape),
+                action("&Move here", self.moveShape),
+            ),
+        )
+        self._ai_prompt_widget: QtWidgets.QWidget = AiPromptWidget(
+            on_submit=self._submit_ai_prompt, parent=self
+        )
+        ai_prompt_action = QtWidgets.QWidgetAction(self)
+        ai_prompt_action.setDefaultWidget(self._ai_prompt_widget)
+        self.tools = self.toolbar("Tools")
+        self.actions.tool = (
+            open_,
+            opendir,
+            changeOutputDir,  # 添加输出路径按钮
+            openPrevImg,
+            openNextImg,
+            save,
+            deleteFile,
+            None,
+            createMode,
+            createRectangleMode,
+            createPointMode,
+            createLineStripMode,
+            editMode,
+            duplicate,
+            delete,
+            undo,
+            brightnessContrast,
+            None,
+            runObjectDetection,  # 添加运行目标检测按钮
+            runPoseEstimation,   # 添加运行人体姿态估计按钮
+            None,
+            fitWindow,
+            zoom,
+        )
+        self.statusBar().setStyleSheet(
+            "QStatusBar::item {border: none;}")  # 移除状态栏项的边框
+        self.statusProgress = QtWidgets.QProgressBar()
+        self.statusProgress.setFixedHeight(16)  # 调整高度使其更现代
+        self.statusProgress.setFixedWidth(300)  # 加宽进度条
+        self.statusProgress.setTextVisible(False)
+        self.statusProgress.hide()  # 默认隐藏进度条
+        self.modeLabel = QtWidgets.QLabel("编辑模式")
+        self.modeLabel.setStyleSheet("padding-right: 10px;")
+        self.statusBar().addPermanentWidget(self.modeLabel)
+        self.statusBar().addPermanentWidget(self.statusProgress)
+        self.canvas.modeChanged.connect(self.updateModeLabel)
+        self.statusBar().addPermanentWidget(self.statusProgress)
+        self.statusBar().showMessage(str(self.tr("%s started.")) % __appname__)
+        self.statusBar().show()
+        self.setMinimumSize(1200, 800)
+        self.showMaximized()
+        if output_file is not None and self._config["auto_save"]:
+            logger.warning(
+                "If `auto_save` argument is True, `output_file` argument "
+                "is ignored and output filename is automatically "
+                "set as IMAGE_BASENAME.json."
+            )
+        self.output_file = output_file
+        self.output_dir = output_dir
+        self.image = QtGui.QImage()
+        self.imagePath = None
+        self.recentFiles = []
+        self.maxRecent = 7
+        self.otherData = None
+        self.zoom_level = 100
+        self.fit_window = False
+        self.zoom_values = {}  # key=filename, value=(zoom_mode, zoom_value)
+        self.brightnessContrast_values = {}
+        self.scroll_values = {
+            Qt.Horizontal: {},
+            Qt.Vertical: {},
+        }  # key=filename, value=scroll_value
+        if filename is not None and osp.isdir(filename):
+            self.importDirImages(filename, load=False)
+        else:
+            self.filename = filename
+        if config["file_search"]:
+            self.fileSearch.setText(config["file_search"])
+            self.fileSearchChanged()
+        self.settings = QtCore.QSettings("labelme", "labelme")
+        self.recentFiles = self.settings.value("recentFiles", []) or []
+        size = self.settings.value("window/size", QtCore.QSize(600, 500))
+        position = self.settings.value("window/position", QtCore.QPoint(0, 0))
+        state = self.settings.value("window/state", QtCore.QByteArray())
+        self.resize(size)
+        self.move(position)
+        self.restoreState(state)
+        self.updateFileMenu()
+        if self.filename is not None:
+            self.queueEvent(functools.partial(self.loadFile, self.filename))
+        self.zoomWidget.valueChanged.connect(self.paintCanvas)
+        self.populateModeActions()
+        if self._config.get("last_dir") and osp.exists(self._config["last_dir"]):
+            self.lastOpenDir = self._config["last_dir"]
+            self.importDirImages(self._config["last_dir"], load=True)
+            if self._config.get("output_dir") and osp.exists(self._config["output_dir"]):
+                self.output_dir = self._config["output_dir"]
+                self.statusBar().showMessage(
+                    self.tr("输出目录已设置为: %s") % self.output_dir, 5000
+                )
+                if self.lastOpenDir and osp.exists(self.lastOpenDir):
+                    current_filename = self.filename
+                    self.importDirImages(self.lastOpenDir, load=False)
+                    if current_filename and current_filename in self.imageList:
+                        self.fileListWidget.setCurrentRow(
+                            self.imageList.index(current_filename))
+                        self.fileListWidget.repaint()
+                        self.loadFile(current_filename)
+                        self.setFitWindow(True)
+                        self.actions.fitWindow.setChecked(True)
+                        self.adjustScale(initial=True)
