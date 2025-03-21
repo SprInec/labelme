@@ -22,6 +22,114 @@ class LabelQLineEdit(QtWidgets.QLineEdit):
             super(LabelQLineEdit, self).keyPressEvent(e)
 
 
+class LabelItemDelegate(QtWidgets.QStyledItemDelegate):
+    """自定义标签项的代理，用于呈现更美观的样式"""
+
+    def __init__(self, parent=None):
+        super(LabelItemDelegate, self).__init__(parent)
+
+    def paint(self, painter, option, index):
+        # 保存画笔状态
+        painter.save()
+
+        # 圆角绘制准备
+        radius = 8  # 定义圆角半径
+
+        # 调整矩形区域，缩小更多以形成更大的间隙效果
+        option_rect = option.rect.adjusted(5, 5, -5, -5)
+
+        # 获取项
+        color_data = index.data(QtCore.Qt.UserRole+1)
+
+        # 创建一个路径来绘制圆角矩形
+        path = QtGui.QPainterPath()
+        path.addRoundedRect(
+            QtCore.QRectF(option_rect),
+            radius,
+            radius
+        )
+
+        # 背景色绘制
+        if color_data and isinstance(color_data, QtGui.QColor):
+            # 使用标签颜色创建更淡的半透明背景 (10%透明度)
+            bg_color = QtGui.QColor(color_data)
+            bg_color.setAlpha(25)  # 10%透明度 (255*0.1≈25)
+
+            # 使用路径来填充圆角背景
+            painter.fillPath(path, bg_color)
+
+            # 左边框宽度
+            border_width = 12  # 增加左边框宽度
+
+            # 绘制左边框 (使用圆角)
+            border_path = QtGui.QPainterPath()
+            border_rect = QtCore.QRectF(
+                option_rect.left(),
+                option_rect.top(),
+                border_width,
+                option_rect.height()
+            )
+            # 只对左边使用圆角
+            border_path.addRoundedRect(border_rect, radius, radius)
+            # 裁剪掉右边的圆角
+            clip_path = QtGui.QPainterPath()
+            clip_path.addRect(
+                option_rect.left(),
+                option_rect.top(),
+                border_width / 2,  # 只显示左边的一半
+                option_rect.height()
+            )
+            # 应用裁剪
+            border_path = border_path.intersected(clip_path)
+
+            # 填充左边框
+            border_color = QtGui.QColor(color_data)
+            painter.fillPath(border_path, border_color)
+
+        # 选中状态高亮 (也使用圆角)
+        if option.state & QtWidgets.QStyle.State_Selected:
+            highlight_color = QtGui.QColor(0, 120, 215, 178)  # 70%透明度
+            painter.fillPath(path, highlight_color)
+            painter.setPen(QtGui.QColor(255, 255, 255))
+        elif option.state & QtWidgets.QStyle.State_MouseOver:
+            hover_color = QtGui.QColor(0, 0, 0, 13)  # 5%透明度
+            painter.fillPath(path, hover_color)
+            painter.setPen(QtGui.QColor(0, 0, 0))
+        else:
+            painter.setPen(QtGui.QColor(0, 0, 0))
+
+        # 文本绘制区域 (增加左边距)
+        text_rect = QtCore.QRect(
+            option_rect.left() + border_width + 12,  # 左边框宽度 + 额外间距
+            option_rect.top(),
+            option_rect.width() - (border_width + 20),  # 适当调整右边距
+            option_rect.height()
+        )
+
+        # 设置字体
+        font = painter.font()
+        font.setPointSize(10)
+        painter.setFont(font)
+
+        # 绘制文本
+        text = index.data(QtCore.Qt.DisplayRole)
+        # 移除HTML标记后绘制纯文本
+        if text and '<font' in text:
+            clean_text = re.sub(r'<[^>]*>●|</font>', '', text).strip()
+            painter.drawText(text_rect, QtCore.Qt.AlignVCenter, clean_text)
+        else:
+            painter.drawText(text_rect, QtCore.Qt.AlignVCenter, text)
+
+        # 恢复画笔状态
+        painter.restore()
+
+    def sizeHint(self, option, index):
+        # 增大项高度以增强呼吸感
+        size = super(LabelItemDelegate, self).sizeHint(option, index)
+        size.setHeight(60)  # 进一步增大项高度
+        return size
+
+
 class LabelDialog(QtWidgets.QDialog):
     def __init__(
         self,
@@ -51,6 +159,7 @@ class LabelDialog(QtWidgets.QDialog):
             self.edit.textChanged.connect(self.updateFlags)
         self.edit_group_id = QtWidgets.QLineEdit()
         self.edit_group_id.setPlaceholderText("GID")
+        self.edit_group_id.setAlignment(QtCore.Qt.AlignCenter)
         self.edit_group_id.setValidator(
             QtGui.QRegExpValidator(QtCore.QRegExp(r"\d*"), None)
         )
@@ -69,9 +178,61 @@ class LabelDialog(QtWidgets.QDialog):
         if self._fit_to_content["column"]:
             self.labelList.setVerticalScrollBarPolicy(
                 QtCore.Qt.ScrollBarAlwaysOff)
+
+        # 设置标签列表样式
+        self.labelList.setStyleSheet("""
+            QListWidget {
+                background-color: #FFFFFF;
+                border: 1px solid #ddd;
+                border-radius: 8px;
+                padding: 10px;
+                outline: none;
+                padding-right: 15px; /* 为滚动条留出空间 */
+            }
+            QListWidget::item {
+                border-radius: 8px;
+                padding: 10px;
+                margin: 10px 5px;  /* 增加垂直和水平间距 */
+            }
+            QListWidget::item:selected {
+                color: white;
+                border: none;
+            }
+            /* 滚动条样式 */
+            QScrollBar:vertical {
+                background-color: #f0f0f0;
+                width: 8px;
+                margin: 10px 0 10px 0;
+                border-radius: 4px;
+            }
+            QScrollBar::handle:vertical {
+                background-color: #c0c0c0;
+                min-height: 30px;
+                border-radius: 4px;
+            }
+            QScrollBar::handle:vertical:hover {
+                background-color: #a0a0a0;
+            }
+            QScrollBar::add-line:vertical, 
+            QScrollBar::sub-line:vertical {
+                height: 0px;
+            }
+            QScrollBar::add-page:vertical, 
+            QScrollBar::sub-page:vertical {
+                background: none;
+            }
+        """)
+
+        # 设置自定义代理
+        self.label_delegate = LabelItemDelegate(self.labelList)
+        self.labelList.setItemDelegate(self.label_delegate)
         self._sort_labels = sort_labels
         if labels:
-            self.labelList.addItems(labels)
+            # 添加标签并应用样式
+            for label in labels:
+                item = QtWidgets.QListWidgetItem(label)
+                self.labelList.addItem(item)
+                self._set_label_item_style(item, label)
         if self._sort_labels:
             self.labelList.sortItems()
         else:
@@ -186,13 +347,19 @@ class LabelDialog(QtWidgets.QDialog):
     def addLabelHistory(self, label):
         if self.labelList.findItems(label, QtCore.Qt.MatchExactly):
             return
-        self.labelList.addItem(label)
+        item = QtWidgets.QListWidgetItem(label)
+        self.labelList.addItem(item)
+        # 设置样式
+        self._set_label_item_style(item, label)
         if self._sort_labels:
             self.labelList.sortItems()
 
     def labelSelected(self, item):
         self.edit.setText(item.text())
         text = item.text().strip()
+
+        # 重新应用样式以确保显示正确
+        self._set_label_item_style(item, text)
 
         # 如果app对象存在，使用app的颜色管理
         if self.app:
@@ -421,3 +588,50 @@ class LabelDialog(QtWidgets.QDialog):
     def changeColor(self):
         # 确保向后兼容
         self.choose_color()
+
+    def _set_label_item_style(self, item, label_text):
+        """设置标签项的样式，添加左边框和背景色
+
+        Args:
+            item: QListWidgetItem 对象
+            label_text: 标签文本
+        """
+        # 获取纯文本标签（移除HTML和特殊字符）
+        clean_text = label_text.replace("●", "").strip()
+        # 移除HTML标记
+        if '<font' in clean_text:
+            clean_text = re.sub(r'<[^>]*>|</[^>]*>', '', clean_text).strip()
+
+        # 获取标签颜色
+        rgb_color = None
+        if self.app:
+            rgb_color = self.app._get_rgb_by_label(clean_text)
+
+        if not rgb_color:
+            # 如果获取不到颜色，尝试从标签文本提取
+            if "●" in label_text and 'color="' in label_text:
+                try:
+                    color_str = label_text.split('color="')[1].split('">')[0]
+                    r = int(color_str[1:3], 16)
+                    g = int(color_str[3:5], 16)
+                    b = int(color_str[5:7], 16)
+                    rgb_color = (r, g, b)
+                except (IndexError, ValueError):
+                    # 使用默认绿色
+                    rgb_color = (0, 255, 0)
+            else:
+                # 使用默认绿色
+                rgb_color = (0, 255, 0)
+
+        # 创建QColor对象
+        r, g, b = rgb_color
+        color = QtGui.QColor(r, g, b)
+
+        # 设置背景透明度与代理一致
+        background = QtGui.QBrush(QtGui.QColor(r, g, b, 25))  # 10%透明度
+
+        # 设置项的背景色
+        item.setBackground(background)
+
+        # 使用自定义数据保存边框颜色
+        item.setData(QtCore.Qt.UserRole+1, color)
