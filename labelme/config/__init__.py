@@ -62,7 +62,6 @@ def save_config(config):
     try:
         with open(user_config_file, "w") as f:
             yaml.safe_dump(config, f, allow_unicode=True)
-        logger.info("Config saved to: {}".format(user_config_file))
     except Exception as e:
         logger.warning("Failed to save config: {}".format(e))
 

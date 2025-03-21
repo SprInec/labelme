@@ -179,17 +179,19 @@ class LabelDialog(QtWidgets.QDialog):
         # 创建主布局
         self.main_layout = layout
 
-        # 创建标准列表布局和流式标签云布局
+        # 始终创建标准列表布局和流式标签云布局
         self.createStandardListLayout(layout, labels, sort_labels)
+        self.createCloudLayout(layout, labels)
 
+        # 根据设置显示或隐藏相应的布局
         if self._use_cloud_layout:
-            # 如果启用标签云布局，则创建并显示
-            self.createCloudLayout(layout, labels)
-            # 隐藏标准列表
+            # 如果启用标签云布局，则显示流式布局，隐藏标准列表
             self.labelList.setVisible(False)
+            self.scrollArea.setVisible(True)
         else:
-            # 否则显示标准列表
+            # 否则显示标准列表，隐藏流式布局
             self.labelList.setVisible(True)
+            self.scrollArea.setVisible(False)
 
         # label_flags
         if flags is None:
@@ -219,6 +221,24 @@ class LabelDialog(QtWidgets.QDialog):
         self.update_color_button()
         self.color_button.clicked.connect(self.choose_color)
         color_layout.addWidget(self.color_button, 0, QtCore.Qt.AlignVCenter)
+
+        # 添加布局切换按钮
+        self.layout_toggle_button = QtWidgets.QPushButton()
+        self.layout_toggle_button.setObjectName("layout_toggle_button")
+        self.layout_toggle_button.setFixedSize(32, 32)
+        self.layout_toggle_button.setToolTip(self.tr("切换标签布局模式"))
+        self.layout_toggle_button.clicked.connect(self.onLayoutToggleClicked)
+        # 设置图标
+        if self._use_cloud_layout:
+            self.layout_toggle_button.setIcon(
+                labelme.utils.newIcon("icons8-list-view-48"))
+        else:
+            self.layout_toggle_button.setIcon(
+                labelme.utils.newIcon("icons8-grid-view-48"))
+        color_layout.addWidget(self.layout_toggle_button,
+                               0, QtCore.Qt.AlignVCenter)
+        # 在颜色按钮和布局按钮之间添加一定的间距
+        color_layout.addSpacing(5)
 
         # 添加按钮
         self.buttonBox = bb = QtWidgets.QDialogButtonBox(
@@ -279,6 +299,14 @@ class LabelDialog(QtWidgets.QDialog):
                 min-width: 30px;
                 border-radius: 0px;
                 border: 1px solid #3d3d3d;
+                margin-top: 0px;
+            }
+            QPushButton#layout_toggle_button {
+                padding: 0px;
+                min-width: 30px;
+                border-radius: 16px;
+                border: 1px solid #888888;
+                background-color: #f0f0f0;
                 margin-top: 0px;
             }
         """)
@@ -418,7 +446,7 @@ class LabelDialog(QtWidgets.QDialog):
         """)
 
         # 创建一个容器窗口
-        self.cloudContainer = QtWidgets.QWidget()
+        self.cloudContainer = LabelCloudContainer(self)
         # 创建流式布局
         self.cloudLayout = FlowLayout()
         self.cloudContainer.setLayout(self.cloudLayout)
@@ -437,8 +465,25 @@ class LabelDialog(QtWidgets.QDialog):
 
     def addLabelToCloud(self, label_text):
         """添加标签到标签云布局"""
+        # 避免重复添加标签
+        for item in self.cloudContainer.label_items:
+            # 清理标签文本以进行比较
+            item_clean_text = item.clean_text
+            if '<font' in item_clean_text:
+                item_clean_text = re.sub(
+                    r'<[^>]*>|</[^>]*>', '', item_clean_text).strip()
+
+            label_clean_text = label_text
+            if '<font' in label_clean_text:
+                label_clean_text = re.sub(
+                    r'<[^>]*>|</[^>]*>', '', label_clean_text).strip()
+
+            # 如果标签已存在，则不添加
+            if item_clean_text == label_clean_text:
+                return
+
         # 创建一个标签项小部件
-        label_widget = LabelCloudItem(label_text, self)
+        label_widget = LabelCloudItem(label_text, self.cloudContainer)
 
         # 获取标签颜色
         rgb_color = None
@@ -459,12 +504,19 @@ class LabelDialog(QtWidgets.QDialog):
         # 将标签小部件添加到流式布局
         self.cloudLayout.addWidget(label_widget)
 
+        # 将标签项添加到容器的跟踪列表中
+        self.cloudContainer.addLabelItem(label_widget)
+
         # 连接双击信号
         label_widget.doubleClicked.connect(
             lambda: self.cloudItemDoubleClicked(label_text))
         # 连接选中信号
         label_widget.clicked.connect(
             lambda: self.cloudItemSelected(label_text))
+
+        # 强制更新布局
+        self.cloudContainer.updateGeometry()
+        self.scrollArea.updateGeometry()
 
     def toggleCloudLayout(self, use_cloud=None):
         """切换布局模式"""
@@ -479,9 +531,63 @@ class LabelDialog(QtWidgets.QDialog):
         if hasattr(self, 'labelList'):
             self.labelList.setVisible(not self._use_cloud_layout)
 
+        # 更新布局切换按钮图标
+        if hasattr(self, 'layout_toggle_button'):
+            if self._use_cloud_layout:
+                self.layout_toggle_button.setIcon(
+                    labelme.utils.newIcon("icons8-list-view-48"))
+                self.layout_toggle_button.setToolTip(self.tr("切换为列表布局"))
+            else:
+                self.layout_toggle_button.setIcon(
+                    labelme.utils.newIcon("icons8-grid-view-48"))
+                self.layout_toggle_button.setToolTip(self.tr("切换为流式布局"))
+
+        # 同步主应用程序的布局设置
+        if self.app and hasattr(self.app, '_config') and hasattr(self.app, 'cloud_layout_action'):
+            # 仅当设置与应用不一致时更新应用设置
+            if self.app._config.get('label_cloud_layout', False) != self._use_cloud_layout:
+                self.app._config['label_cloud_layout'] = self._use_cloud_layout
+                self.app.cloud_layout_action.setChecked(self._use_cloud_layout)
+
+                # 保存到配置文件
+                try:
+                    from labelme.config import save_config
+                    save_config(self.app._config)
+                except Exception as e:
+                    logger.exception("保存标签云布局配置失败: %s", e)
+
     def cloudItemSelected(self, label_text):
         """流式布局中的标签被选中"""
         self.edit.setText(label_text)
+
+        # 更新颜色按钮与标签选中时的颜色一致
+        clean_text = label_text.replace("●", "").strip()
+        # 提取纯文本标签名，去除任何HTML标记
+        if '<font' in clean_text:
+            clean_text = re.sub(r'<[^>]*>|</[^>]*>', '', clean_text).strip()
+
+        # 使用app的颜色获取方法
+        if self.app:
+            rgb_color = self.app._get_rgb_by_label(clean_text)
+            if rgb_color:
+                # 转换成QColor
+                self.selected_color = QtGui.QColor(*rgb_color)
+                self.update_color_button()
+                return
+
+        # 降级处理：如果无法从app获取颜色，尝试从标签文本提取
+        if "●" in label_text and 'color="' in label_text:
+            try:
+                # 尝试提取颜色代码
+                color_str = label_text.split('color="')[1].split('">')[0]
+                # 解析十六进制颜色值
+                r = int(color_str[1:3], 16)
+                g = int(color_str[3:5], 16)
+                b = int(color_str[5:7], 16)
+                self.selected_color = QtGui.QColor(r, g, b)
+                self.update_color_button()
+            except (IndexError, ValueError):
+                pass
 
     def cloudItemDoubleClicked(self, label_text):
         """流式布局中的标签被双击"""
@@ -806,19 +912,42 @@ class LabelDialog(QtWidgets.QDialog):
         """保存当前标签排序顺序到应用程序"""
         if self.app and hasattr(self.app, 'save_label_order'):
             labels = []
-            for i in range(self.labelList.count()):
-                item = self.labelList.item(i)
-                # 从标签文本中提取纯文本标签名
-                text = item.text()
-                clean_text = text.replace("●", "").strip()
-                if '<font' in clean_text:
-                    clean_text = re.sub(
-                        r'<[^>]*>|</[^>]*>', '', clean_text).strip()
-                labels.append(clean_text)
+            # 从列表视图或流式布局中获取标签顺序
+            if not self._use_cloud_layout:
+                # 从标准列表获取标签
+                for i in range(self.labelList.count()):
+                    item = self.labelList.item(i)
+                    # 从标签文本中提取纯文本标签名
+                    text = item.text()
+                    clean_text = text.replace("●", "").strip()
+                    if '<font' in clean_text:
+                        clean_text = re.sub(
+                            r'<[^>]*>|</[^>]*>', '', clean_text).strip()
+                    labels.append(clean_text)
+            else:
+                # 从流式布局中获取标签 - 流式布局只在当前会话中生效
+                for item in self.cloudContainer.label_items:
+                    text = item.text
+                    clean_text = text.replace("●", "").strip()
+                    if '<font' in clean_text:
+                        clean_text = re.sub(
+                            r'<[^>]*>|</[^>]*>', '', clean_text).strip()
+                    labels.append(clean_text)
+
+            # 保存标签顺序 - 只在会话中保存，不写入配置文件
             try:
-                self.app.save_label_order(labels)
+                if hasattr(self.app, 'updateLabelList'):
+                    # 如果应用程序有更新标签列表的方法，直接调用
+                    self.app.updateLabelList(labels)
+                else:
+                    # 否则调用基本的保存方法，但设置临时标志
+                    self.app.save_label_order(labels, temporary=True)
             except Exception as e:
-                logger.warning(f"无法保存标签顺序: {e}")
+                logger.warning(f"无法更新标签顺序: {e}")
+
+    def onLayoutToggleClicked(self):
+        """处理布局切换按钮的点击事件"""
+        self.toggleCloudLayout()
 
 
 class FlowLayout(QtWidgets.QLayout):
@@ -830,6 +959,7 @@ class FlowLayout(QtWidgets.QLayout):
             self.setContentsMargins(margin, margin, margin, margin)
         self.setSpacing(spacing)
         self._items = []
+        self._is_updating = False
 
     def __del__(self):
         while self.count():
@@ -837,6 +967,7 @@ class FlowLayout(QtWidgets.QLayout):
 
     def addItem(self, item):
         self._items.append(item)
+        self.invalidate()  # 添加项后立即刷新布局
 
     def count(self):
         return len(self._items)
@@ -862,8 +993,13 @@ class FlowLayout(QtWidgets.QLayout):
         return height
 
     def setGeometry(self, rect):
+        if self._is_updating:
+            return
+
+        self._is_updating = True
         super(FlowLayout, self).setGeometry(rect)
         self._doLayout(rect, False)
+        self._is_updating = False
 
     def sizeHint(self):
         return self.minimumSize()
@@ -881,26 +1017,55 @@ class FlowLayout(QtWidgets.QLayout):
         x = rect.x()
         y = rect.y()
         lineHeight = 0
+        spaceX = self.spacing()
+        spaceY = self.spacing()
+
+        # 获取左右边距
+        left = self.contentsMargins().left()
+        right = self.contentsMargins().right()
+        top = self.contentsMargins().top()
+        bottom = self.contentsMargins().bottom()
+
+        # 调整可用区域
+        effectiveRect = QtCore.QRect(
+            rect.x() + left,
+            rect.y() + top,
+            rect.width() - left - right,
+            rect.height() - top - bottom
+        )
+
+        x = effectiveRect.x()
+        y = effectiveRect.y()
+        right_bound = effectiveRect.right()
 
         for item in self._items:
             wid = item.widget()
-            spaceX = self.spacing()
-            spaceY = self.spacing()
-            nextX = x + item.sizeHint().width() + spaceX
-            if nextX - spaceX > rect.right() and lineHeight > 0:
-                x = rect.x()
+            if wid and not wid.isVisible():
+                continue  # 跳过不可见的小部件
+
+            item_width = item.sizeHint().width()
+            item_height = item.sizeHint().height()
+
+            # 检查当前行是否还有足够空间
+            nextX = x + item_width
+            if nextX > right_bound and lineHeight > 0:
+                # 如果不够空间，换行
+                x = effectiveRect.x()
                 y = y + lineHeight + spaceY
-                nextX = x + item.sizeHint().width() + spaceX
+                nextX = x + item_width
                 lineHeight = 0
 
             if not testOnly:
+                # 设置实际几何位置
                 item.setGeometry(QtCore.QRect(
                     QtCore.QPoint(x, y), item.sizeHint()))
 
-            x = nextX
-            lineHeight = max(lineHeight, item.sizeHint().height())
+            # 更新位置和行高
+            x = nextX + spaceX
+            lineHeight = max(lineHeight, item_height)
 
-        return y + lineHeight - rect.y()
+        # 返回布局总高度
+        return y + lineHeight - rect.y() + bottom
 
 
 class LabelCloudItem(QtWidgets.QWidget):
@@ -909,12 +1074,16 @@ class LabelCloudItem(QtWidgets.QWidget):
     # 定义自定义信号
     clicked = QtCore.pyqtSignal()
     doubleClicked = QtCore.pyqtSignal()
+    dragStarted = QtCore.pyqtSignal(object)  # 发送自身引用
 
     def __init__(self, text, parent=None):
         super(LabelCloudItem, self).__init__(parent)
         self.text = text
         self.selected = False
         self.color = QtGui.QColor(0, 255, 0)  # 默认绿色
+        self.dragging = False
+        self.hover = False
+        self.drop_hover = False  # 拖拽悬停状态
 
         # 清理文本，移除HTML标记
         if '<font' in text:
@@ -935,6 +1104,9 @@ class LabelCloudItem(QtWidgets.QWidget):
 
         # 启用鼠标跟踪以捕获悬停事件
         self.setMouseTracking(True)
+
+        # 允许拖拽
+        self.setAcceptDrops(True)
 
     def setLabelColor(self, color):
         """设置标签颜色"""
@@ -988,12 +1160,23 @@ class LabelCloudItem(QtWidgets.QWidget):
         # 填充左边框
         painter.fillPath(border_path, self.color)
 
+        # 视觉效果增强：拖拽的目标位置显示接收指示
+        if self.drop_hover:
+            # 绘制更明显的接收指示边框
+            drop_color = QtGui.QColor(0, 120, 215, 100)
+            drop_pen = QtGui.QPen(drop_color, 2, QtCore.Qt.DashLine)
+            painter.setPen(drop_pen)
+            painter.drawRoundedRect(
+                rect.adjusted(1, 1, -1, -1),
+                radius, radius
+            )
+
         # 选中状态或悬停状态高亮
         if self.selected:
             highlight_color = QtGui.QColor(0, 120, 215, 178)  # 70%透明度
             painter.fillPath(path, highlight_color)
             painter.setPen(QtGui.QColor(255, 255, 255))
-        elif self.underMouse():
+        elif self.hover or self.dragging:
             hover_color = QtGui.QColor(0, 0, 0, 13)  # 5%透明度
             painter.fillPath(path, hover_color)
             painter.setPen(QtGui.QColor(0, 0, 0))
@@ -1018,6 +1201,55 @@ class LabelCloudItem(QtWidgets.QWidget):
             self.update()
             self.clicked.emit()
 
+            # 保存拖拽起始位置
+            self._drag_start_position = event.pos()
+
+    def mouseMoveEvent(self, event):
+        """鼠标移动事件，处理拖拽"""
+        if not (event.buttons() & QtCore.Qt.LeftButton):
+            return
+
+        # 计算移动距离，超过阈值则开始拖拽
+        if (event.pos() - self._drag_start_position).manhattanLength() < QtWidgets.QApplication.startDragDistance():
+            return
+
+        # 开始拖拽
+        self.dragging = True
+
+        # 创建拖拽对象
+        drag = QtGui.QDrag(self)
+
+        # 设置拖拽的数据
+        mime_data = QtCore.QMimeData()
+        mime_data.setText(self.text)
+        # 添加自定义数据以在拖放时识别
+        mime_data.setData("application/x-labelcloud-item",
+                          QtCore.QByteArray(b"1"))
+        drag.setMimeData(mime_data)
+
+        # 设置拖拽时的半透明预览图像
+        pixmap = QtGui.QPixmap(self.size())
+        pixmap.fill(QtCore.Qt.transparent)
+
+        # 在pixmap上绘制当前小部件
+        painter = QtGui.QPainter(pixmap)
+        self.render(painter)
+        painter.end()
+
+        # 设置拖拽的图像和热点
+        drag.setPixmap(pixmap)
+        drag.setHotSpot(event.pos())
+
+        # 通知父控件拖拽开始
+        self.dragStarted.emit(self)
+
+        # 执行拖拽
+        result = drag.exec_(QtCore.Qt.MoveAction)
+
+        # 拖拽结束
+        self.dragging = False
+        self.update()
+
     def mouseReleaseEvent(self, event):
         """鼠标释放事件"""
         if event.button() == QtCore.Qt.LeftButton:
@@ -1031,12 +1263,155 @@ class LabelCloudItem(QtWidgets.QWidget):
 
     def enterEvent(self, event):
         """鼠标进入事件"""
+        self.hover = True
         self.update()
 
     def leaveEvent(self, event):
         """鼠标离开事件"""
+        self.hover = False
         self.update()
+
+    def dragEnterEvent(self, event):
+        """拖拽进入事件"""
+        if event.mimeData().hasText() and event.mimeData().hasFormat("application/x-labelcloud-item"):
+            event.acceptProposedAction()
+            self.drop_hover = True
+            self.update()
+
+    def dragLeaveEvent(self, event):
+        """拖拽离开事件"""
+        event.accept()
+        self.drop_hover = False
+        self.update()
+
+    def dropEvent(self, event):
+        """放置事件"""
+        if event.mimeData().hasText() and event.mimeData().hasFormat("application/x-labelcloud-item"):
+            event.acceptProposedAction()
+            self.drop_hover = False
+            self.update()
+
+            # 获取父控件（FlowLayout的容器）
+            parent = self.parent()
+            if parent and hasattr(parent, 'handleLabelDrop'):
+                # 调用父控件的处理方法
+                parent.handleLabelDrop(event.mimeData().text(), self)
 
     def sizeHint(self):
         """尺寸提示"""
         return QtCore.QSize(self.width(), self.height())
+
+
+class LabelCloudContainer(QtWidgets.QWidget):
+    """标签云容器，用于管理标签项的拖放操作"""
+
+    def __init__(self, dialog):
+        super(LabelCloudContainer, self).__init__()
+        self.dialog = dialog
+        self.setAcceptDrops(True)
+        self.dragging_item = None
+        self.label_items = []  # 保存所有标签项的引用
+
+    def addLabelItem(self, item):
+        """添加标签项到容器"""
+        self.label_items.append(item)
+        item.dragStarted.connect(self.onItemDragStarted)
+
+    def onItemDragStarted(self, item):
+        """标签项开始拖拽时的处理"""
+        self.dragging_item = item
+
+    def handleLabelDrop(self, text, target_item):
+        """处理标签项的放置"""
+        if not self.dragging_item or self.dragging_item == target_item:
+            return
+
+        # 获取目标项和源项在布局中的索引
+        layout = self.layout()
+        if not isinstance(layout, FlowLayout):
+            return
+
+        # 找到拖拽项和目标项的索引
+        source_index = -1
+        target_index = -1
+
+        for i in range(len(self.label_items)):
+            if self.label_items[i] == self.dragging_item:
+                source_index = i
+            elif self.label_items[i] == target_item:
+                target_index = i
+
+        if source_index == -1 or target_index == -1:
+            return
+
+        # 移动项
+        item = self.label_items.pop(source_index)
+        self.label_items.insert(target_index, item)
+
+        # 重新排列布局中的所有项
+        self.updateLayout()
+
+        # 重置拖拽状态
+        self.dragging_item = None
+
+        # 如果有保存标签顺序的方法，则调用
+        if hasattr(self.dialog, 'saveLabelOrder'):
+            self.dialog.saveLabelOrder()
+
+    def updateLayout(self):
+        """更新布局，根据标签项的新顺序重新排列"""
+        layout = self.layout()
+        if not isinstance(layout, FlowLayout):
+            return
+
+        # 清空布局
+        while layout.count():
+            item = layout.takeAt(0)
+            # 不要删除小部件，只从布局中移除
+            if item.widget():
+                item.widget().setParent(None)
+
+        # 重新添加所有项
+        for item in self.label_items:
+            layout.addWidget(item)
+
+        # 刷新布局
+        layout.invalidate()
+        layout.activate()
+        self.updateGeometry()
+        self.update()
+
+    def dragEnterEvent(self, event):
+        """拖拽进入事件"""
+        if event.mimeData().hasText():
+            event.acceptProposedAction()
+
+    def dragMoveEvent(self, event):
+        """拖拽移动事件"""
+        if event.mimeData().hasText():
+            event.acceptProposedAction()
+
+    def dropEvent(self, event):
+        """放置事件 - 处理拖放到容器空白区域的情况"""
+        if event.mimeData().hasText() and self.dragging_item:
+            event.acceptProposedAction()
+
+            # 将拖拽的项移动到末尾
+            source_index = -1
+
+            for i, item in enumerate(self.label_items):
+                if item == self.dragging_item:
+                    source_index = i
+                    break
+
+            if source_index != -1:
+                item = self.label_items.pop(source_index)
+                self.label_items.append(item)
+                self.updateLayout()
+
+            # 重置拖拽状态
+            self.dragging_item = None
+
+            # 如果有保存标签顺序的方法，则调用
+            if hasattr(self.dialog, 'saveLabelOrder'):
+                self.dialog.saveLabelOrder()
