@@ -48,12 +48,31 @@ class ConfigLoader:
                 "model_name": "fasterrcnn_resnet50_fpn",
                 "conf_threshold": 0.5,
                 "device": "cpu",
-                "filter_classes": []
+                "filter_classes": [],
+                "nms_threshold": 0.45,  # 非极大值抑制阈值
+                "max_detections": 100,  # 最大检测数
+                "use_gpu_if_available": True,  # 如果可用则使用GPU
+                "advanced": {
+                    "pre_nms_top_n": 1000,  # 在NMS之前保留的候选框数量
+                    "pre_nms_threshold": 0.5,  # 在NMS之前的分数阈值
+                    "max_size": 1333,  # 输入图像的最大尺寸
+                    "min_size": 800,  # 输入图像的最小尺寸
+                    "score_threshold": 0.05  # 检测分数阈值
+                }
             },
             "pose_estimation": {
                 "model_name": "keypointrcnn_resnet50_fpn",
                 "conf_threshold": 0.5,
-                "device": "cpu"
+                "device": "cpu",
+                "use_detection_results": True,  # 使用已有的目标检测结果
+                "keypoint_threshold": 0.3,  # 关键点置信度阈值
+                "advanced": {
+                    "max_poses": 20,  # 最大检测的姿态数量
+                    "min_keypoints": 5,  # 最少需要检测到的关键点数
+                    "keypoint_score_threshold": 0.2,  # 关键点分数阈值
+                    "use_tracking": False,  # 是否使用关键点跟踪
+                    "tracking_threshold": 0.5  # 关键点跟踪阈值
+                }
             }
         }
 

@@ -97,10 +97,65 @@ class AISettingsDialog(QtWidgets.QDialog):
         self.detection_conf_threshold.setDecimals(2)
         layout.addRow(self.tr("置信度阈值:"), self.detection_conf_threshold)
 
+        # NMS阈值
+        self.detection_nms_threshold = QtWidgets.QDoubleSpinBox()
+        self.detection_nms_threshold.setRange(0.01, 1.0)
+        self.detection_nms_threshold.setSingleStep(0.05)
+        self.detection_nms_threshold.setDecimals(2)
+        layout.addRow(self.tr("NMS阈值:"), self.detection_nms_threshold)
+
+        # 最大检测数
+        self.detection_max_detections = QtWidgets.QSpinBox()
+        self.detection_max_detections.setRange(1, 1000)
+        self.detection_max_detections.setSingleStep(10)
+        layout.addRow(self.tr("最大检测数:"), self.detection_max_detections)
+
         # 设备选择
         self.detection_device = QtWidgets.QComboBox()
         self.detection_device.addItems(["cpu", "cuda"])
         layout.addRow(self.tr("运行设备:"), self.detection_device)
+
+        # 自动使用GPU选项
+        self.detection_use_gpu = QtWidgets.QCheckBox(self.tr("如果可用则使用GPU"))
+        layout.addRow("", self.detection_use_gpu)
+
+        # 高级设置分组
+        advanced_group = QtWidgets.QGroupBox(self.tr("高级设置"))
+        advanced_layout = QtWidgets.QFormLayout()
+
+        # 高级设置参数
+        self.detection_pre_nms_top_n = QtWidgets.QSpinBox()
+        self.detection_pre_nms_top_n.setRange(100, 10000)
+        self.detection_pre_nms_top_n.setSingleStep(100)
+        advanced_layout.addRow(self.tr("NMS前候选框数量:"),
+                               self.detection_pre_nms_top_n)
+
+        self.detection_pre_nms_threshold = QtWidgets.QDoubleSpinBox()
+        self.detection_pre_nms_threshold.setRange(0.01, 1.0)
+        self.detection_pre_nms_threshold.setSingleStep(0.05)
+        self.detection_pre_nms_threshold.setDecimals(2)
+        advanced_layout.addRow(
+            self.tr("NMS前阈值:"), self.detection_pre_nms_threshold)
+
+        self.detection_max_size = QtWidgets.QSpinBox()
+        self.detection_max_size.setRange(300, 5000)
+        self.detection_max_size.setSingleStep(100)
+        advanced_layout.addRow(self.tr("最大图像尺寸:"), self.detection_max_size)
+
+        self.detection_min_size = QtWidgets.QSpinBox()
+        self.detection_min_size.setRange(100, 2000)
+        self.detection_min_size.setSingleStep(100)
+        advanced_layout.addRow(self.tr("最小图像尺寸:"), self.detection_min_size)
+
+        self.detection_score_threshold = QtWidgets.QDoubleSpinBox()
+        self.detection_score_threshold.setRange(0.01, 1.0)
+        self.detection_score_threshold.setSingleStep(0.01)
+        self.detection_score_threshold.setDecimals(2)
+        advanced_layout.addRow(
+            self.tr("检测分数阈值:"), self.detection_score_threshold)
+
+        advanced_group.setLayout(advanced_layout)
+        layout.addRow(advanced_group)
 
         # 检测类别（多选框）
         self.detection_classes_list = QtWidgets.QListWidget()
@@ -163,10 +218,58 @@ class AISettingsDialog(QtWidgets.QDialog):
         self.pose_conf_threshold.setDecimals(2)
         layout.addRow(self.tr("置信度阈值:"), self.pose_conf_threshold)
 
+        # 关键点置信度阈值
+        self.pose_keypoint_threshold = QtWidgets.QDoubleSpinBox()
+        self.pose_keypoint_threshold.setRange(0.01, 1.0)
+        self.pose_keypoint_threshold.setSingleStep(0.05)
+        self.pose_keypoint_threshold.setDecimals(2)
+        layout.addRow(self.tr("关键点置信度阈值:"), self.pose_keypoint_threshold)
+
         # 设备选择
         self.pose_device = QtWidgets.QComboBox()
         self.pose_device.addItems(["cpu", "cuda"])
         layout.addRow(self.tr("运行设备:"), self.pose_device)
+
+        # 使用已有的目标检测结果
+        self.pose_use_detection_results = QtWidgets.QCheckBox(
+            self.tr("使用已有的目标检测结果"))
+        self.pose_use_detection_results.setToolTip(
+            self.tr("当视图中存在person矩形框时，使用该框作为输入预测关键点"))
+        layout.addRow("", self.pose_use_detection_results)
+
+        # 高级设置分组
+        advanced_group = QtWidgets.QGroupBox(self.tr("高级设置"))
+        advanced_layout = QtWidgets.QFormLayout()
+
+        # 高级设置参数
+        self.pose_max_poses = QtWidgets.QSpinBox()
+        self.pose_max_poses.setRange(1, 100)
+        self.pose_max_poses.setSingleStep(1)
+        advanced_layout.addRow(self.tr("最大姿态数:"), self.pose_max_poses)
+
+        self.pose_min_keypoints = QtWidgets.QSpinBox()
+        self.pose_min_keypoints.setRange(1, 17)
+        self.pose_min_keypoints.setSingleStep(1)
+        advanced_layout.addRow(self.tr("最少关键点数:"), self.pose_min_keypoints)
+
+        self.pose_keypoint_score_threshold = QtWidgets.QDoubleSpinBox()
+        self.pose_keypoint_score_threshold.setRange(0.01, 1.0)
+        self.pose_keypoint_score_threshold.setSingleStep(0.05)
+        self.pose_keypoint_score_threshold.setDecimals(2)
+        advanced_layout.addRow(self.tr("关键点分数阈值:"),
+                               self.pose_keypoint_score_threshold)
+
+        self.pose_use_tracking = QtWidgets.QCheckBox(self.tr("使用关键点跟踪"))
+        advanced_layout.addRow("", self.pose_use_tracking)
+
+        self.pose_tracking_threshold = QtWidgets.QDoubleSpinBox()
+        self.pose_tracking_threshold.setRange(0.01, 1.0)
+        self.pose_tracking_threshold.setSingleStep(0.05)
+        self.pose_tracking_threshold.setDecimals(2)
+        advanced_layout.addRow(self.tr("跟踪阈值:"), self.pose_tracking_threshold)
+
+        advanced_group.setLayout(advanced_layout)
+        layout.addRow(advanced_group)
 
         self.pose_tab.setLayout(layout)
 
@@ -330,9 +433,34 @@ class AISettingsDialog(QtWidgets.QDialog):
         self.detection_conf_threshold.setValue(
             detection_config.get("conf_threshold", 0.5))
 
+        # 设置NMS阈值
+        self.detection_nms_threshold.setValue(
+            detection_config.get("nms_threshold", 0.45))
+
+        # 设置最大检测数
+        self.detection_max_detections.setValue(
+            detection_config.get("max_detections", 100))
+
         # 设置设备
         device = detection_config.get("device", "cpu")
         self.detection_device.setCurrentText(device)
+
+        # 设置GPU自动使用选项
+        self.detection_use_gpu.setChecked(
+            detection_config.get("use_gpu_if_available", True))
+
+        # 设置高级参数
+        advanced = detection_config.get("advanced", {})
+        self.detection_pre_nms_top_n.setValue(
+            advanced.get("pre_nms_top_n", 1000))
+        self.detection_pre_nms_threshold.setValue(
+            advanced.get("pre_nms_threshold", 0.5))
+        self.detection_max_size.setValue(
+            advanced.get("max_size", 1333))
+        self.detection_min_size.setValue(
+            advanced.get("min_size", 800))
+        self.detection_score_threshold.setValue(
+            advanced.get("score_threshold", 0.05))
 
         # 设置过滤类别
         filter_classes = detection_config.get("filter_classes", [])
@@ -359,9 +487,30 @@ class AISettingsDialog(QtWidgets.QDialog):
         self.pose_conf_threshold.setValue(
             pose_config.get("conf_threshold", 0.5))
 
+        # 设置关键点置信度阈值
+        self.pose_keypoint_threshold.setValue(
+            pose_config.get("keypoint_threshold", 0.3))
+
+        # 设置是否使用已有的目标检测结果
+        self.pose_use_detection_results.setChecked(
+            pose_config.get("use_detection_results", True))
+
         # 设置设备
         pose_device = pose_config.get("device", "cpu")
         self.pose_device.setCurrentText(pose_device)
+
+        # 设置高级参数
+        advanced = pose_config.get("advanced", {})
+        self.pose_max_poses.setValue(
+            advanced.get("max_poses", 20))
+        self.pose_min_keypoints.setValue(
+            advanced.get("min_keypoints", 5))
+        self.pose_keypoint_score_threshold.setValue(
+            advanced.get("keypoint_score_threshold", 0.2))
+        self.pose_use_tracking.setChecked(
+            advanced.get("use_tracking", False))
+        self.pose_tracking_threshold.setValue(
+            advanced.get("tracking_threshold", 0.5))
 
         # AI蒙版设置
         ai_config = self.config.get("ai", {})
@@ -409,7 +558,19 @@ class AISettingsDialog(QtWidgets.QDialog):
         detection_config = self.config.get("detection", {})
         detection_config["model_name"] = self.detection_model_combo.currentData()
         detection_config["conf_threshold"] = self.detection_conf_threshold.value()
+        detection_config["nms_threshold"] = self.detection_nms_threshold.value()
+        detection_config["max_detections"] = self.detection_max_detections.value()
         detection_config["device"] = self.detection_device.currentText()
+        detection_config["use_gpu_if_available"] = self.detection_use_gpu.isChecked()
+
+        # 更新高级参数
+        advanced = detection_config.get("advanced", {})
+        advanced["pre_nms_top_n"] = self.detection_pre_nms_top_n.value()
+        advanced["pre_nms_threshold"] = self.detection_pre_nms_threshold.value()
+        advanced["max_size"] = self.detection_max_size.value()
+        advanced["min_size"] = self.detection_min_size.value()
+        advanced["score_threshold"] = self.detection_score_threshold.value()
+        detection_config["advanced"] = advanced
 
         # 处理检测类别
         filter_classes = []
@@ -430,7 +591,19 @@ class AISettingsDialog(QtWidgets.QDialog):
             pose_config["model_name"] = "keypointrcnn_resnet50_fpn"
 
         pose_config["conf_threshold"] = self.pose_conf_threshold.value()
+        pose_config["keypoint_threshold"] = self.pose_keypoint_threshold.value()
+        pose_config["use_detection_results"] = self.pose_use_detection_results.isChecked()
         pose_config["device"] = self.pose_device.currentText()
+
+        # 更新高级参数
+        advanced = pose_config.get("advanced", {})
+        advanced["max_poses"] = self.pose_max_poses.value()
+        advanced["min_keypoints"] = self.pose_min_keypoints.value()
+        advanced["keypoint_score_threshold"] = self.pose_keypoint_score_threshold.value()
+        advanced["use_tracking"] = self.pose_use_tracking.isChecked()
+        advanced["tracking_threshold"] = self.pose_tracking_threshold.value()
+        pose_config["advanced"] = advanced
+
         self.config["pose_estimation"] = pose_config
 
         # 更新AI蒙版设置

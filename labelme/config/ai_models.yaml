@@ -13,15 +13,32 @@ ai:
     score_threshold: 0.1
     text: ''
 detection:
-  conf_threshold: 0.8
+  advanced:
+    max_size: 1333
+    min_size: 800
+    pre_nms_threshold: 0.5
+    pre_nms_top_n: 1000
+    score_threshold: 0.05
+  conf_threshold: 0.6
   device: cuda
   filter_classes:
   - person
+  max_detections: 10
   model_name: retinanet_resnet50_fpn
+  nms_threshold: 0.45
+  use_gpu_if_available: true
 pose_estimation:
-  conf_threshold: 0.8
+  advanced:
+    keypoint_score_threshold: 0.2
+    max_poses: 20
+    min_keypoints: 5
+    tracking_threshold: 0.5
+    use_tracking: false
+  conf_threshold: 0.6
   device: cuda
+  keypoint_threshold: 0.5
   model_name: keypointrcnn_resnet50_fpn
+  use_detection_results: true
 yolov7:
   conf_threshold: 0.25
   device: cpu

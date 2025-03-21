@@ -22,7 +22,9 @@ class ObjectDetector:
     """YOLOv7目标检测器"""
 
     def __init__(self, model_name: str = None, conf_threshold: float = None,
-                 device: str = None, filter_classes: List[str] = None):
+                 device: str = None, filter_classes: List[str] = None,
+                 nms_threshold: float = None, max_detections: int = None,
+                 use_gpu_if_available: bool = None, advanced_params: dict = None):
         """
         初始化目标检测器
 
@@ -31,6 +33,10 @@ class ObjectDetector:
             conf_threshold: 置信度阈值
             device: 运行设备 ('cpu' 或 'cuda')
             filter_classes: 过滤类别列表
+            nms_threshold: 非极大值抑制阈值
+            max_detections: 最大检测数量
+            use_gpu_if_available: 如果可用则使用GPU
+            advanced_params: 高级参数字典
         """
         if not HAS_YOLO:
             raise ImportError("目标检测依赖未安装，请安装torch")
@@ -47,10 +53,29 @@ class ObjectDetector:
         self.device = device or detection_config.get("device", "cpu")
         self.filter_classes = filter_classes or detection_config.get(
             "filter_classes", [])
+        self.nms_threshold = nms_threshold or detection_config.get(
+            "nms_threshold", 0.45)
+        self.max_detections = max_detections or detection_config.get(
+            "max_detections", 100)
+        self.use_gpu_if_available = use_gpu_if_available if use_gpu_if_available is not None else detection_config.get(
+            "use_gpu_if_available", True)
+
+        # 加载高级参数
+        self.advanced_params = advanced_params or detection_config.get(
+            "advanced", {})
+        self.pre_nms_top_n = self.advanced_params.get("pre_nms_top_n", 1000)
+        self.pre_nms_threshold = self.advanced_params.get(
+            "pre_nms_threshold", 0.5)
+        self.max_size = self.advanced_params.get("max_size", 1333)
+        self.min_size = self.advanced_params.get("min_size", 800)
+        self.score_threshold = self.advanced_params.get(
+            "score_threshold", 0.05)
 
         # 检查CUDA可用性
-        self.device = self.device if torch.cuda.is_available(
-        ) and self.device == 'cuda' else 'cpu'
+        if self.use_gpu_if_available and torch.cuda.is_available() and self.device == 'cuda':
+            self.device = 'cuda'
+        else:
+            self.device = 'cpu'
         logger.info(f"使用设备: {self.device}")
 
         # 加载模型
@@ -61,21 +86,57 @@ class ObjectDetector:
         try:
             # 导入torchvision检测模型
             import torchvision.models.detection as detection_models
+            from torchvision.models.detection.faster_rcnn import FastRCNNPredictor
+            from torchvision.models.detection.transform import GeneralizedRCNNTransform
 
             # 根据模型名称选择不同的模型
             if self.model_name == "fasterrcnn_resnet50_fpn":
                 model = detection_models.fasterrcnn_resnet50_fpn(
-                    pretrained=True)
+                    pretrained=True,
+                    min_size=self.min_size,
+                    max_size=self.max_size,
+                    box_score_thresh=self.score_threshold,
+                    box_nms_thresh=self.nms_threshold,
+                    box_detections_per_img=self.max_detections,
+                    box_fg_iou_thresh=0.5,
+                    box_bg_iou_thresh=0.5,
+                    rpn_pre_nms_top_n_train=self.pre_nms_top_n,
+                    rpn_pre_nms_top_n_test=self.pre_nms_top_n,
+                    rpn_post_nms_top_n_train=self.pre_nms_top_n // 2,
+                    rpn_post_nms_top_n_test=self.pre_nms_top_n // 2,
+                    rpn_nms_thresh=self.pre_nms_threshold,
+                    rpn_fg_iou_thresh=0.7,
+                    rpn_bg_iou_thresh=0.3
+                )
+
             elif self.model_name == "maskrcnn_resnet50_fpn":
-                model = detection_models.maskrcnn_resnet50_fpn(pretrained=True)
+                model = detection_models.maskrcnn_resnet50_fpn(
+                    pretrained=True,
+                    min_size=self.min_size,
+                    max_size=self.max_size,
+                    box_score_thresh=self.score_threshold,
+                    box_nms_thresh=self.nms_threshold,
+                    box_detections_per_img=self.max_detections
+                )
+
             elif self.model_name == "retinanet_resnet50_fpn":
                 model = detection_models.retinanet_resnet50_fpn(
-                    pretrained=True)
+                    pretrained=True,
+                    min_size=self.min_size,
+                    max_size=self.max_size,
+                    score_thresh=self.score_threshold,
+                    nms_thresh=self.nms_threshold,
+                    detections_per_img=self.max_detections
+                )
+
             else:
                 logger.warning(
                     f"未知的模型名称: {self.model_name}，使用默认的Faster R-CNN模型")
                 model = detection_models.fasterrcnn_resnet50_fpn(
-                    pretrained=True)
+                    pretrained=True,
+                    min_size=self.min_size,
+                    max_size=self.max_size
+                )
 
             model.to(self.device)
             model.eval()
@@ -224,7 +285,8 @@ def get_shapes_from_detections(
     boxes: List[List[float]],
     class_ids: List[int],
     scores: List[float],
-    class_names: List[str]
+    class_names: List[str],
+    start_group_id: int = 0
 ) -> List[Dict]:
     """
     将检测结果转换为labelme形状格式
@@ -234,23 +296,25 @@ def get_shapes_from_detections(
         class_ids: 类别ID列表 [N]
         scores: 置信度列表 [N]
         class_names: 类别名称列表
+        start_group_id: 起始group_id，检测结果的group_id将从这个值开始递增
 
     Returns:
         shapes: labelme形状列表
     """
     shapes = []
 
-    for box, cls_id, score in zip(boxes, class_ids, scores):
+    # 从指定的group_id开始为每个检测结果分配ID
+    for i, (box, cls_id, score) in enumerate(zip(boxes, class_ids, scores)):
         x1, y1, x2, y2 = map(float, box)
         cls_name = class_names[cls_id]
 
         shape = {
             "label": cls_name,
             "points": [[x1, y1], [x2, y2]],
-            "group_id": None,
+            "group_id": start_group_id + i,  # 使用起始值+递增索引作为group_id
             "shape_type": "rectangle",
             "flags": {},
-            "description": f"score: {score:.2f}",
+            "description": "",  # 不添加置信度到备注
             "other_data": {},
             "mask": None,
         }
@@ -264,7 +328,12 @@ def detect_objects(
     model_name: str = None,
     conf_threshold: float = None,
     device: str = None,
-    filter_classes: List[str] = None
+    filter_classes: List[str] = None,
+    nms_threshold: float = None,
+    max_detections: int = None,
+    use_gpu_if_available: bool = None,
+    advanced_params: dict = None,
+    start_group_id: int = 0
 ) -> List[Dict]:
     """
     在图像中检测对象并返回labelme形状格式的结果
@@ -275,17 +344,34 @@ def detect_objects(
         conf_threshold: 置信度阈值，如果为None则使用配置文件中的值
         device: 运行设备，如果为None则使用配置文件中的值
         filter_classes: 过滤类别列表，如果为None则使用配置文件中的值
+        nms_threshold: 非极大值抑制阈值，如果为None则使用配置文件中的值
+        max_detections: 最大检测数量，如果为None则使用配置文件中的值
+        use_gpu_if_available: 如果可用则使用GPU，如果为None则使用配置文件中的值
+        advanced_params: 高级参数字典，如果为None则使用配置文件中的值
+        start_group_id: 起始group_id，检测结果的group_id将从这个值开始递增
 
     Returns:
         shapes: labelme形状列表
     """
     try:
+        # 加载配置
+        config_loader = ConfigLoader()
+        detection_config = config_loader.get_detection_config()
+
+        # 获取高级参数
+        if advanced_params is None:
+            advanced_params = detection_config.get("advanced", {})
+
         # 初始化目标检测器
         detector = ObjectDetector(
             model_name=model_name,
             conf_threshold=conf_threshold,
             device=device,
-            filter_classes=filter_classes
+            filter_classes=filter_classes,
+            nms_threshold=nms_threshold,
+            max_detections=max_detections,
+            use_gpu_if_available=use_gpu_if_available,
+            advanced_params=advanced_params
         )
 
         # 检测对象
@@ -293,7 +379,7 @@ def detect_objects(
 
         # 转换为labelme形状格式
         shapes = get_shapes_from_detections(
-            boxes, class_ids, scores, detector.class_names
+            boxes, class_ids, scores, detector.class_names, start_group_id=start_group_id
         )
 
         return shapes

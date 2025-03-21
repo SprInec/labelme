@@ -26,6 +26,7 @@ from labelme import PY2
 from labelme._automation import bbox_from_text
 from labelme._automation import object_detection
 from labelme._automation import pose_estimation
+from labelme._automation.config_loader import ConfigLoader
 from labelme.config import get_config
 from labelme.label_file import LabelFile
 from labelme.label_file import LabelFileError
@@ -1751,10 +1752,18 @@ class MainWindow(QtWidgets.QMainWindow):
             self.addLabel(shape)
         self.labelList.updateAllCategoryCounts()  # 更新所有分类的数量
         self.labelList.clearSelection()
-        self.canvas.loadShapes(shapes, replace=replace)
+
+        # 修改这里，如果replace=False，保留原有的形状
         if replace:
+            self.canvas.loadShapes(shapes, replace=True)
             self.setClean()
-            self.canvas.setEnabled(True)
+        else:
+            # 将新形状添加到已有形状列表中
+            existing_shapes = self.canvas.shapes
+            existing_shapes.extend(shapes)
+            self.canvas.loadShapes(existing_shapes, replace=True)
+
+        self.canvas.setEnabled(True)
         self._noSelectionSlot = False
         self.updateDockTitles()
 
@@ -2770,6 +2779,16 @@ class MainWindow(QtWidgets.QMainWindow):
             return
 
         try:
+            # 设置状态栏信息
+            self.status(self.tr("正在执行目标检测..."))
+            
+            # 获取已存在的矩形框数量
+            existing_rectangle_count = 0
+            if self.canvas.shapes:
+                for shape in self.canvas.shapes:
+                    if shape.shape_type == "rectangle":
+                        existing_rectangle_count += 1
+            
             # 将QImage转换为numpy数组
             image = self.image.convertToFormat(QtGui.QImage.Format_RGB888)
             width = image.width()
@@ -2779,10 +2798,47 @@ class MainWindow(QtWidgets.QMainWindow):
             img_array = np.frombuffer(
                 ptr, np.uint8).reshape((height, width, 3))
 
+            # 加载配置
+            config_loader = ConfigLoader()
+            detection_config = config_loader.get_detection_config()
+            
+            # 从配置中获取参数
+            model_name = detection_config.get("model_name")
+            conf_threshold = detection_config.get("conf_threshold")
+            device = detection_config.get("device")
+            filter_classes = detection_config.get("filter_classes")
+            nms_threshold = detection_config.get("nms_threshold")
+            max_detections = detection_config.get("max_detections")
+            use_gpu_if_available = detection_config.get("use_gpu_if_available")
+            advanced_params = detection_config.get("advanced")
+            
+            logger.info(f"使用模型: {model_name}, 置信度阈值: {conf_threshold}, NMS阈值: {nms_threshold}")
+            
+            # 创建进度条
+            progress = QtWidgets.QProgressDialog(
+                self.tr("正在执行目标检测..."), self.tr("取消"), 0, 100, self)
+            progress.setWindowModality(QtCore.Qt.WindowModal)
+            progress.setWindowTitle(self.tr("目标检测进度"))
+            progress.setValue(10)  # 初始进度
+            
             # 运行目标检测
-            shape_dicts = object_detection.detect_objects(img_array)
+            shape_dicts = object_detection.detect_objects(
+                img_array,
+                model_name=model_name,
+                conf_threshold=conf_threshold,
+                device=device,
+                filter_classes=filter_classes,
+                nms_threshold=nms_threshold,
+                max_detections=max_detections,
+                use_gpu_if_available=use_gpu_if_available,
+                advanced_params=advanced_params,
+                start_group_id=existing_rectangle_count  # 传递起始group_id
+            )
+            
+            progress.setValue(80)  # 更新进度
 
             if not shape_dicts:
+                progress.setValue(100)
                 self.errorMessage(
                     self.tr("提示"),
                     self.tr("未检测到任何对象"),
@@ -2802,11 +2858,15 @@ class MainWindow(QtWidgets.QMainWindow):
                 for point in shape_dict["points"]:
                     shape.addPoint(QtCore.QPointF(point[0], point[1]))
                 shapes.append(shape)
+                
+            progress.setValue(90)  # 更新进度
 
-            # 加载检测结果
-            self.loadShapes(shapes)
+            # 加载检测结果，使用replace=False保留原有形状
+            self.loadShapes(shapes, replace=False)
             self.setDirty()
             self.status(self.tr(f"检测到 {len(shapes)} 个对象"))
+            
+            progress.setValue(100)  # 完成
 
         except Exception as e:
             self.errorMessage(
@@ -2825,6 +2885,16 @@ class MainWindow(QtWidgets.QMainWindow):
             return
 
         try:
+            # 设置状态栏信息
+            self.status(self.tr("正在执行人体姿态估计..."))
+            
+            # 创建进度条
+            progress = QtWidgets.QProgressDialog(
+                self.tr("正在执行人体姿态估计..."), self.tr("取消"), 0, 100, self)
+            progress.setWindowModality(QtCore.Qt.WindowModal)
+            progress.setWindowTitle(self.tr("姿态估计进度"))
+            progress.setValue(10)  # 初始进度
+            
             # 将QImage转换为numpy数组
             image = self.image.convertToFormat(QtGui.QImage.Format_RGB888)
             width = image.width()
@@ -2833,11 +2903,55 @@ class MainWindow(QtWidgets.QMainWindow):
             ptr.setsize(height * width * 3)
             img_array = np.frombuffer(
                 ptr, np.uint8).reshape((height, width, 3))
+                
+            progress.setValue(20)  # 更新进度
 
-            # 运行人体姿态估计
-            shape_dicts = pose_estimation.estimate_poses(img_array)
+            # 获取现有的person边界框
+            existing_person_boxes = []
+            existing_person_boxes_ids = []
+            if self.canvas.shapes:
+                for shape in self.canvas.shapes:
+                    if shape.label.lower() == "person" and shape.shape_type == "rectangle":
+                        # 只处理矩形框并且标签为person的形状
+                        points = shape.points
+                        if len(points) >= 2:  # 矩形应该有两个点 (左上和右下)
+                            x1 = min(points[0].x(), points[1].x())
+                            y1 = min(points[0].y(), points[1].y())
+                            x2 = max(points[0].x(), points[1].x())
+                            y2 = max(points[0].y(), points[1].y())
+                            existing_person_boxes.append([x1, y1, x2, y2])
+                            # 记录框的group_id，用于关联姿态关键点
+                            existing_person_boxes_ids.append(shape.group_id)
+                            
+            progress.setValue(30)  # 更新进度
+
+            # 加载配置
+            config_loader = ConfigLoader()
+            pose_config = config_loader.get_pose_estimation_config()
+            
+            # 获取是否使用已有目标检测结果的设置
+            use_detection_results = pose_config.get("use_detection_results", True)
+            
+            # 记录日志
+            if existing_person_boxes and use_detection_results:
+                logger.info(f"找到 {len(existing_person_boxes)} 个已有的person框")
+            else:
+                logger.info("未找到已有的person框或未启用使用已有框")
+                
+            progress.setValue(40)  # 更新进度
+
+            # 运行人体姿态估计，传递已有的person框和group_id
+            shape_dicts = pose_estimation.estimate_poses(
+                img_array,
+                existing_person_boxes=existing_person_boxes,
+                existing_person_boxes_ids=existing_person_boxes_ids,
+                use_detection_results=use_detection_results
+            )
+            
+            progress.setValue(80)  # 更新进度
 
             if not shape_dicts:
+                progress.setValue(100)  # 完成
                 self.errorMessage(
                     self.tr("提示"),
                     self.tr("未检测到任何人体姿态"),
@@ -2857,11 +2971,15 @@ class MainWindow(QtWidgets.QMainWindow):
                 for point in shape_dict["points"]:
                     shape.addPoint(QtCore.QPointF(point[0], point[1]))
                 shapes.append(shape)
+                
+            progress.setValue(90)  # 更新进度
 
-            # 加载检测结果
-            self.loadShapes(shapes)
+            # 加载检测结果，使用replace=False保留原有形状
+            self.loadShapes(shapes, replace=False)
             self.setDirty()
             self.status(self.tr(f"检测到 {len(shapes)} 个人体姿态"))
+            
+            progress.setValue(100)  # 完成
 
         except Exception as e:
             self.errorMessage(
