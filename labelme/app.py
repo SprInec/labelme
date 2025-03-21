@@ -168,7 +168,7 @@ class MainWindow(QtWidgets.QMainWindow):
         # self.labelList.itemChanged.connect(self.labelItemChanged)  # LabelTreeWidget没有这个信号
         # self.labelList.itemDropped.connect(self.labelOrderChanged)  # LabelTreeWidget没有这个信号
         self.shape_dock = QtWidgets.QDockWidget(
-            self.tr("多边形标签 0"), self)
+            self.tr("多边形标签"), self)
         self.shape_dock.setObjectName("Labels")
         self.shape_dock.setWidget(self.labelList)
 
@@ -189,7 +189,7 @@ class MainWindow(QtWidgets.QMainWindow):
         # 连接标签选择变化信号
         self.uniqLabelList.itemSelectionChanged.connect(
             self.labelItemSelectedForDrawing)
-        self.label_dock = QtWidgets.QDockWidget(self.tr("标签列表 0"), self)
+        self.label_dock = QtWidgets.QDockWidget(self.tr("标签列表"), self)
         self.label_dock.setObjectName("Label List")
         self.label_dock.setWidget(self.uniqLabelList)
 
@@ -204,7 +204,7 @@ class MainWindow(QtWidgets.QMainWindow):
         fileListLayout.setSpacing(0)
         fileListLayout.addWidget(self.fileSearch)
         fileListLayout.addWidget(self.fileListWidget)
-        self.file_dock = QtWidgets.QDockWidget(self.tr("文件列表 0"), self)
+        self.file_dock = QtWidgets.QDockWidget(self.tr("文件列表"), self)
         self.file_dock.setObjectName("Files")
         fileListWidget = QtWidgets.QWidget()
         fileListWidget.setLayout(fileListLayout)
@@ -1212,6 +1212,9 @@ class MainWindow(QtWidgets.QMainWindow):
             title = "{} - {}*".format(title, self.filename)
         self.setWindowTitle(title)
 
+        # 更新dock标题显示
+        self.updateDockTitles()
+
     def setClean(self):
         self.dirty = False
         self.actions.save.setEnabled(False)
@@ -1952,6 +1955,9 @@ class MainWindow(QtWidgets.QMainWindow):
             item.setFlags(item.flags() | Qt.ItemIsUserCheckable)
             item.setCheckState(Qt.Checked if flag else Qt.Unchecked)
             self.flag_widget.addItem(item)
+
+        # 更新dock标题显示
+        self.updateDockTitles()
 
     def saveLabels(self, filename):
         lf = LabelFile()
@@ -3137,6 +3143,8 @@ class MainWindow(QtWidgets.QMainWindow):
         ) if self.uniqLabelList else 0  # 修改为使用uniqLabelList的count
         # 已经使用正确的labelList计数
         shape_count = len(self.labelList) if self.labelList else 0
+        # 获取标记面板的计数
+        flag_count = self.flag_widget.count() if self.flag_widget else 0
 
         # 创建更新的计数徽章样式 - 浅灰色背景且尺寸增大
         badge_style = """
@@ -3219,6 +3227,23 @@ class MainWindow(QtWidgets.QMainWindow):
         shape_layout.addWidget(shape_badge)
         shape_layout.addStretch()
 
+        # 为标记面板创建计数徽章
+        flag_badge = QtWidgets.QLabel(f"{flag_count}")
+        flag_badge.setAlignment(QtCore.Qt.AlignCenter)
+        flag_badge.setStyleSheet(badge_style)
+
+        # 创建标记面板标题
+        flag_title_widget = QtWidgets.QWidget()
+        flag_title_widget.setStyleSheet(title_container_style)
+        flag_layout = QtWidgets.QHBoxLayout(flag_title_widget)
+        flag_layout.setContentsMargins(5, 2, 5, 2)
+        flag_layout.setSpacing(0)
+
+        flag_text = QtWidgets.QLabel(self.tr("标记"))
+        flag_layout.addWidget(flag_text)
+        flag_layout.addWidget(flag_badge)
+        flag_layout.addStretch()
+
         # 为文件信息创建标题
         info_title_widget = QtWidgets.QWidget()
         info_title_widget.setStyleSheet(title_container_style)
@@ -3240,6 +3265,9 @@ class MainWindow(QtWidgets.QMainWindow):
 
         if hasattr(self, "shape_dock"):
             self.shape_dock.setTitleBarWidget(shape_title_widget)
+
+        if hasattr(self, "flag_dock"):
+            self.flag_dock.setTitleBarWidget(flag_title_widget)
 
         if hasattr(self, "file_info_dock"):
             self.file_info_dock.setTitleBarWidget(info_title_widget)
