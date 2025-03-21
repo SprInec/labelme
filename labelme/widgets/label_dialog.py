@@ -214,7 +214,7 @@ class LabelDialog(QtWidgets.QDialog):
         # 添加颜色选择功能
         color_layout = QtWidgets.QHBoxLayout()
         color_layout.setAlignment(QtCore.Qt.AlignLeft)  # 设置左对齐
-        
+
         # 添加布局切换按钮
         self.layout_toggle_button = QtWidgets.QPushButton()
         self.layout_toggle_button.setObjectName("layout_toggle_button")
@@ -230,10 +230,10 @@ class LabelDialog(QtWidgets.QDialog):
                 labelme.utils.newIcon("icons8-list-view-48"))
         color_layout.addWidget(self.layout_toggle_button,
                                0, QtCore.Qt.AlignVCenter)
-                               
+
         # 在布局按钮和颜色按钮之间添加一定的间距
         color_layout.addSpacing(5)
-        
+
         # 添加颜色选择按钮
         self.color_button = QtWidgets.QPushButton()
         self.color_button.setObjectName("color_button")

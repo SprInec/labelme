@@ -126,13 +126,58 @@ class UniqueLabelItemDelegate(QStyledItemDelegate):
             custom_style = index.data(Qt.UserRole + 10)
             is_unused = custom_style and "font-style: italic" in custom_style
 
+            # 提取颜色信息
+            text = index.data(Qt.DisplayRole)
+            label_color = None
+            if "<font" in text:
+                import re
+                # 提取颜色信息
+                color_match = re.search(r'color=[\'"]([^\'"]*)[\'"]', text)
+                if color_match:
+                    label_color = QColor(color_match.group(1))
+
             # 绘制背景
             if self.is_dark:
                 if option.state & QStyle.State_Selected:
-                    painter.fillRect(option.rect, QColor(0, 120, 212))
+                    if is_unused:
+                        # 未使用的标签被选中时，背景稍微加深，其余与未被选中时的样式一致
+                        painter.fillRect(option.rect, QColor(100, 40, 40, 70))
+                        # 绘制左边框标记
+                        mark_color = QColor(255, 109, 109)
+                        painter.setPen(Qt.NoPen)
+                        painter.setBrush(QBrush(mark_color))
+                        # 左侧标记宽度，并使用圆角矩形
+                        border_width = 8
+                        painter.drawRoundedRect(
+                            option.rect.left(),
+                            option.rect.top() + 2,
+                            border_width,
+                            option.rect.height() - 4,
+                            3, 3
+                        )
+                    elif label_color:
+                        # 使用标签颜色的10%透明度作为背景
+                        bg_color = QColor(label_color)
+                        bg_color.setAlpha(25)  # 10%透明度
+                        painter.fillRect(option.rect, bg_color)
+                    else:
+                        painter.fillRect(option.rect, QColor(0, 120, 212))
                 elif is_unused:
                     # 未使用标签的暗色主题背景
                     painter.fillRect(option.rect, QColor(80, 30, 30, 50))
+                    # 绘制左边框标记
+                    mark_color = QColor(255, 109, 109)
+                    painter.setPen(Qt.NoPen)
+                    painter.setBrush(QBrush(mark_color))
+                    # 左侧标记宽度，并使用圆角矩形
+                    border_width = 8
+                    painter.drawRoundedRect(
+                        option.rect.left(),
+                        option.rect.top() + 2,
+                        border_width,
+                        option.rect.height() - 4,
+                        3, 3
+                    )
                 elif option.state & QStyle.State_MouseOver:
                     painter.fillRect(option.rect, QColor(60, 60, 65))
                 else:
@@ -140,33 +185,52 @@ class UniqueLabelItemDelegate(QStyledItemDelegate):
                         option.rect, QColor(40, 40, 45, 0))  # 透明背景
             else:
                 if option.state & QStyle.State_Selected:
-                    painter.fillRect(option.rect, QColor(210, 228, 255))
+                    if is_unused:
+                        # 未使用的标签被选中时，背景稍微加深，其余与未被选中时的样式一致
+                        painter.fillRect(option.rect, QColor(255, 230, 230))
+                        # 绘制左边框标记
+                        mark_color = QColor(255, 109, 109)
+                        painter.setPen(Qt.NoPen)
+                        painter.setBrush(QBrush(mark_color))
+                        # 左侧标记宽度，并使用圆角矩形
+                        border_width = 8
+                        painter.drawRoundedRect(
+                            option.rect.left(),
+                            option.rect.top() + 2,
+                            border_width,
+                            option.rect.height() - 4,
+                            3, 3
+                        )
+                    elif label_color:
+                        # 使用标签颜色的10%透明度作为背景
+                        bg_color = QColor(label_color)
+                        bg_color.setAlpha(25)  # 10%透明度
+                        painter.fillRect(option.rect, bg_color)
+                    else:
+                        painter.fillRect(option.rect, QColor(210, 228, 255))
                 elif is_unused:
                     # 未使用标签的亮色主题背景
                     painter.fillRect(option.rect, QColor(255, 240, 240))
+                    # 绘制左边框标记
+                    mark_color = QColor(255, 109, 109)
+                    painter.setPen(Qt.NoPen)
+                    painter.setBrush(QBrush(mark_color))
+                    # 左侧标记宽度，并使用圆角矩形
+                    border_width = 8
+                    painter.drawRoundedRect(
+                        option.rect.left(),
+                        option.rect.top() + 2,
+                        border_width,
+                        option.rect.height() - 4,
+                        3, 3
+                    )
                 elif option.state & QStyle.State_MouseOver:
                     painter.fillRect(option.rect, QColor(235, 243, 254))
                 else:
                     painter.fillRect(option.rect, QColor(
                         255, 255, 255, 0))  # 透明背景
 
-            # 如果是未使用标签，绘制左边框标记
-            if is_unused:
-                mark_color = QColor(255, 109, 109)
-                painter.setPen(Qt.NoPen)
-                painter.setBrush(QBrush(mark_color))
-                # 增加左侧标记宽度，并使用圆角矩形
-                border_width = 8
-                painter.drawRoundedRect(
-                    option.rect.left(),
-                    option.rect.top() + 2,
-                    border_width,
-                    option.rect.height() - 4,
-                    3, 3
-                )
-
             # 绘制文本和颜色指示器
-            text = index.data(Qt.DisplayRole)
             if text:
                 # 设置默认文本颜色
                 if self.is_dark:
@@ -180,15 +244,9 @@ class UniqueLabelItemDelegate(QStyledItemDelegate):
                 if is_unused and not option.state & QStyle.State_Selected:
                     text_color = QColor(255, 109, 109)
 
-                # 提取颜色信息和文本内容
-                label_color = None
+                # 提取纯文本内容
                 if "<font" in text:
                     import re
-                    # 提取颜色信息
-                    color_match = re.search(r'color=[\'"]([^\'"]*)[\'"]', text)
-                    if color_match:
-                        label_color = QColor(color_match.group(1))
-
                     # 提取纯文本内容，同时移除 "●" 字符和</font>标签
                     content = re.sub(r'<[^>]*>●|</font>', '', text).strip()
                 else:

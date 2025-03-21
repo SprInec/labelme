@@ -125,7 +125,23 @@ class LabelTreeItemDelegate(QStyledItemDelegate):
             # 绘制背景
             if self.is_dark:
                 if option.state & QStyle.State_Selected:
-                    painter.fillRect(option.rect, QColor(0, 120, 212))
+                    # 获取标签颜色
+                    text = index.data(Qt.DisplayRole)
+                    label_color = None
+                    if "<font" in text:
+                        import re
+                        # 提取颜色信息
+                        color_match = re.search(
+                            r'color=[\'"]([^\'"]*)[\'"]', text)
+                        if color_match:
+                            label_color = QColor(color_match.group(1))
+
+                    # 如果有标签颜色，使用该颜色的10%透明度作为背景
+                    if label_color:
+                        label_color.setAlpha(25)  # 设置10%透明度
+                        painter.fillRect(option.rect, label_color)
+                    else:
+                        painter.fillRect(option.rect, QColor(0, 120, 212))
                 elif option.state & QStyle.State_MouseOver:
                     painter.fillRect(option.rect, QColor(60, 60, 65))
                 else:
@@ -133,7 +149,23 @@ class LabelTreeItemDelegate(QStyledItemDelegate):
                         option.rect, QColor(40, 40, 45, 0))  # 透明背景
             else:
                 if option.state & QStyle.State_Selected:
-                    painter.fillRect(option.rect, QColor(210, 228, 255))
+                    # 获取标签颜色
+                    text = index.data(Qt.DisplayRole)
+                    label_color = None
+                    if "<font" in text:
+                        import re
+                        # 提取颜色信息
+                        color_match = re.search(
+                            r'color=[\'"]([^\'"]*)[\'"]', text)
+                        if color_match:
+                            label_color = QColor(color_match.group(1))
+
+                    # 如果有标签颜色，使用该颜色的10%透明度作为背景
+                    if label_color:
+                        label_color.setAlpha(25)  # 设置10%透明度
+                        painter.fillRect(option.rect, label_color)
+                    else:
+                        painter.fillRect(option.rect, QColor(210, 228, 255))
                 elif option.state & QStyle.State_MouseOver:
                     painter.fillRect(option.rect, QColor(235, 243, 254))
                 else:
