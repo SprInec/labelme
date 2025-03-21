@@ -191,7 +191,7 @@ class UniqueLabelItemDelegate(QStyledItemDelegate):
                     # 计算颜色指示器位置 - 放在文本右侧固定距离处
                     content_width = option.fontMetrics.width(content)
                     color_rect = QRect(
-                        text_left + content_width + 15,  # 文本宽度加间距
+                        text_left + content_width + 25,  # 文本宽度加间距
                         option.rect.top() + (option.rect.height() - 20) // 2,  # 垂直居中
                         20,  # 颜色圆点大小
                         20   # 颜色圆点大小
