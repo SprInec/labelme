@@ -214,18 +214,11 @@ class LabelDialog(QtWidgets.QDialog):
         # 添加颜色选择功能
         color_layout = QtWidgets.QHBoxLayout()
         color_layout.setAlignment(QtCore.Qt.AlignLeft)  # 设置左对齐
-        self.color_button = QtWidgets.QPushButton()
-        self.color_button.setObjectName("color_button")
-        self.color_button.setFixedSize(32, 32)
-        self.selected_color = QtGui.QColor(0, 255, 0)  # 默认绿色
-        self.update_color_button()
-        self.color_button.clicked.connect(self.choose_color)
-        color_layout.addWidget(self.color_button, 0, QtCore.Qt.AlignVCenter)
-
+        
         # 添加布局切换按钮
         self.layout_toggle_button = QtWidgets.QPushButton()
         self.layout_toggle_button.setObjectName("layout_toggle_button")
-        self.layout_toggle_button.setFixedSize(32, 32)
+        self.layout_toggle_button.setFixedSize(36, 36)
         self.layout_toggle_button.setToolTip(self.tr("切换标签布局模式"))
         self.layout_toggle_button.clicked.connect(self.onLayoutToggleClicked)
         # 设置图标
@@ -237,8 +230,18 @@ class LabelDialog(QtWidgets.QDialog):
                 labelme.utils.newIcon("icons8-list-view-48"))
         color_layout.addWidget(self.layout_toggle_button,
                                0, QtCore.Qt.AlignVCenter)
-        # 在颜色按钮和布局按钮之间添加一定的间距
+                               
+        # 在布局按钮和颜色按钮之间添加一定的间距
         color_layout.addSpacing(5)
+        
+        # 添加颜色选择按钮
+        self.color_button = QtWidgets.QPushButton()
+        self.color_button.setObjectName("color_button")
+        self.color_button.setFixedSize(32, 32)
+        self.selected_color = QtGui.QColor(0, 255, 0)  # 默认绿色
+        self.update_color_button()
+        self.color_button.clicked.connect(self.choose_color)
+        color_layout.addWidget(self.color_button, 0, QtCore.Qt.AlignVCenter)
 
         # 添加按钮
         self.buttonBox = bb = QtWidgets.QDialogButtonBox(
@@ -303,9 +306,9 @@ class LabelDialog(QtWidgets.QDialog):
             }
             QPushButton#layout_toggle_button {
                 padding: 0px;
-                min-width: 30px;
-                min-height: 30px;
-                border-radius: 15px;
+                min-width: 36px;
+                min-height: 36px;
+                border-radius: 0px;
                 border: none;
                 background-color: transparent;
                 margin: 0px;
