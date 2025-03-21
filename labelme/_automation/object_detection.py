@@ -17,6 +17,22 @@ except ImportError:
     HAS_TORCH = False
     logger.warning("目标检测依赖未安装，请安装torch")
 
+# COCO数据集的类别名称
+COCO_CLASSES = [
+    'person', 'bicycle', 'car', 'motorcycle', 'airplane', 'bus', 'train', 'truck',
+    'boat', 'traffic light', 'fire hydrant', 'stop sign', 'parking meter', 'bench',
+    'bird', 'cat', 'dog', 'horse', 'sheep', 'cow', 'elephant', 'bear', 'zebra',
+    'giraffe', 'backpack', 'umbrella', 'handbag', 'tie', 'suitcase', 'frisbee',
+    'skis', 'snowboard', 'sports ball', 'kite', 'baseball bat', 'baseball glove',
+    'skateboard', 'surfboard', 'tennis racket', 'bottle', 'wine glass', 'cup',
+    'fork', 'knife', 'spoon', 'bowl', 'banana', 'apple', 'sandwich', 'orange',
+    'broccoli', 'carrot', 'hot dog', 'pizza', 'donut', 'cake', 'chair', 'couch',
+    'potted plant', 'bed', 'dining table', 'toilet', 'tv', 'laptop', 'mouse',
+    'remote', 'keyboard', 'cell phone', 'microwave', 'oven', 'toaster', 'sink',
+    'refrigerator', 'book', 'clock', 'vase', 'scissors', 'teddy bear', 'hair drier',
+    'toothbrush'
+]
+
 
 class ObjectDetector:
     """目标检测器"""
@@ -105,54 +121,109 @@ class ObjectDetector:
         from torchvision.models.detection.faster_rcnn import FastRCNNPredictor
         from torchvision.models.detection.transform import GeneralizedRCNNTransform
 
+        # 尝试预下载模型（如果需要）
+        try:
+            from labelme._automation.model_downloader import download_torchvision_model
+            download_torchvision_model(self.model_name)
+        except Exception as e:
+            logger.warning(f"预下载模型失败: {e}，将在创建模型时自动下载")
+
         # 根据模型名称选择不同的模型
-        if self.model_name == "fasterrcnn_resnet50_fpn":
-            model = detection_models.fasterrcnn_resnet50_fpn(
-                pretrained=True,
-                min_size=self.min_size,
-                max_size=self.max_size,
-                box_score_thresh=self.score_threshold,
-                box_nms_thresh=self.nms_threshold,
-                box_detections_per_img=self.max_detections,
-                box_fg_iou_thresh=0.5,
-                box_bg_iou_thresh=0.5,
-                rpn_pre_nms_top_n_train=self.pre_nms_top_n,
-                rpn_pre_nms_top_n_test=self.pre_nms_top_n,
-                rpn_post_nms_top_n_train=self.pre_nms_top_n // 2,
-                rpn_post_nms_top_n_test=self.pre_nms_top_n // 2,
-                rpn_nms_thresh=self.pre_nms_threshold,
-                rpn_fg_iou_thresh=0.7,
-                rpn_bg_iou_thresh=0.3
-            )
-
-        elif self.model_name == "maskrcnn_resnet50_fpn":
-            model = detection_models.maskrcnn_resnet50_fpn(
-                pretrained=True,
-                min_size=self.min_size,
-                max_size=self.max_size,
-                box_score_thresh=self.score_threshold,
-                box_nms_thresh=self.nms_threshold,
-                box_detections_per_img=self.max_detections
-            )
-
-        elif self.model_name == "retinanet_resnet50_fpn":
-            model = detection_models.retinanet_resnet50_fpn(
-                pretrained=True,
-                min_size=self.min_size,
-                max_size=self.max_size,
-                score_thresh=self.score_threshold,
-                nms_thresh=self.nms_threshold,
-                detections_per_img=self.max_detections
-            )
-
-        else:
+        try:
+            # 首先尝试使用weights参数（新版本torchvision）
+            if self.model_name == "fasterrcnn_resnet50_fpn":
+                model = detection_models.fasterrcnn_resnet50_fpn(
+                    weights="DEFAULT",
+                    min_size=self.min_size,
+                    max_size=self.max_size,
+                    box_score_thresh=self.score_threshold,
+                    box_nms_thresh=self.nms_threshold,
+                    box_detections_per_img=self.max_detections,
+                    box_fg_iou_thresh=0.5,
+                    box_bg_iou_thresh=0.5,
+                    rpn_pre_nms_top_n_train=self.pre_nms_top_n,
+                    rpn_pre_nms_top_n_test=self.pre_nms_top_n,
+                    rpn_post_nms_top_n_train=self.pre_nms_top_n // 2,
+                    rpn_post_nms_top_n_test=self.pre_nms_top_n // 2,
+                    rpn_nms_thresh=self.pre_nms_threshold,
+                    rpn_fg_iou_thresh=0.7,
+                    rpn_bg_iou_thresh=0.3
+                )
+            elif self.model_name == "maskrcnn_resnet50_fpn":
+                model = detection_models.maskrcnn_resnet50_fpn(
+                    weights="DEFAULT",
+                    min_size=self.min_size,
+                    max_size=self.max_size,
+                    box_score_thresh=self.score_threshold,
+                    box_nms_thresh=self.nms_threshold,
+                    box_detections_per_img=self.max_detections
+                )
+            elif self.model_name == "retinanet_resnet50_fpn":
+                model = detection_models.retinanet_resnet50_fpn(
+                    weights="DEFAULT",
+                    min_size=self.min_size,
+                    max_size=self.max_size,
+                    score_thresh=self.score_threshold,
+                    nms_thresh=self.nms_threshold,
+                    detections_per_img=self.max_detections
+                )
+            else:
+                logger.warning(
+                    f"未知的模型名称: {self.model_name}，使用默认的Faster R-CNN模型")
+                model = detection_models.fasterrcnn_resnet50_fpn(
+                    weights="DEFAULT",
+                    min_size=self.min_size,
+                    max_size=self.max_size
+                )
+        except TypeError as e:
             logger.warning(
-                f"未知的模型名称: {self.model_name}，使用默认的Faster R-CNN模型")
-            model = detection_models.fasterrcnn_resnet50_fpn(
-                pretrained=True,
-                min_size=self.min_size,
-                max_size=self.max_size
-            )
+                f"使用weights参数加载模型失败: {e}，尝试使用旧版接口 (pretrained=True)")
+
+            # 如果新接口失败，尝试使用旧接口（兼容旧版本torchvision）
+            if self.model_name == "fasterrcnn_resnet50_fpn":
+                model = detection_models.fasterrcnn_resnet50_fpn(
+                    pretrained=True,
+                    min_size=self.min_size,
+                    max_size=self.max_size,
+                    box_score_thresh=self.score_threshold,
+                    box_nms_thresh=self.nms_threshold,
+                    box_detections_per_img=self.max_detections,
+                    box_fg_iou_thresh=0.5,
+                    box_bg_iou_thresh=0.5,
+                    rpn_pre_nms_top_n_train=self.pre_nms_top_n,
+                    rpn_pre_nms_top_n_test=self.pre_nms_top_n,
+                    rpn_post_nms_top_n_train=self.pre_nms_top_n // 2,
+                    rpn_post_nms_top_n_test=self.pre_nms_top_n // 2,
+                    rpn_nms_thresh=self.pre_nms_threshold,
+                    rpn_fg_iou_thresh=0.7,
+                    rpn_bg_iou_thresh=0.3
+                )
+            elif self.model_name == "maskrcnn_resnet50_fpn":
+                model = detection_models.maskrcnn_resnet50_fpn(
+                    pretrained=True,
+                    min_size=self.min_size,
+                    max_size=self.max_size,
+                    box_score_thresh=self.score_threshold,
+                    box_nms_thresh=self.nms_threshold,
+                    box_detections_per_img=self.max_detections
+                )
+            elif self.model_name == "retinanet_resnet50_fpn":
+                model = detection_models.retinanet_resnet50_fpn(
+                    pretrained=True,
+                    min_size=self.min_size,
+                    max_size=self.max_size,
+                    score_thresh=self.score_threshold,
+                    nms_thresh=self.nms_threshold,
+                    detections_per_img=self.max_detections
+                )
+            else:
+                logger.warning(
+                    f"未知的模型名称: {self.model_name}，使用默认的Faster R-CNN模型")
+                model = detection_models.fasterrcnn_resnet50_fpn(
+                    pretrained=True,
+                    min_size=self.min_size,
+                    max_size=self.max_size
+                )
 
         model.to(self.device)
         model.eval()
@@ -173,7 +244,8 @@ class ObjectDetector:
             'toothbrush'
         ]
 
-        logger.info(f"模型加载成功，使用torchvision预训练的{self.model_name}模型")
+        logger.info(
+            f"模型加载成功，使用torchvision预训练的{self.model_name if self.model_name in ['fasterrcnn_resnet50_fpn', 'maskrcnn_resnet50_fpn', 'retinanet_resnet50_fpn', 'keypointrcnn_resnet50_fpn'] else 'fasterrcnn_resnet50_fpn'}模型")
 
         return model
 
@@ -249,8 +321,21 @@ class ObjectDetector:
             checkpoint_path = os.path.join(checkpoint_dir, checkpoint_file)
 
             if not os.path.exists(checkpoint_path):
-                # 使用预训练权重
-                checkpoint_file = None
+                # 尝试从网络下载权重文件
+                try:
+                    from labelme._automation.model_downloader import download_rtmdet_model
+                    logger.info(f"模型权重不存在，尝试从网络下载: {self.model_name}")
+                    checkpoint_path = download_rtmdet_model(self.model_name)
+                    if checkpoint_path:
+                        logger.info(f"模型下载成功: {checkpoint_path}")
+                        checkpoint_file = checkpoint_path
+                    else:
+                        # 如果下载失败，使用MMDetection默认权重
+                        logger.warning(f"模型下载失败，使用MMDetection默认权重")
+                        checkpoint_file = None
+                except Exception as e:
+                    logger.warning(f"下载模型失败: {e}，使用MMDetection默认权重")
+                    checkpoint_file = None
             else:
                 checkpoint_file = checkpoint_path
 
@@ -302,56 +387,56 @@ class ObjectDetector:
 
     def _detect_torchvision(self, image: np.ndarray) -> Tuple[List[List[float]], List[int], List[float]]:
         """使用torchvision模型进行检测"""
+        import torch
+        import numpy as np
+        from torchvision.transforms import functional as F
+
         # 记录开始时间
         t_start = time.time()
-        
-        # 转换图像格式
-        if image.shape[2] == 4:  # 如果有alpha通道
-            image = image[:, :, :3]
 
-        # 转换为RGB格式（PyTorch模型需要RGB）
-        image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+        # 将图像转换为RGB（如果是BGR格式）
+        rgb_image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
 
-        # 转换为PyTorch张量
-        img = torch.from_numpy(image_rgb.transpose(2, 0, 1)).float().div(
-            255.0).unsqueeze(0).to(self.device)
+        # 转换为张量
+        input_tensor = F.to_tensor(rgb_image)
+        input_tensor = input_tensor.to(self.device)
 
-        # 使用模型进行推理
         with torch.no_grad():
-            predictions = self.model(img)
+            # 进行推理
+            output = self.model([input_tensor])
 
-            # Faster R-CNN返回的是字典列表
-            pred = predictions[0]
-
-            # 获取边界框、类别ID和置信度
-            pred_boxes = pred['boxes'].cpu().numpy()
-            pred_scores = pred['scores'].cpu().numpy()
-            pred_labels = pred['labels'].cpu().numpy()
-
-            # 过滤低置信度的检测结果
-            mask = pred_scores >= self.conf_threshold
-            boxes = pred_boxes[mask]
-            scores = pred_scores[mask]
-            labels = pred_labels[mask]
-
-        # 提取边界框、类别ID和置信度
-        boxes_list = []
+        # 提取预测结果
+        boxes = []
         class_ids = []
-        scores_list = []
+        scores = []
 
-        for box, label, score in zip(boxes, labels, scores):
-            # 如果指定了过滤类别，且当前类别不在过滤列表中，跳过
-            if self.filter_classes and self.class_names[label] not in self.filter_classes:
+        # 获取预测结果
+        pred_boxes = output[0]['boxes'].cpu().numpy()
+        pred_scores = output[0]['scores'].cpu().numpy()
+        pred_labels = output[0]['labels'].cpu().numpy()
+
+        # 遍历所有预测框
+        for box, label, score in zip(pred_boxes, pred_labels, pred_scores):
+            # 过滤低置信度的检测结果
+            if score < self.conf_threshold:
                 continue
 
-            boxes_list.append(box.tolist())
+            # 如果指定了过滤类别，且当前类别不在过滤列表中，跳过
+            if self.filter_classes:
+                # COCO类别ID映射
+                coco_class_name = COCO_CLASSES[label - 1] if 0 < label <= len(
+                    COCO_CLASSES) else f"unknown_{label}"
+                if coco_class_name not in self.filter_classes:
+                    continue
+
+            boxes.append(box.tolist())
             class_ids.append(int(label))
-            scores_list.append(float(score))
+            scores.append(float(score))
 
         logger.debug(
-            f"目标检测完成: 找到 {len(boxes_list)} 个对象, 耗时 {time.time() - t_start:.3f} [s]")
+            f"目标检测完成: 找到 {len(boxes)} 个对象, 耗时 {time.time() - t_start:.3f} [s]")
 
-        return boxes_list, class_ids, scores_list
+        return boxes, class_ids, scores
 
     def _detect_rtmdet(self, image: np.ndarray) -> Tuple[List[List[float]], List[int], List[float]]:
         """使用RTMDet模型进行检测"""

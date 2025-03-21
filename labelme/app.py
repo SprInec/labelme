@@ -660,13 +660,14 @@ class MainWindow(QtWidgets.QMainWindow):
         themeActionGroup.addAction(darkTheme)
         themeActionGroup.addAction(defaultTheme)
 
-        # AI相关动作
-        aiSettings = action(
-            self.tr("模型设置"),
+        # AI设置
+        ai_settings = action(
+            self.tr("半自动标注配置"),
             self.openAISettings,
             None,
-            "icons8-setting-48.png",
-            self.tr("配置AI模型参数"),
+            "settings",
+            self.tr("配置半自动标注功能"),
+            enabled=True,
         )
 
         runObjectDetection = action(
@@ -789,7 +790,7 @@ class MainWindow(QtWidgets.QMainWindow):
             openNextImg=openNextImg,
             openPrevImg=openPrevImg,
             fileMenuActions=(open_, opendir, save, saveAs, close, quit),
-            aiMenuActions=(aiSettings, None, createAiPolygonMode, createAiMaskMode,
+            aiMenuActions=(ai_settings, None, createAiPolygonMode, createAiMaskMode,
                            None, runObjectDetection, runPoseEstimation, submitAiPrompt),
             # showLabelNames line removed to fix error
             lightTheme=lightTheme,  # 添加明亮主题动作
@@ -857,7 +858,7 @@ class MainWindow(QtWidgets.QMainWindow):
             file=self.menu(self.tr("&文件")),
             edit=self.menu(self.tr("&编辑")),
             view=self.menu(self.tr("&视图")),
-            ai=self.menu(self.tr("&AI")),
+            ai=self.menu(self.tr("&半自动标注")),
             shortcuts=self.menu(self.tr("&快捷键")),
             help=self.menu(self.tr("&帮助")),
             theme=self.menu(self.tr("&主题")),  # 添加主题菜单
@@ -2960,6 +2961,9 @@ class MainWindow(QtWidgets.QMainWindow):
             use_detection_results = pose_config.get(
                 "use_detection_results", True)
 
+            # 获取是否绘制骨骼的设置
+            draw_skeleton = pose_config.get("draw_skeleton", True)
+
             # 记录日志
             if existing_person_boxes and use_detection_results:
                 logger.info(f"找到 {len(existing_person_boxes)} 个已有的person框")
@@ -2973,7 +2977,8 @@ class MainWindow(QtWidgets.QMainWindow):
                 img_array,
                 existing_person_boxes=existing_person_boxes,
                 existing_person_boxes_ids=existing_person_boxes_ids,
-                use_detection_results=use_detection_results
+                use_detection_results=use_detection_results,
+                draw_skeleton=draw_skeleton
             )
 
             self.setProgress(80)  # 更新进度 - 模型推理完成

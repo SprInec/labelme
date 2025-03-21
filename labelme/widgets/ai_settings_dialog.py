@@ -3,6 +3,7 @@ import yaml
 from PyQt5 import QtCore, QtGui, QtWidgets
 
 from labelme._automation.config_loader import ConfigLoader
+from labelme._automation.model_downloader import set_torch_home
 
 # 定义可用的目标检测模型
 DETECTION_MODELS = {
@@ -37,12 +38,26 @@ class AISettingsDialog(QtWidgets.QDialog):
     """AI设置对话框"""
 
     def __init__(self, parent=None):
+        """初始化AI设置对话框"""
         super(AISettingsDialog, self).__init__(parent)
         self.parent = parent
+
+        # 设置PyTorch警告过滤
+        try:
+            import warnings
+            warnings.filterwarnings("ignore", category=UserWarning)
+            import os
+            os.environ['PYTHONWARNINGS'] = 'ignore::UserWarning'
+
+            # 设置PyTorch模型下载镜像源
+            set_torch_home()
+        except:
+            pass
+
         self.config_loader = ConfigLoader()
         self.config = self.config_loader.config
 
-        self.setWindowTitle(self.tr("模型设置"))
+        self.setWindowTitle(self.tr("半自动标注配置"))
         self.setWindowFlags(
             self.windowFlags() & ~QtCore.Qt.WindowContextHelpButtonHint
         )
@@ -107,6 +122,12 @@ class AISettingsDialog(QtWidgets.QDialog):
 
         # 添加YOLO模型
         self.detection_model_combo.addItem("YOLOv7", "yolov7")
+        self.detection_model_combo.addItem("YOLOv7-Tiny", "yolov7-tiny")
+        self.detection_model_combo.addItem("YOLOv7x", "yolov7x")
+        self.detection_model_combo.addItem("YOLOv7-W6", "yolov7-w6")
+        self.detection_model_combo.addItem("YOLOv7-E6", "yolov7-e6")
+        self.detection_model_combo.addItem("YOLOv7-D6", "yolov7-d6")
+        self.detection_model_combo.addItem("YOLOv7-E6E", "yolov7-e6e")
 
         # 添加自定义模型
         self.detection_model_combo.addItem("自定义模型", "custom")
@@ -384,6 +405,10 @@ class AISettingsDialog(QtWidgets.QDialog):
             self.pose_keypoint_threshold.setValue(
                 pose_config.get("keypoint_threshold", 0.3))
 
+            # 绘制骨骼选项
+            self.pose_draw_skeleton.setChecked(
+                pose_config.get("draw_skeleton", True))
+
             # 设备
             device = pose_config.get("device", "cpu")
             self.pose_device.setCurrentText(device)
@@ -516,6 +541,9 @@ class AISettingsDialog(QtWidgets.QDialog):
         pose_config["device"] = self.pose_device.currentText()
         pose_config["use_detection_results"] = self.pose_use_detection_results.isChecked()
 
+        # 保存绘制骨骼设置
+        pose_config["draw_skeleton"] = self.pose_draw_skeleton.isChecked()
+
         # 更新高级参数
         advanced_params = {}
         advanced_params["max_poses"] = self.pose_max_poses.value()
@@ -616,6 +644,13 @@ class AISettingsDialog(QtWidgets.QDialog):
         self.pose_device = QtWidgets.QComboBox()
         self.pose_device.addItems(["cpu", "cuda"])
         layout.addRow(self.tr("运行设备:"), self.pose_device)
+
+        # 绘制骨骼选项
+        self.pose_draw_skeleton = QtWidgets.QCheckBox(self.tr("绘制骨骼"))
+        self.pose_draw_skeleton.setToolTip(
+            self.tr("开启时检测结果会绘制骨骼连接线，关闭时只显示关键点"))
+        self.pose_draw_skeleton.setChecked(True)  # 默认开启
+        layout.addRow("", self.pose_draw_skeleton)
 
         # 使用已有的目标检测结果
         self.pose_use_detection_results = QtWidgets.QCheckBox(
@@ -819,21 +854,18 @@ class AISettingsDialog(QtWidgets.QDialog):
             self.detection_classes_list.item(i).setSelected(False)
 
     def onPoseModelChanged(self, index):
-        """当姿态估计模型选择改变时"""
-        model_id = self.pose_model_name.currentData()
+        """姿态估计模型改变时的处理函数"""
+        model_key = self.pose_model_name.currentData()
 
-        # 自定义模型路径显示逻辑
-        is_custom = model_id == "custom"
+        # 对于所有模型，都显示绘制骨骼和使用已有检测结果选项
+        self.pose_draw_skeleton.setVisible(True)
+        self.pose_use_detection_results_widget.setVisible(True)
+
+        # 显示或隐藏自定义模型路径控件
+        is_custom = model_key == "custom"
         self.pose_custom_model_widget.setVisible(is_custom)
 
         # 根据模型类型显示/隐藏特定设置
-        is_rtmpose = model_id.startswith("rtmpose")
-        is_yolov7 = model_id == "yolov7_w6_pose"
-        is_keypointrcnn = model_id == "keypointrcnn_resnet50_fpn"
-
-        # 跟踪设置仅适用于RTMPose
+        is_rtmpose = model_key.startswith("rtmpose")
+        # RTMPose模型特有的设置
         self.pose_tracking_widget.setVisible(is_rtmpose)
-
-        # 使用已有检测结果选项仅适用于RTMPose和KeypointRCNN
-        self.pose_use_detection_results_widget.setVisible(
-            is_rtmpose or is_keypointrcnn)
