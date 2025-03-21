@@ -231,10 +231,10 @@ class LabelDialog(QtWidgets.QDialog):
         # 设置图标
         if self._use_cloud_layout:
             self.layout_toggle_button.setIcon(
-                labelme.utils.newIcon("icons8-list-view-48"))
+                labelme.utils.newIcon("icons8-grid-view-48"))
         else:
             self.layout_toggle_button.setIcon(
-                labelme.utils.newIcon("icons8-grid-view-48"))
+                labelme.utils.newIcon("icons8-list-view-48"))
         color_layout.addWidget(self.layout_toggle_button,
                                0, QtCore.Qt.AlignVCenter)
         # 在颜色按钮和布局按钮之间添加一定的间距
@@ -304,10 +304,17 @@ class LabelDialog(QtWidgets.QDialog):
             QPushButton#layout_toggle_button {
                 padding: 0px;
                 min-width: 30px;
-                border-radius: 16px;
-                border: 1px solid #888888;
-                background-color: #f0f0f0;
-                margin-top: 0px;
+                min-height: 30px;
+                border-radius: 15px;
+                border: none;
+                background-color: transparent;
+                margin: 0px;
+            }
+            QPushButton#layout_toggle_button:hover {
+                background-color: rgba(0, 0, 0, 0.05);
+            }
+            QPushButton#layout_toggle_button:pressed {
+                background-color: rgba(0, 0, 0, 0.1);
             }
         """)
 
@@ -419,7 +426,7 @@ class LabelDialog(QtWidgets.QDialog):
                 background-color: #FFFFFF;
                 border: 1px solid #ddd;
                 border-radius: 8px;
-                padding: 5px;
+                padding: 8px;
             }
             QScrollBar:vertical {
                 background-color: #f0f0f0;
@@ -447,8 +454,10 @@ class LabelDialog(QtWidgets.QDialog):
 
         # 创建一个容器窗口
         self.cloudContainer = LabelCloudContainer(self)
-        # 创建流式布局
+        # 创建流式布局 - 设置更大的间距
         self.cloudLayout = FlowLayout()
+        self.cloudLayout.setSpacing(12)  # 设置项目间距为12像素
+        self.cloudLayout.setContentsMargins(10, 10, 10, 10)  # 设置边距
         self.cloudContainer.setLayout(self.cloudLayout)
 
         # 添加标签到流式布局
@@ -461,7 +470,7 @@ class LabelDialog(QtWidgets.QDialog):
         # 将滚动区域添加到主布局
         layout.addWidget(self.scrollArea)
         # 最低高度设置
-        self.scrollArea.setMinimumHeight(200)
+        self.scrollArea.setMinimumHeight(240)  # 增加最小高度从200到240
 
     def addLabelToCloud(self, label_text):
         """添加标签到标签云布局"""
@@ -535,11 +544,11 @@ class LabelDialog(QtWidgets.QDialog):
         if hasattr(self, 'layout_toggle_button'):
             if self._use_cloud_layout:
                 self.layout_toggle_button.setIcon(
-                    labelme.utils.newIcon("icons8-list-view-48"))
+                    labelme.utils.newIcon("icons8-grid-view-48"))
                 self.layout_toggle_button.setToolTip(self.tr("切换为列表布局"))
             else:
                 self.layout_toggle_button.setIcon(
-                    labelme.utils.newIcon("icons8-grid-view-48"))
+                    labelme.utils.newIcon("icons8-list-view-48"))
                 self.layout_toggle_button.setToolTip(self.tr("切换为流式布局"))
 
         # 同步主应用程序的布局设置
@@ -1017,8 +1026,9 @@ class FlowLayout(QtWidgets.QLayout):
         x = rect.x()
         y = rect.y()
         lineHeight = 0
-        spaceX = self.spacing()
-        spaceY = self.spacing()
+        # 增加项之间的间距为12像素
+        spaceX = max(self.spacing(), 12)
+        spaceY = max(self.spacing(), 8)
 
         # 获取左右边距
         left = self.contentsMargins().left()
@@ -1038,6 +1048,9 @@ class FlowLayout(QtWidgets.QLayout):
         y = effectiveRect.y()
         right_bound = effectiveRect.right()
 
+        # 记录已放置的项以检测和避免重叠
+        placed_rects = []
+
         for item in self._items:
             wid = item.widget()
             if wid and not wid.isVisible():
@@ -1056,9 +1069,29 @@ class FlowLayout(QtWidgets.QLayout):
                 lineHeight = 0
 
             if not testOnly:
+                # 创建当前项的放置矩形
+                item_rect = QtCore.QRect(x, y, item_width, item_height)
+
+                # 检查是否与已放置的项重叠
+                overlaps = False
+                for placed_rect in placed_rects:
+                    if item_rect.intersects(placed_rect):
+                        overlaps = True
+                        break
+
+                # 如果重叠，尝试调整位置
+                if overlaps:
+                    # 找到新的位置 - 移到下一行
+                    x = effectiveRect.x()
+                    y = y + lineHeight + spaceY
+                    lineHeight = 0
+                    item_rect = QtCore.QRect(x, y, item_width, item_height)
+
+                # 记录放置位置
+                placed_rects.append(item_rect)
+
                 # 设置实际几何位置
-                item.setGeometry(QtCore.QRect(
-                    QtCore.QPoint(x, y), item.sizeHint()))
+                item.setGeometry(item_rect)
 
             # 更新位置和行高
             x = nextX + spaceX
@@ -1091,13 +1124,13 @@ class LabelCloudItem(QtWidgets.QWidget):
         else:
             self.clean_text = text
 
-        # 设置固定高度
-        self.setFixedHeight(44)
+        # 设置固定高度 - 增大高度
+        self.setFixedHeight(52)  # 增加高度从44px到52px
 
-        # 计算文本宽度并设置宽度
+        # 计算文本宽度并设置宽度 - 增大宽度
         fm = QtGui.QFontMetrics(self.font())
         text_width = fm.width(self.clean_text)
-        self.setFixedWidth(text_width + 45)  # 左边框 + 文本 + 右边距
+        self.setFixedWidth(text_width + 65)  # 增加宽度边距从45px到65px
 
         # 鼠标样式
         self.setCursor(QtCore.Qt.PointingHandCursor)
@@ -1121,8 +1154,8 @@ class LabelCloudItem(QtWidgets.QWidget):
         # 圆角半径
         radius = 8
 
-        # 标签区域
-        rect = self.rect().adjusted(2, 2, -2, -2)
+        # 标签区域 - 增加内边距
+        rect = self.rect().adjusted(4, 4, -4, -4)  # 从2,2,-2,-2增加到4,4,-4,-4
 
         # 创建路径
         path = QtGui.QPainterPath()
@@ -1134,7 +1167,7 @@ class LabelCloudItem(QtWidgets.QWidget):
         painter.fillPath(path, bg_color)
 
         # 左边框宽度
-        border_width = 12
+        border_width = 14  # 从12px增加到14px
 
         # 绘制左边框
         border_path = QtGui.QPainterPath()
@@ -1183,15 +1216,19 @@ class LabelCloudItem(QtWidgets.QWidget):
         else:
             painter.setPen(QtGui.QColor(0, 0, 0))
 
-        # 文本区域
+        # 文本区域 - 增加左边距
         text_rect = QtCore.QRect(
-            rect.left() + border_width + 6,  # 左边框宽度 + 间距
+            rect.left() + border_width + 10,  # 左边框宽度 + 增加间距从6px到10px
             rect.top(),
-            rect.width() - (border_width + 12),  # 左右边距
+            rect.width() - (border_width + 16),  # 增加右边距从12px到16px
             rect.height()
         )
 
         # 绘制文本
+        # 设置字体
+        font = painter.font()
+        font.setPointSize(10)  # 确保字体大小合适
+        painter.setFont(font)
         painter.drawText(text_rect, QtCore.Qt.AlignVCenter, self.clean_text)
 
     def mousePressEvent(self, event):
@@ -1311,6 +1348,7 @@ class LabelCloudContainer(QtWidgets.QWidget):
         self.setAcceptDrops(True)
         self.dragging_item = None
         self.label_items = []  # 保存所有标签项的引用
+        self.update_timer = None  # 用于延迟更新的定时器
 
     def addLabelItem(self, item):
         """添加标签项到容器"""
@@ -1375,10 +1413,39 @@ class LabelCloudContainer(QtWidgets.QWidget):
         for item in self.label_items:
             layout.addWidget(item)
 
-        # 刷新布局
+        # 强制更新布局 - 关键修复
         layout.invalidate()
         layout.activate()
+
+        # 确保更新生效
         self.updateGeometry()
+        self.parentWidget().updateGeometry()
+
+        # 触发布局重计算
+        self.adjustSize()
+        self.update()
+
+        # 使用计时器延迟再次更新，解决某些情况下第一次更新不完全的问题
+        if self.update_timer is None:
+            self.update_timer = QtCore.QTimer(self)
+            self.update_timer.setSingleShot(True)
+            self.update_timer.timeout.connect(self.delayedUpdate)
+
+        self.update_timer.start(10)  # 10毫秒后再次更新
+
+    def delayedUpdate(self):
+        """延迟更新，确保布局正确显示"""
+        layout = self.layout()
+        if isinstance(layout, FlowLayout):
+            layout.invalidate()
+            layout.activate()
+
+        # 触发滚动区域的更新
+        scroll_area = self.parentWidget()
+        if isinstance(scroll_area, QtWidgets.QScrollArea):
+            scroll_area.updateGeometry()
+
+        # 强制重绘
         self.update()
 
     def dragEnterEvent(self, event):
@@ -1415,3 +1482,18 @@ class LabelCloudContainer(QtWidgets.QWidget):
             # 如果有保存标签顺序的方法，则调用
             if hasattr(self.dialog, 'saveLabelOrder'):
                 self.dialog.saveLabelOrder()
+
+    def resizeEvent(self, event):
+        """处理容器调整大小事件"""
+        super(LabelCloudContainer, self).resizeEvent(event)
+        # 容器大小改变时，重新计算流式布局
+        layout = self.layout()
+        if isinstance(layout, FlowLayout):
+            layout.invalidate()
+            # 适当延迟更新以确保完全重新布局
+            if self.update_timer is None:
+                self.update_timer = QtCore.QTimer(self)
+                self.update_timer.setSingleShot(True)
+                self.update_timer.timeout.connect(self.delayedUpdate)
+
+            self.update_timer.start(10)
