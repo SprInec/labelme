@@ -33,10 +33,14 @@ class LabelDialog(QtWidgets.QDialog):
         completion="startswith",
         fit_to_content=None,
         flags=None,
+        app=None,
     ):
         if fit_to_content is None:
             fit_to_content = {"row": False, "column": True}
         self._fit_to_content = fit_to_content
+
+        # 保存对主应用程序的引用
+        self.app = app
 
         super(LabelDialog, self).__init__(parent)
         self.edit = LabelQLineEdit()
@@ -46,7 +50,7 @@ class LabelDialog(QtWidgets.QDialog):
         if flags:
             self.edit.textChanged.connect(self.updateFlags)
         self.edit_group_id = QtWidgets.QLineEdit()
-        self.edit_group_id.setPlaceholderText("Group ID")
+        self.edit_group_id.setPlaceholderText("GID")
         self.edit_group_id.setValidator(
             QtGui.QRegExpValidator(QtCore.QRegExp(r"\d*"), None)
         )
@@ -99,7 +103,7 @@ class LabelDialog(QtWidgets.QDialog):
         # 添加description输入框
         self.editDescription = QtWidgets.QLineEdit()
         self.editDescription.setPlaceholderText("Description (optional)")
-        layout.addWidget(QtWidgets.QLabel("描述:"))
+
         layout.addWidget(self.editDescription)
 
         # 创建底部布局
@@ -108,14 +112,12 @@ class LabelDialog(QtWidgets.QDialog):
         # 添加颜色选择功能
         color_layout = QtWidgets.QHBoxLayout()
         color_layout.setAlignment(QtCore.Qt.AlignLeft)  # 设置左对齐
-        color_label = QtWidgets.QLabel("标签颜色:")
         self.color_button = QtWidgets.QPushButton()
         self.color_button.setObjectName("color_button")
-        self.color_button.setFixedSize(28, 28)
+        self.color_button.setFixedSize(32, 32)
         self.selected_color = QtGui.QColor(0, 255, 0)  # 默认绿色
         self.update_color_button()
         self.color_button.clicked.connect(self.choose_color)
-        color_layout.addWidget(color_label)
         color_layout.addWidget(self.color_button, 0, QtCore.Qt.AlignVCenter)
 
         # 添加按钮
@@ -175,9 +177,9 @@ class LabelDialog(QtWidgets.QDialog):
             QPushButton#color_button {
                 padding: 0px;
                 min-width: 30px;
-                border-radius: 10px;
+                border-radius: 0px;
                 border: 1px solid #3d3d3d;
-                margin-top: 1px;
+                margin-top: 0px;
             }
         """)
 
@@ -190,19 +192,41 @@ class LabelDialog(QtWidgets.QDialog):
 
     def labelSelected(self, item):
         self.edit.setText(item.text())
+        text = item.text().strip()
 
-        # 尝试从标签项文本中提取颜色
-        text = item.text()
+        # 如果app对象存在，使用app的颜色管理
+        if self.app:
+            clean_text = text.replace("●", "").strip()
+            # 提取纯文本标签名，去除任何HTML标记
+            if '<font' in clean_text:
+                clean_text = re.sub(r'<[^>]*>|</[^>]*>',
+                                    '', clean_text).strip()
+
+            # 使用app的颜色获取方法
+            color = self.app._get_rgb_by_label(clean_text)
+            if color:
+                # 转换成QColor
+                self.selected_color = QtGui.QColor(*color)
+                self.update_color_button()
+                return
+
+        # 降级处理：如果无法从app获取颜色，尝试从标签文本提取
         if "●" in text:
             try:
+                # 尝试提取颜色代码
                 color_str = text.split('color="')[1].split('">')[0]
+                # 解析十六进制颜色值
                 r = int(color_str[1:3], 16)
                 g = int(color_str[3:5], 16)
                 b = int(color_str[5:7], 16)
                 self.selected_color = QtGui.QColor(r, g, b)
                 self.update_color_button()
+                return
             except (IndexError, ValueError):
                 pass
+
+        # 如果没有找到颜色，保持当前颜色
+        self.update_color_button()
 
     def validate(self):
         text = self.edit.text()
@@ -283,25 +307,42 @@ class LabelDialog(QtWidgets.QDialog):
         # if text is None, the previous label in self.edit is kept
         if text is None:
             text = self.edit.text()
+        else:
+            text = text.strip()
+
         # description is always initialized by empty text c.f., self.edit.text
         if description is None:
             description = ""
         self.editDescription.setText(description)
 
-        # 如果没有提供颜色或需要查找已有标签的颜色
-        items = self.labelList.findItems(text, QtCore.Qt.MatchFixedString)
-        if items and (color is None or color.getRgb()[:3] == (0, 255, 0)):
-            # 尝试从已有标签中提取颜色
-            try:
-                item_text = items[0].text()
-                if "●" in item_text:
-                    color_str = item_text.split('color="')[1].split('">')[0]
-                    r = int(color_str[1:3], 16)
-                    g = int(color_str[3:5], 16)
-                    b = int(color_str[5:7], 16)
-                    color = QtGui.QColor(r, g, b)
-            except (IndexError, ValueError):
-                pass
+        # 如果没有提供颜色或提供的是默认绿色，尝试查找标签对应的颜色
+        has_found_color = False
+        if color is None or color.getRgb()[:3] == (0, 255, 0):  # 默认绿色
+            # 1. 首先从主应用程序获取颜色
+            clean_text = text.replace("●", "").strip()
+            # 移除HTML标记
+            if '<font' in clean_text:
+                clean_text = re.sub(r'<[^>]*>|</[^>]*>',
+                                    '', clean_text).strip()
+
+            if self.app:
+                rgb_color = self.app._get_rgb_by_label(clean_text)
+                if rgb_color:
+                    color = QtGui.QColor(*rgb_color)
+                    has_found_color = True
+
+            # 2. 如果从app获取不到，尝试从标签文本提取
+            if not has_found_color:
+                if "●" in text and 'color="' in text:
+                    try:
+                        color_str = text.split('color="')[1].split('">')[0]
+                        r = int(color_str[1:3], 16)
+                        g = int(color_str[3:5], 16)
+                        b = int(color_str[5:7], 16)
+                        color = QtGui.QColor(r, g, b)
+                        has_found_color = True
+                    except (IndexError, ValueError):
+                        pass
 
         # 设置颜色按钮
         if color is not None and isinstance(color, QtGui.QColor):

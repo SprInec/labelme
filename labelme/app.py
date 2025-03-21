@@ -137,13 +137,15 @@ class MainWindow(QtWidgets.QMainWindow):
 
         # Main widgets and related state.
         self.labelDialog = LabelDialog(
+            text=self.tr("Enter object label"),
             parent=self,
             labels=self._config["labels"],
             sort_labels=self._config["sort_labels"],
             show_text_field=self._config["show_label_text_field"],
             completion=self._config["label_completion"],
-            fit_to_content=self._config["fit_to_content"],
+            fit_to_content={"row": True, "column": True},
             flags=self._config["label_flags"],
+            app=self,  # 添加app参数传递self引用
         )
 
         # 将LabelListWidget替换为LabelTreeWidget
