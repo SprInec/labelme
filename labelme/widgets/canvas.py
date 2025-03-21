@@ -35,6 +35,7 @@ class Canvas(QtWidgets.QWidget):
     drawingPolygon = QtCore.pyqtSignal(bool)
     vertexSelected = QtCore.pyqtSignal(bool)
     mouseMoved = QtCore.pyqtSignal(QtCore.QPointF)
+    modeChanged = QtCore.pyqtSignal(str)  # 添加模式改变的信号，用于通知状态栏
 
     CREATE, EDIT = 0, 1
 
@@ -118,6 +119,9 @@ class Canvas(QtWidgets.QWidget):
             bytes, osam.types.ImageEmbedding
         ] = collections.OrderedDict()
 
+        # 初始化时发送一次模式信号
+        QtCore.QTimer.singleShot(0, lambda: self.modeChanged.emit("编辑模式"))
+
     def fillDrawing(self):
         return self._fill_drawing
 
@@ -141,7 +145,46 @@ class Canvas(QtWidgets.QWidget):
             "ai_mask",
         ]:
             raise ValueError("Unsupported createMode: %s" % value)
+
+        # 如果当前已处于AI模式，再次点击同一AI模式按钮时，应该退出该模式
+        if self._createMode in ["ai_polygon", "ai_mask"] and value == self._createMode:
+            # 退出AI模式，回到编辑模式
+            self.mode = self.EDIT
+            # 重置为普通多边形模式
+            self._createMode = "polygon"
+            # 发送模式改变信号
+            self.modeChanged.emit("编辑模式")
+            return
+
+        # 如果从AI模式切换到其他模式，或者从其他模式切换到AI模式，需要重置状态
+        old_mode = self._createMode
         self._createMode = value
+
+        # 如果当前正在绘制，且模式发生了变化，需要重置当前绘制状态
+        if self.drawing() and old_mode != value:
+            # 重置当前绘制的形状
+            self.current = None
+            self.line.points = []
+            self.line.point_labels = []
+            # 如果之前有发送绘制中的信号，需要取消
+            self.drawingPolygon.emit(False)
+            self.update()
+
+        # 发送模式改变信号
+        if self.mode == self.CREATE:
+            mode_name = {
+                "polygon": "多边形",
+                "rectangle": "矩形",
+                "circle": "圆形",
+                "line": "线段",
+                "point": "点",
+                "linestrip": "折线",
+                "ai_polygon": "AI多边形",
+                "ai_mask": "AI蒙版",
+            }.get(value, value)
+            self.modeChanged.emit(f"创建{mode_name}模式")
+        else:
+            self.modeChanged.emit("编辑模式")
 
     def _compute_and_cache_image_embedding(self) -> None:
         if self.pixmap is None:
@@ -277,10 +320,28 @@ class Canvas(QtWidgets.QWidget):
         if self.mode == self.EDIT:
             # CREATE -> EDIT
             self.repaint()  # clear crosshair
+            # 重置AI工具的状态
+            if self.createMode in ["ai_polygon", "ai_mask"]:
+                # 如果是从AI工具转到编辑模式，重置createMode为polygon
+                self._createMode = "polygon"
+            # 发送模式改变信号
+            self.modeChanged.emit("编辑模式")
         else:
             # EDIT -> CREATE
             self.unHighlight()
             self.deSelectShape()
+            # 发送模式改变信号
+            mode_name = {
+                "polygon": "多边形",
+                "rectangle": "矩形",
+                "circle": "圆形",
+                "line": "线段",
+                "point": "点",
+                "linestrip": "折线",
+                "ai_polygon": "AI多边形",
+                "ai_mask": "AI蒙版",
+            }.get(self.createMode, self.createMode)
+            self.modeChanged.emit(f"创建{mode_name}模式")
 
     def unHighlight(self):
         if self.hShape:
@@ -950,8 +1011,9 @@ class Canvas(QtWidgets.QWidget):
 
     def finalise(self):
         assert self.current
-        # 只有在self._sam不为None时才调用_update_shape_with_sam
-        if hasattr(self, '_sam') and self._sam is not None and hasattr(self, '_sam_embedding'):
+        # 只有在self._sam不为None且当前是AI模式时才调用_update_shape_with_sam
+        if (hasattr(self, '_sam') and self._sam is not None and 
+            hasattr(self, '_sam_embedding') and self.createMode in ["ai_polygon", "ai_mask"]):
             _update_shape_with_sam(
                 shape=self.current,
                 createMode=self.createMode,
@@ -969,6 +1031,18 @@ class Canvas(QtWidgets.QWidget):
         self.setHiding(False)
         self.drawingPolygon.emit(False)
         self.newShape.emit()  # 确保这行代码存在，发出新形状创建完成的信号
+
+        # 如果是AI工具，完成后重置状态
+        if self.createMode in ["ai_polygon", "ai_mask"]:
+            self.line.points = []
+            self.line.point_labels = []
+            # 完成AI工具标注后自动切换回编辑模式
+            self.mode = self.EDIT
+            old_mode = self.createMode
+            self._createMode = "polygon"
+            # 发送模式改变信号
+            self.modeChanged.emit("编辑模式")
+
         self.update()
 
     def closeEnough(self, p1, p2):

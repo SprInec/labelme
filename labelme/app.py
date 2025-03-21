@@ -1004,24 +1004,17 @@ class MainWindow(QtWidgets.QMainWindow):
         self.statusProgress = QtWidgets.QProgressBar()
         self.statusProgress.setFixedHeight(16)  # 调整高度使其更现代
         self.statusProgress.setFixedWidth(300)  # 加宽进度条
-        self.statusProgress.setTextVisible(False)  # 隐藏百分比文本
-        self.statusProgress.setStyleSheet("""
-            QProgressBar {
-                border: none;
-                border-radius: 6px;
-                background-color: #F0F0F0;
-                text-align: center;
-                margin: 0px 5px;
-                height: 12px;
-            }
-            QProgressBar::chunk {
-                background-color: #2196F3;
-                border-radius: 6px;
-                margin: 0px;
-            }
-        """)
-        self.statusProgress.setValue(0)
-        self.statusProgress.setVisible(False)  # 默认隐藏
+        self.statusProgress.setTextVisible(False)
+        self.statusProgress.hide()  # 默认隐藏进度条
+
+        # 创建状态栏标签用于显示当前模式
+        self.modeLabel = QtWidgets.QLabel("编辑模式")
+        self.modeLabel.setStyleSheet("padding-right: 10px;")
+        self.statusBar().addPermanentWidget(self.modeLabel)
+        self.statusBar().addPermanentWidget(self.statusProgress)
+
+        # 连接画布的模式改变信号
+        self.canvas.modeChanged.connect(self.updateModeLabel)
 
         # 添加到状态栏
         self.statusBar().addPermanentWidget(self.statusProgress)
@@ -1331,8 +1324,10 @@ class MainWindow(QtWidgets.QMainWindow):
         self.imagePath = None
         self.imageData = None
         self.labelFile = None
-        self.otherData = None
+        self.otherData = {}
         self.canvas.resetState()
+        # 更新状态栏的模式标签
+        self.updateModeLabel("编辑模式")
 
     def currentItem(self):
         items = self.labelList.selectedItems()
@@ -1381,14 +1376,35 @@ class MainWindow(QtWidgets.QMainWindow):
             "ai_mask": self.actions.createAiMaskMode,
         }
 
+        # 如果是AI工具，且已经处于该模式，点击相同的AI工具按钮应该退出该模式
+        if not edit and createMode in ["ai_polygon", "ai_mask"] and self.canvas.createMode == createMode:
+            # 切换到编辑模式
+            edit = True
+            # 更新UI显示状态
+            for draw_action in draw_actions.values():
+                draw_action.setEnabled(True)
+            self.actions.editMode.setChecked(True)
+            self.actions.editMode.setEnabled(False)
+            # 设置画布模式
+            self.canvas.setEditing(True)
+            # 更新状态栏提示
+            self.status(self.tr("已退出AI标注模式，切换到编辑模式"))
+            return
+
         self.canvas.setEditing(edit)
         self.canvas.createMode = createMode
         if edit:
             for draw_action in draw_actions.values():
                 draw_action.setEnabled(True)
+            # 更新状态栏提示
+            self.status(self.tr("已切换到编辑模式"))
         else:
             for draw_mode, draw_action in draw_actions.items():
                 draw_action.setEnabled(createMode != draw_mode)
+            # 更新状态栏提示
+            if createMode in ["ai_polygon", "ai_mask"]:
+                tool_name = "AI多边形" if createMode == "ai_polygon" else "AI蒙版"
+                self.status(self.tr(f"已切换到{tool_name}标注模式，再次点击可退出"))
         self.actions.editMode.setEnabled(not edit)
 
     def setEditMode(self):
@@ -3167,30 +3183,27 @@ class MainWindow(QtWidgets.QMainWindow):
         return action
 
     def startProgress(self, message, max_value=100):
-        """开始进度条并显示消息"""
-        self.status(message)
+        """显示进度条并设置最大值"""
+        self.statusBar().showMessage(message)
+        self.statusProgress.show()
         self.statusProgress.setMaximum(max_value)
         self.statusProgress.setValue(0)
-        self.statusProgress.setVisible(True)
-        QtWidgets.QApplication.processEvents()  # 确保UI更新
+        # 确保模式标签仍然可见
+        self.modeLabel.show()
+        QtWidgets.QApplication.processEvents()
 
     def setProgress(self, value):
-        """设置进度条的值"""
-        if value < 0:
-            value = 0
-        if value > self.statusProgress.maximum():
-            value = self.statusProgress.maximum()
+        """更新进度条的值"""
         self.statusProgress.setValue(value)
-        QtWidgets.QApplication.processEvents()  # 确保UI更新
+        QtWidgets.QApplication.processEvents()
 
     def endProgress(self, message="完成"):
-        """结束进度条并显示消息"""
-        self.statusProgress.setValue(self.statusProgress.maximum())
-        self.status(message)
-        # 短暂延迟后隐藏进度条
-        QtCore.QTimer.singleShot(
-            1000, lambda: self.statusProgress.setVisible(False))
-        QtWidgets.QApplication.processEvents()  # 确保UI更新
+        """隐藏进度条并显示完成消息"""
+        self.statusBar().showMessage(message, 5000)  # 显示5秒
+        self.statusProgress.hide()
+        # 确保模式标签仍然可见
+        self.modeLabel.show()
+        QtWidgets.QApplication.processEvents()
 
     def toggleFullScreen(self):
         """切换全屏模式"""
@@ -3199,3 +3212,6 @@ class MainWindow(QtWidgets.QMainWindow):
             self.showMaximized()  # 然后最大化
         else:
             self.showFullScreen()
+
+    def updateModeLabel(self, mode_text):
+        self.modeLabel.setText(f"当前模式: {mode_text}")
