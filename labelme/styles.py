@@ -15,6 +15,7 @@ LIGHT_STYLE = """
     font-weight: 400;
 }
 
+
 QMainWindow, QDialog {
     background-color: #ffffff;
 }

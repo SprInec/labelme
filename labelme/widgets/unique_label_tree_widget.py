@@ -215,7 +215,7 @@ class UniqueLabelItemDelegate(QStyledItemDelegate):
     def sizeHint(self, option, index):
         if index.parent().isValid():  # 子项
             # 确保有足够大的高度
-            return QSize(option.rect.width(), 48)
+            return QSize(option.rect.width(), 42)
         else:
             return super(UniqueLabelItemDelegate, self).sizeHint(option, index)
 
