@@ -747,6 +747,10 @@ class UniqueLabelTreeWidget(QWidget):
         for category_name in list(self.categories.keys()):
             self.updateCategoryCount(category_name)
 
+    def clearSelection(self):
+        """清除所有选择"""
+        self.treeView.clearSelection()
+
     def expandAll(self):
         """展开所有项"""
         self.treeView.expandAll()

@@ -1480,6 +1480,9 @@ class MainWindow(QtWidgets.QMainWindow):
             self.status(self.tr("已退出AI标注模式，切换到编辑模式"))
             return
 
+        # 切换绘制模式时清除标签列表的选中状态
+        self.labelList.clearSelection()
+
         self.canvas.setEditing(edit)
         self.canvas.createMode = createMode
         if edit:
@@ -1751,10 +1754,18 @@ class MainWindow(QtWidgets.QMainWindow):
 
     # React to canvas signals.
     def shapeSelectionChanged(self, selected_shapes):
+        # 先切换到编辑模式
+        if not self.canvas.editing():
+            self.toggleDrawMode(True)  # 切换到编辑模式
+
         self._noSelectionSlot = True
         for shape in self.canvas.selectedShapes:
             shape.selected = False
+        # 清除当前标注列表的选择
         self.labelList.clearSelection()
+        # 清除标签列表dock的选择
+        self.uniqLabelList.clearSelection()
+
         self.canvas.selectedShapes = selected_shapes
         for shape in self.canvas.selectedShapes:
             shape.selected = True
@@ -2105,6 +2116,14 @@ class MainWindow(QtWidgets.QMainWindow):
     def labelSelectionChanged(self):
         if self._noSelectionSlot:
             return
+
+        # 先切换到编辑模式
+        if not self.canvas.editing():
+            self.toggleDrawMode(True)  # 切换到编辑模式
+
+        # 清除标签列表dock的选择，避免混淆
+        self.uniqLabelList.clearSelection()
+
         if self.canvas.editing():
             selected_shapes = []
             for item in self.labelList.selectedItems():
@@ -3741,6 +3760,11 @@ class MainWindow(QtWidgets.QMainWindow):
         if not self.actions.createMode.isEnabled():
             self.status(self.tr("当前模式下无法创建新标注"))
             return
+
+        # 清除当前标注列表中的选择
+        self.labelList.clearSelection()
+        # 清除画布上选中的形状
+        self.canvas.deSelectShape()
 
         # 设置标签对话框中的文本
         self.labelDialog.edit.setText(label_text)
