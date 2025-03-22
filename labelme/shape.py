@@ -44,6 +44,10 @@ class Shape(object):
 
     # 显示标签名称的标志
     show_label_names = False
+    # 显示标签内容的具体选项
+    show_label_text = True
+    show_label_gid = True
+    show_label_desc = False
 
     def __init__(
         self,
@@ -437,17 +441,8 @@ class Shape(object):
             font.setPointSize(9)
             painter.setFont(font)
 
-            # 计算文本区域
+            # 创建字体度量对象用于计算文本尺寸
             fm = painter.fontMetrics()
-            text_rect = fm.boundingRect(self.label)
-
-            # 创建标签背景矩形
-            bg_rect = QtCore.QRectF(
-                label_pos.x(),
-                label_pos.y(),
-                text_rect.width() + 10,
-                text_rect.height() + 6
-            )
 
             # 使用形状颜色，但半透明
             bg_color = QtGui.QColor(self.fill_color)
@@ -456,11 +451,6 @@ class Shape(object):
                 bg_color.setAlpha(180)
             else:
                 bg_color.setAlpha(120)
-
-            # 绘制圆角矩形背景
-            painter.setPen(QtCore.Qt.NoPen)
-            painter.setBrush(bg_color)
-            painter.drawRoundedRect(bg_rect, 5, 5)
 
             # 设置文本颜色 - 根据背景亮度自动调整
             r, g, b = bg_color.getRgb()[:3]
@@ -472,13 +462,113 @@ class Shape(object):
                 # 浅色文本用于深色背景
                 text_color = QtGui.QColor(250, 250, 250)
 
-            # 绘制文本
-            painter.setPen(text_color)
-            painter.drawText(
-                bg_rect,
-                QtCore.Qt.AlignCenter,
-                self.label
-            )
+            # 计算并绘制标签名称（如果启用）
+            current_x = label_pos.x()
+            current_y = label_pos.y()
+
+            if Shape.show_label_text and self.label:
+                label_text = self.label
+                text_rect = fm.boundingRect(label_text)
+
+                # 创建标签背景矩形
+                label_bg_rect = QtCore.QRectF(
+                    current_x,
+                    current_y,
+                    text_rect.width() + 10,
+                    text_rect.height() + 6
+                )
+
+                # 判断是否需要特殊圆角处理
+                has_gid = Shape.show_label_gid and self.group_id is not None
+                
+                # 绘制背景
+                painter.setPen(QtCore.Qt.NoPen)
+                painter.setBrush(bg_color)
+                
+                if has_gid:
+                    # 当有GID时，标签右侧不使用圆角
+                    painter.save()
+                    painter.setClipRect(label_bg_rect)
+                    # 绘制一个更大的圆角矩形，然后通过裁剪区域来实现右侧直角
+                    larger_rect = label_bg_rect.adjusted(0, 0, 5, 0)
+                    painter.drawRoundedRect(larger_rect, 5, 5)
+                    painter.restore()
+                else:
+                    # 无GID时使用完整的圆角矩形
+                    painter.drawRoundedRect(label_bg_rect, 5, 5)
+
+                # 绘制标签文本
+                painter.setPen(text_color)
+                painter.drawText(
+                    label_bg_rect,
+                    QtCore.Qt.AlignCenter,
+                    label_text
+                )
+
+                # 更新下一个元素的起始X坐标（GID将在间隙后显示）
+                current_x = label_bg_rect.right() + 5  # 添加5像素的间隙
+
+            # 计算并绘制GID（如果启用且存在）
+            if Shape.show_label_gid and self.group_id is not None:
+                gid_text = f"{self.group_id}"
+                gid_rect = fm.boundingRect(gid_text)
+
+                # 创建GID背景矩形
+                gid_bg_rect = QtCore.QRectF(
+                    current_x,
+                    current_y,
+                    gid_rect.width() + 20,
+                    gid_rect.height() + 6
+                )
+
+                # 绘制GID背景，左侧不使用圆角
+                painter.setPen(QtCore.Qt.NoPen)
+                painter.setBrush(bg_color)
+                
+                painter.save()
+                painter.setClipRect(gid_bg_rect)
+                # 绘制一个更大的圆角矩形，然后通过裁剪区域来实现左侧直角
+                larger_rect = gid_bg_rect.adjusted(-5, 0, 0, 0)
+                painter.drawRoundedRect(larger_rect, 5, 5)
+                painter.restore()
+
+                # 绘制GID文本
+                painter.setPen(text_color)
+                painter.drawText(
+                    gid_bg_rect,
+                    QtCore.Qt.AlignCenter,
+                    gid_text
+                )
+
+            # 计算并绘制描述信息（如果启用且存在）
+            if Shape.show_label_desc and self.description:
+                # 重置X坐标为标签初始位置，Y坐标向下移动
+                current_x = label_pos.x()
+                current_y = current_y + fm.height() + 8
+
+                desc_text = self.description
+                desc_rect = fm.boundingRect(desc_text)
+
+                # 创建描述背景矩形
+                desc_bg_rect = QtCore.QRectF(
+                    current_x,
+                    current_y,
+                    desc_rect.width() + 10,
+                    desc_rect.height() + 6
+                )
+
+                # 绘制圆角矩形背景
+                painter.setPen(QtCore.Qt.NoPen)
+                painter.setBrush(bg_color)
+                painter.drawRoundedRect(desc_bg_rect, 5, 5)
+
+                # 绘制描述文本
+                painter.setPen(text_color)
+                painter.drawText(
+                    desc_bg_rect,
+                    QtCore.Qt.AlignCenter,
+                    desc_text
+                )
 
             painter.restore()
 

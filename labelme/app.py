@@ -118,6 +118,14 @@ class MainWindow(QtWidgets.QMainWindow):
         self._showLabelNames = False
         Shape.show_label_names = False
 
+        # 初始化标签内容显示选项
+        self._showLabelText = True
+        self._showLabelGID = True
+        self._showLabelDesc = False
+        Shape.show_label_text = True
+        Shape.show_label_gid = True
+        Shape.show_label_desc = False
+
         # 添加用于记住上一次标签的变量
         self._previous_label_text = None
 
@@ -742,12 +750,44 @@ class MainWindow(QtWidgets.QMainWindow):
         if self._config["canvas"]["fill_drawing"]:
             fill_drawing.trigger()
 
-        # 添加显示标签名称选项
+        # 添加显示标签名称相关选项
+        # 主选项 - 显示标签名称
         showLabelNames = self.createDockLikeAction(
-            self.tr("显示标签名称"),  # 标题
-            self.toggleShowLabelNames,  # 槽函数
+            self.tr("显示标签名称"),
+            self.toggleShowLabelNames,
             False  # 默认未选中
         )
+
+        # 子选项 - 显示标签文本
+        showLabelText = self.createDockLikeAction(
+            self.tr("　显示标签文本"),  # 前面加空格表示层级
+            self.toggleShowLabelText,
+            True  # 默认选中
+        )
+        showLabelText.setEnabled(False)  # 初始禁用，因为父选项未选中
+
+        # 子选项 - 显示GID
+        showLabelGID = self.createDockLikeAction(
+            self.tr("　显示GID"),  # 前面加空格表示层级
+            self.toggleShowLabelGID,
+            True  # 默认选中
+        )
+        showLabelGID.setEnabled(False)  # 初始禁用
+
+        # 子选项 - 显示描述
+        showLabelDesc = self.createDockLikeAction(
+            self.tr("　显示描述"),  # 前面加空格表示层级
+            self.toggleShowLabelDesc,
+            False  # 默认不选中
+        )
+        showLabelDesc.setEnabled(False)  # 初始禁用
+
+        # 保存到实例变量中便于访问
+        self.showLabelNames = showLabelNames
+        self.showLabelText = showLabelText
+        self.showLabelGID = showLabelGID
+        self.showLabelDesc = showLabelDesc
+        self.labelNameOptions = [showLabelText, showLabelGID, showLabelDesc]
 
         # Label list context menu.
         labelMenu = QtWidgets.QMenu()
@@ -872,6 +912,10 @@ class MainWindow(QtWidgets.QMainWindow):
             labelList=labelMenu,
         )
 
+        # 设置视图菜单在点击后不关闭，仅在鼠标离开后关闭
+        self.menus.view.installEventFilter(self)
+        self.menus.view.setAttribute(QtCore.Qt.WA_DeleteOnClose, False)
+
         # 应用上次保存的主题设置
         if self.currentTheme == "dark":
             self.setDarkTheme(update_actions=False)  # 添加参数，表示不更新动作选中状态
@@ -909,7 +953,10 @@ class MainWindow(QtWidgets.QMainWindow):
                 self.file_dock.toggleViewAction(),
                 None,
                 fill_drawing,
-                showLabelNames,
+                showLabelNames,  # 显示标签名称
+                showLabelText,   # 显示标签文本
+                showLabelGID,    # 显示GID
+                showLabelDesc,   # 显示描述
             ),
         )
 
@@ -3373,26 +3420,38 @@ class MainWindow(QtWidgets.QMainWindow):
         # 保存当前主题设置
         self.currentTheme = "default"
 
-    def toggleShowLabelNames(self, checked=None):
+    def toggleShowLabelNames(self, checked):
         """切换是否在标注上显示标签名称
 
         Args:
-            checked: 如果是通过QAction的toggled信号调用的，将传入当前的选中状态
+            checked: 从QAction的toggled信号接收到的选中状态
         """
-        if checked is not None:
-            # 如果是通过QAction的toggled信号调用的
-            self._showLabelNames = checked
-        else:
-            # 直接调用时的行为
-            self._showLabelNames = not self._showLabelNames
-            # 更新QAction的状态
-            if hasattr(self.actions, 'showLabelNames'):
-                self.actions.showLabelNames.setChecked(self._showLabelNames)
+        self._showLabelNames = checked
+        Shape.show_label_names = checked
 
-        # 更新Shape类的显示状态
-        Shape.show_label_names = self._showLabelNames
+        # 根据主选项状态启用或禁用子选项
+        for option in self.labelNameOptions:
+            option.setEnabled(checked)
 
         # 刷新画布
+        self.canvas.update()
+
+    def toggleShowLabelText(self, checked):
+        """切换是否在标签中显示标签名称"""
+        self._showLabelText = checked
+        Shape.show_label_text = checked
+        self.canvas.update()
+
+    def toggleShowLabelGID(self, checked):
+        """切换是否在标签中显示GID"""
+        self._showLabelGID = checked
+        Shape.show_label_gid = checked
+        self.canvas.update()
+
+    def toggleShowLabelDesc(self, checked):
+        """切换是否在标签中显示描述"""
+        self._showLabelDesc = checked
+        Shape.show_label_desc = checked
         self.canvas.update()
 
     def createDockLikeAction(self, title, slot, checked=False):
@@ -3644,7 +3703,11 @@ class MainWindow(QtWidgets.QMainWindow):
         return default_config
 
     def toggleLabelCloudLayout(self, enabled=None):
-        """切换标签云流式布局显示模式"""
+        """切换标签云布局
+
+        Args:
+            enabled: 如果提供，直接设置为该值；否则切换当前状态
+        """
         if enabled is None:
             enabled = not self._config["label_cloud_layout"]
         self._config["label_cloud_layout"] = enabled
@@ -3656,3 +3719,10 @@ class MainWindow(QtWidgets.QMainWindow):
             save_config(self._config)
         except Exception as e:
             logger.exception("保存标签云布局配置失败: %s", e)
+
+    def eventFilter(self, obj, event):
+        """事件过滤器，用于处理菜单和其他UI元素的特殊行为
+        """
+        # 暂时禁用事件过滤，让原生菜单行为正常工作
+        # 直接返回False表示不处理事件，让Qt默认处理逻辑接管
+        return False

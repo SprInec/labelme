@@ -126,7 +126,7 @@ class LabelItemDelegate(QtWidgets.QStyledItemDelegate):
     def sizeHint(self, option, index):
         # 增大项高度以增强呼吸感
         size = super(LabelItemDelegate, self).sizeHint(option, index)
-        size.setHeight(60)  # 进一步增大项高度
+        size.setHeight(55)  # 进一步增大项高度
         return size
 
 

@@ -1176,13 +1176,26 @@ def get_shapes_from_poses(
                 # 获取关键点名称，不加前缀
                 kpt_name = COCO_KEYPOINTS[j]
 
+                # 根据置信度确定可见性状态
+                # conf 值范围通常为 0-1
+                # 将可见性转换为三种状态：0(图像中不存在)，1(存在但不可见)，2(存在且可见)
+                visibility = 0  # 默认为0：图像中不存在
+                if conf > 0.5:
+                    visibility = 2  # 存在且可见
+                elif conf > 0:
+                    visibility = 1  # 存在但不可见
+
+                # 添加描述，包含可见性信息
+                description = f"visiable:{visibility}"
+
                 # 创建形状字典
                 shape = {
                     "label": f"{kpt_name}",  # 不添加kpt_前缀
                     "points": [[float(x), float(y)]],
                     "group_id": group_id,
                     "shape_type": "point",
-                    "flags": {}
+                    "flags": {},
+                    "description": description  # 添加描述字段
                 }
                 shapes.append(shape)
 
