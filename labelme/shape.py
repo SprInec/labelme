@@ -544,7 +544,7 @@ class Shape(object):
             if Shape.show_label_desc and self.description:
                 # 重置X坐标为标签初始位置，Y坐标向下移动
                 current_x = label_pos.x()
-                current_y = current_y + fm.height() + 20
+                current_y = current_y + fm.height() + 17
 
                 desc_text = self.description
                 desc_rect = fm.boundingRect(desc_text)
@@ -568,12 +568,12 @@ class Shape(object):
                 painter.setBrush(bubble_bg_color)
                 painter.drawRoundedRect(desc_bg_rect, 8, 8)  # 增加圆角半径使其更圆润
                 
-                # 添加小三角形指示器，使其更像气泡，与上方标签名称框保持更远距离
                 triangle_path = QtGui.QPainterPath()
-                # 调整三角形位置，使其离上方标签名称框更远一些
-                triangle_top = QtCore.QPointF(current_x + 15, current_y - 4)  # Y坐标调整，更靠近气泡，距离更远
-                triangle_left = QtCore.QPointF(current_x + 5, current_y - 2)  # Y坐标调整，更靠近气泡，距离更远
-                triangle_right = QtCore.QPointF(current_x + 25, current_y - 2)  # Y坐标调整，更靠近气泡，距离更远
+                # 调整三角形位置和大小
+                triangle_top = QtCore.QPointF(current_x + 15, current_y - 6)  # Y坐标调整，更靠近气泡，距离更远
+                triangle_left = QtCore.QPointF(current_x + 5, current_y - 1)  # 左侧点向左移动
+                triangle_right = QtCore.QPointF(current_x + 25, current_y - 1)  # 右侧点向右移动
+
                 # 使用贝塞尔曲线创建圆润的三角形
                 triangle_path.moveTo(triangle_top)
                 triangle_path.quadTo(triangle_left + QtCore.QPointF(2, -1), triangle_left)
