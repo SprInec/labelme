@@ -544,7 +544,7 @@ class Shape(object):
             if Shape.show_label_desc and self.description:
                 # 重置X坐标为标签初始位置，Y坐标向下移动
                 current_x = label_pos.x()
-                current_y = current_y + fm.height() + 8
+                current_y = current_y + fm.height() + 10
 
                 desc_text = self.description
                 desc_rect = fm.boundingRect(desc_text)

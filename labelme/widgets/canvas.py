@@ -415,6 +415,11 @@ class Canvas(QtWidgets.QWidget):
                 pos = self.current[0]
                 self.overrideCursor(CURSOR_POINT)
                 self.current.highlightVertex(0, Shape.NEAR_VERTEX)
+
+            # 获取并设置自适应颜色
+            adaptive_color = self.calculateAdaptiveColor(pos)
+            self.line.line_color = adaptive_color
+
             if self.createMode in ["polygon", "linestrip"]:
                 self.line.points = [self.current[-1], pos]
                 self.line.point_labels = [1, 1]
@@ -612,31 +617,36 @@ class Canvas(QtWidgets.QWidget):
                             self.finalise()
                 elif not self.outOfPixmap(pos):
                     # Create new shape.
-                    self.current = Shape(
-                        shape_type="points"
-                        if self.createMode in ["ai_polygon", "ai_mask"]
-                        else self.createMode
-                    )
-                    self.current.addPoint(
-                        pos, label=0 if is_shift_pressed else 1)
+                    shape_type = "points" if self.createMode in [
+                        "ai_polygon", "ai_mask"] else self.createMode
+                    self.current = Shape(shape_type=shape_type)
+                    # 使用自适应颜色
+                    adaptive_color = self.calculateAdaptiveColor(pos)
+                    self.current.line_color = adaptive_color
+                    self.line.line_color = adaptive_color
+
+                    # 添加点，对于ai相关模式需要特殊处理
+                    if self.createMode in ["ai_polygon", "ai_mask"]:
+                        self.current.addPoint(
+                            pos, label=0 if is_shift_pressed else 1)
+                    else:
+                        self.current.addPoint(pos)
+                        self.current.point_labels.append(1)
+
                     if self.createMode == "point":
                         self.finalise()
-                    elif (
-                        self.createMode in ["ai_polygon", "ai_mask"]
-                        and ev.modifiers() & QtCore.Qt.ControlModifier
-                    ):
+                    elif self.createMode in ["ai_polygon", "ai_mask"] and ev.modifiers() & QtCore.Qt.ControlModifier:
                         self.finalise()
                     else:
                         if self.createMode == "circle":
                             self.current.shape_type = "circle"
                         self.line.points = [pos, pos]
-                        if (
-                            self.createMode in ["ai_polygon", "ai_mask"]
-                            and is_shift_pressed
-                        ):
+
+                        if self.createMode in ["ai_polygon", "ai_mask"] and is_shift_pressed:
                             self.line.point_labels = [0, 0]
                         else:
                             self.line.point_labels = [1, 1]
+
                         self.setHiding()
                         self.drawingPolygon.emit(True)
                         self.update()
@@ -905,8 +915,16 @@ class Canvas(QtWidgets.QWidget):
         # 绘制选择框
         if self.isSelecting and self.selectionBox:
             p.save()
-            p.setPen(QtGui.QPen(QtGui.QColor(0, 255, 0), 1, QtCore.Qt.DashLine))
-            p.setBrush(QtGui.QColor(0, 255, 0, 32))
+            selection_color = self.calculateAdaptiveColor(QtCore.QPointF(
+                (self.selectionBox.left() + self.selectionBox.right()) / 2,
+                (self.selectionBox.top() + self.selectionBox.bottom()) / 2
+            ))
+            selection_color.setAlpha(128)  # 半透明
+
+            p.setPen(QtGui.QPen(selection_color, 1, QtCore.Qt.DashLine))
+            selection_fill = QtGui.QColor(selection_color)
+            selection_fill.setAlpha(32)  # 更透明的填充
+            p.setBrush(selection_fill)
             p.drawRect(self.selectionBox)
             p.restore()
 
@@ -919,7 +937,7 @@ class Canvas(QtWidgets.QWidget):
             and self.prevMovePoint
             and not self.outOfPixmap(self.prevMovePoint)
         ):
-            p.setPen(QtGui.QColor(0, 255, 0))
+            p.setPen(self.calculateAdaptiveColor(self.prevMovePoint))
             p.drawLine(
                 0,
                 int(self.prevMovePoint.y() * self.scale),
@@ -996,6 +1014,75 @@ class Canvas(QtWidgets.QWidget):
         """Convert from widget-logical coordinates to painter-logical ones."""
         return point / self.scale - self.offsetToCenter()
 
+    def calculateAdaptiveColor(self, position):
+        """根据光标位置计算最佳的提示线颜色
+
+        分析图像在十字线位置附近的颜色，选择对比度高的颜色作为提示线颜色
+        Args:
+            position: 鼠标位置
+
+        Returns:
+            QtGui.QColor: 适应性颜色
+        """
+        if not self.pixmap or self.outOfPixmap(position):
+            return QtGui.QColor(0, 255, 0)  # 默认绿色
+
+        try:
+            # 获取光标位置的图像
+            image = self.pixmap.toImage()
+            x, y = int(position.x()), int(position.y())
+
+            # 采样区域大小 (20x20像素)
+            sample_size = 20
+            sample_area = []
+
+            # 采集光标周围区域的颜色
+            for i in range(max(0, x - sample_size//2), min(image.width(), x + sample_size//2)):
+                for j in range(max(0, y - sample_size//2), min(image.height(), y + sample_size//2)):
+                    pixel = image.pixel(i, j)
+                    color = QtGui.QColor(pixel)
+                    sample_area.append(
+                        (color.red(), color.green(), color.blue()))
+
+            if not sample_area:
+                return QtGui.QColor(0, 255, 0)  # 默认绿色
+
+            # 计算采样区域的平均颜色
+            avg_r = sum(color[0] for color in sample_area) / len(sample_area)
+            avg_g = sum(color[1] for color in sample_area) / len(sample_area)
+            avg_b = sum(color[2] for color in sample_area) / len(sample_area)
+
+            # 计算平均亮度
+            brightness = (avg_r * 299 + avg_g * 587 + avg_b * 114) / 1000
+
+            # 计算主色调
+            r_dominant = avg_r > avg_g and avg_r > avg_b
+            g_dominant = avg_g > avg_r and avg_g > avg_b
+            b_dominant = avg_b > avg_r and avg_b > avg_g
+
+            # 根据背景主色调和亮度选择前景色
+            if brightness < 80:  # 非常暗的背景
+                return QtGui.QColor(255, 255, 0)  # 明亮的黄色
+            elif brightness > 200:  # 非常亮的背景
+                return QtGui.QColor(255, 0, 0)  # 红色
+            else:
+                # 根据主色调选择补色
+                if r_dominant:
+                    return QtGui.QColor(0, 255, 255)  # 青色 (红色的补色)
+                elif g_dominant:
+                    return QtGui.QColor(255, 0, 255)  # 洋红 (绿色的补色)
+                elif b_dominant:
+                    return QtGui.QColor(255, 255, 0)  # 黄色 (蓝色的补色)
+                else:
+                    # 如果没有明显的主色调，根据亮度选择
+                    if brightness > 128:
+                        return QtGui.QColor(0, 0, 255)  # 蓝色 (暗色)
+                    else:
+                        return QtGui.QColor(0, 255, 0)  # 绿色 (亮色)
+        except Exception as e:
+            print(f"计算自适应颜色时出错: {e}")
+            return QtGui.QColor(0, 255, 0)  # 默认绿色
+
     def offsetToCenter(self):
         s = self.scale
         area = super(Canvas, self).size()
@@ -1012,8 +1099,8 @@ class Canvas(QtWidgets.QWidget):
     def finalise(self):
         assert self.current
         # 只有在self._sam不为None且当前是AI模式时才调用_update_shape_with_sam
-        if (hasattr(self, '_sam') and self._sam is not None and 
-            hasattr(self, '_sam_embedding') and self.createMode in ["ai_polygon", "ai_mask"]):
+        if (hasattr(self, '_sam') and self._sam is not None and
+                hasattr(self, '_sam_embedding') and self.createMode in ["ai_polygon", "ai_mask"]):
             _update_shape_with_sam(
                 shape=self.current,
                 createMode=self.createMode,
