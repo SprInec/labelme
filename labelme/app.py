@@ -1829,10 +1829,7 @@ class MainWindow(QtWidgets.QMainWindow):
         visible = item.checkState() == Qt.Checked
         self.canvas.setShapeVisible(shape, visible)
 
-        # 仅仅在形状存在且当前未被选中时，自动选择该形状
-        if visible and shape not in self.canvas.selectedShapes and not self._noSelectionSlot:
-            self.canvas.selectShapes([shape])
-
+        # 不再自动选择形状，只更新可见性
         # 更新未使用标签的高亮状态
         self.uniqLabelList.highlightUnusedLabels(self.labelList)
 
@@ -1948,6 +1945,8 @@ class MainWindow(QtWidgets.QMainWindow):
             self.canvas.loadShapes(existing_shapes, replace=True)
 
         self.canvas.setEnabled(True)
+        # 确保没有选中任何形状
+        self.canvas.deSelectShape()
         self._noSelectionSlot = False
         self.updateDockTitles()
 
