@@ -474,8 +474,8 @@ class Shape(object):
                 label_bg_rect = QtCore.QRectF(
                     current_x,
                     current_y,
-                    text_rect.width() + 10,
-                    text_rect.height() + 6
+                    text_rect.width() + 20,
+                    text_rect.height() + 8
                 )
 
                 # 判断是否需要特殊圆角处理
@@ -490,12 +490,12 @@ class Shape(object):
                     painter.save()
                     painter.setClipRect(label_bg_rect)
                     # 绘制一个更大的圆角矩形，然后通过裁剪区域来实现右侧直角
-                    larger_rect = label_bg_rect.adjusted(0, 0, 5, 0)
-                    painter.drawRoundedRect(larger_rect, 5, 5)
+                    larger_rect = label_bg_rect.adjusted(0, 0, 8, 0)
+                    painter.drawRoundedRect(larger_rect, 8, 8)
                     painter.restore()
                 else:
                     # 无GID时使用完整的圆角矩形
-                    painter.drawRoundedRect(label_bg_rect, 5, 5)
+                    painter.drawRoundedRect(label_bg_rect, 8, 8)
 
                 # 绘制标签文本
                 painter.setPen(text_color)
@@ -518,7 +518,7 @@ class Shape(object):
                     current_x,
                     current_y,
                     gid_rect.width() + 20,
-                    gid_rect.height() + 6
+                    gid_rect.height() + 8
                 )
 
                 # 绘制GID背景，左侧不使用圆角
@@ -528,8 +528,8 @@ class Shape(object):
                 painter.save()
                 painter.setClipRect(gid_bg_rect)
                 # 绘制一个更大的圆角矩形，然后通过裁剪区域来实现左侧直角
-                larger_rect = gid_bg_rect.adjusted(-5, 0, 0, 0)
-                painter.drawRoundedRect(larger_rect, 5, 5)
+                larger_rect = gid_bg_rect.adjusted(-8, 0, 0, 0)
+                painter.drawRoundedRect(larger_rect, 8, 8)
                 painter.restore()
 
                 # 绘制GID文本
@@ -544,26 +544,45 @@ class Shape(object):
             if Shape.show_label_desc and self.description:
                 # 重置X坐标为标签初始位置，Y坐标向下移动
                 current_x = label_pos.x()
-                current_y = current_y + fm.height() + 10
+                current_y = current_y + fm.height() + 20
 
                 desc_text = self.description
                 desc_rect = fm.boundingRect(desc_text)
 
-                # 创建描述背景矩形
+                # 创建描述背景矩形，增加内边距使其更像气泡
                 desc_bg_rect = QtCore.QRectF(
                     current_x,
                     current_y,
-                    desc_rect.width() + 10,
-                    desc_rect.height() + 6
+                    desc_rect.width() + 20,
+                    desc_rect.height() + 8
                 )
 
-                # 绘制圆角矩形背景
+                # 使用浅灰色作为气泡背景色
+                bubble_bg_color = QtGui.QColor(240, 240, 240, 100)  # 浅灰色带透明度
+                
+                # 根据背景亮度确定文字颜色
+                bubble_text_color = QtGui.QColor(60, 60, 60)  # 深灰色文字
+                
+                # 绘制气泡形状的背景
                 painter.setPen(QtCore.Qt.NoPen)
-                painter.setBrush(bg_color)
-                painter.drawRoundedRect(desc_bg_rect, 5, 5)
+                painter.setBrush(bubble_bg_color)
+                painter.drawRoundedRect(desc_bg_rect, 8, 8)  # 增加圆角半径使其更圆润
+                
+                # 添加小三角形指示器，使其更像气泡，与上方标签名称框保持更远距离
+                triangle_path = QtGui.QPainterPath()
+                # 调整三角形位置，使其离上方标签名称框更远一些
+                triangle_top = QtCore.QPointF(current_x + 15, current_y - 4)  # Y坐标调整，更靠近气泡，距离更远
+                triangle_left = QtCore.QPointF(current_x + 5, current_y - 2)  # Y坐标调整，更靠近气泡，距离更远
+                triangle_right = QtCore.QPointF(current_x + 25, current_y - 2)  # Y坐标调整，更靠近气泡，距离更远
+                # 使用贝塞尔曲线创建圆润的三角形
+                triangle_path.moveTo(triangle_top)
+                triangle_path.quadTo(triangle_left + QtCore.QPointF(2, -1), triangle_left)
+                triangle_path.lineTo(triangle_right)
+                triangle_path.quadTo(triangle_right + QtCore.QPointF(-2, -1), triangle_top)
+                painter.fillPath(triangle_path, bubble_bg_color)
 
                 # 绘制描述文本
-                painter.setPen(text_color)
+                painter.setPen(bubble_text_color)
                 painter.drawText(
                     desc_bg_rect,
                     QtCore.Qt.AlignCenter,

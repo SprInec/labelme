@@ -1186,7 +1186,7 @@ def get_shapes_from_poses(
                     visibility = 1  # 存在但不可见
 
                 # 添加描述，包含可见性信息
-                description = f"visiable:{visibility}"
+                description = f"{visibility}"
 
                 # 创建形状字典
                 shape = {
