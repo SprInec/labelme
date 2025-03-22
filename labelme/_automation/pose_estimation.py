@@ -688,80 +688,128 @@ class PoseEstimator:
     def _detect_keypointrcnn_from_boxes(self, image: np.ndarray, boxes: List[List[float]]) -> Tuple[List[List[List[float]]], List[float]]:
         """使用KeypointRCNN从给定的边界框中检测姿态"""
         try:
-            # 拷贝图像以避免修改原图
-            orig_image = image.copy()
+            # 获取图像尺寸
+            height, width = image.shape[:2]
 
-            # 转换为RGB格式
-            image_rgb = cv2.cvtColor(orig_image, cv2.COLOR_BGR2RGB)
-
-            # 转换为PyTorch张量
-            image_tensor = torch.from_numpy(image_rgb.transpose(
-                2, 0, 1)).float().div(255.0).unsqueeze(0)
-
-            # 将张量移到设备上
-            image_tensor = image_tensor.to(self.device)
-
-            # 进行预测（直接对整个图像进行预测）
-            with torch.no_grad():
-                predictions = self.model(image_tensor)
-
-            # 如果没有检测到任何目标，返回空列表
-            if len(predictions) == 0 or len(predictions[0]["boxes"]) == 0:
-                return [], []
-
-            # 获取预测结果
-            pred_boxes = predictions[0]["boxes"].cpu().numpy()
-            pred_scores = predictions[0]["scores"].cpu().numpy()
-            pred_keypoints = predictions[0]["keypoints"].cpu().numpy()
-
-            # 查找与输入框最匹配的预测框
+            # 准备结果列表
             keypoints_list = []
             scores_list = []
 
-            for input_box in boxes:
-                x1, y1, x2, y2 = [int(v) for v in input_box]
-                input_area = (x2 - x1) * (y2 - y1)
+            # 对每个边界框单独处理
+            for box in boxes:
+                x1, y1, x2, y2 = [int(coord) for coord in box]
 
-                best_iou = 0
-                best_idx = -1
+                # 确保坐标在图像范围内
+                x1 = max(0, min(x1, width - 1))
+                y1 = max(0, min(y1, height - 1))
+                x2 = max(0, min(x2, width - 1))
+                y2 = max(0, min(y2, height - 1))
 
-                # 找到与输入框IoU最高的预测框
-                for i, pred_box in enumerate(pred_boxes):
-                    px1, py1, px2, py2 = pred_box
+                # 如果框太小，跳过
+                if x2 - x1 < 10 or y2 - y1 < 10:
+                    continue
 
-                    # 计算交集
-                    ix1 = max(x1, px1)
-                    iy1 = max(y1, py1)
-                    ix2 = min(x2, px2)
-                    iy2 = min(y2, py2)
+                # 裁剪出框内的图像
+                cropped_image = image[y1:y2, x1:x2].copy()
 
-                    if ix2 > ix1 and iy2 > iy1:
-                        # 有交集
-                        intersection = (ix2 - ix1) * (iy2 - iy1)
-                        pred_area = (px2 - px1) * (py2 - py1)
-                        union = input_area + pred_area - intersection
-                        iou = intersection / union
+                # 转换为RGB格式
+                cropped_rgb = cv2.cvtColor(cropped_image, cv2.COLOR_BGR2RGB)
 
-                        if iou > best_iou:
-                            best_iou = iou
-                            best_idx = i
+                # 转换为PyTorch张量
+                cropped_tensor = torch.from_numpy(cropped_rgb.transpose(
+                    2, 0, 1)).float().div(255.0).unsqueeze(0)
 
-                # 如果找到了匹配的预测框
-                if best_idx >= 0 and best_iou > 0.5 and pred_scores[best_idx] > self.conf_threshold:
-                    kpts = pred_keypoints[best_idx]
+                # 将张量移到设备上
+                cropped_tensor = cropped_tensor.to(self.device)
 
-                    # 转换为所需格式 [K, 3] - (x, y, score)
-                    formatted_kpts = np.zeros((kpts.shape[0], 3))
-                    formatted_kpts[:, 0] = kpts[:, 0]  # x
-                    formatted_kpts[:, 1] = kpts[:, 1]  # y
-                    formatted_kpts[:, 2] = kpts[:, 2]  # score
+                # 使用模型预测
+                with torch.no_grad():
+                    predictions = self.model(cropped_tensor)
 
-                    # 过滤低置信度关键点
-                    formatted_kpts[formatted_kpts[:, 2]
-                                   < self.keypoint_threshold, 2] = 0
+                # 如果找到关键点
+                if len(predictions) > 0 and len(predictions[0]['keypoints']) > 0:
+                    # 获取第一个预测结果(在裁剪图像上应该只有一个人)
+                    # [K, 3] - 关键点坐标和分数
+                    keypoints = predictions[0]['keypoints'][0].cpu().numpy()
+                    scores = predictions[0]['scores'][0].cpu().numpy()  # 检测框分数
 
-                    keypoints_list.append(formatted_kpts.tolist())
-                    scores_list.append(float(pred_scores[best_idx]))
+                    # 调整关键点坐标到原图位置
+                    adjusted_keypoints = keypoints.copy()
+                    adjusted_keypoints[:, 0] += x1  # 调整x坐标
+                    adjusted_keypoints[:, 1] += y1  # 调整y坐标
+
+                    # 如果检测分数高于阈值
+                    if scores >= self.conf_threshold:
+                        # 过滤低置信度的关键点
+                        mask = adjusted_keypoints[:,
+                                                  2] < self.keypoint_threshold
+                        adjusted_keypoints[mask, 2] = 0
+
+                        keypoints_list.append(adjusted_keypoints.tolist())
+                        scores_list.append(float(scores))
+
+                # 如果在裁剪图像上没有检测到关键点，直接在原始人体框上创建一个伪检测
+                # 这确保至少能返回一个结果
+                elif len(keypoints_list) == 0:
+                    # 对整个图像进行一次姿态估计
+                    logger.info("裁剪图像上没有检测到关键点，尝试对整个图像进行预测")
+
+                    # 转换为RGB格式
+                    image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+
+                    # 转换为PyTorch张量
+                    image_tensor = torch.from_numpy(image_rgb.transpose(
+                        2, 0, 1)).float().div(255.0).unsqueeze(0)
+
+                    # 将张量移到设备上
+                    image_tensor = image_tensor.to(self.device)
+
+                    # 使用模型预测
+                    with torch.no_grad():
+                        full_predictions = self.model(image_tensor)
+
+                    # 如果在整个图像上找到关键点
+                    if len(full_predictions) > 0 and len(full_predictions[0]['keypoints']) > 0 and len(full_predictions[0]['boxes']) > 0:
+                        # 找到与我们的框IoU最高的预测框
+                        pred_boxes = full_predictions[0]['boxes'].cpu().numpy()
+                        best_iou = 0
+                        best_idx = -1
+
+                        for i, pred_box in enumerate(pred_boxes):
+                            # 计算IoU
+                            px1, py1, px2, py2 = pred_box
+
+                            # 计算交集
+                            ix1 = max(x1, px1)
+                            iy1 = max(y1, py1)
+                            ix2 = min(x2, px2)
+                            iy2 = min(y2, py2)
+
+                            if ix2 > ix1 and iy2 > iy1:
+                                # 有交集
+                                intersection = (ix2 - ix1) * (iy2 - iy1)
+                                box_area = (x2 - x1) * (y2 - y1)
+                                pred_area = (px2 - px1) * (py2 - py1)
+                                union = box_area + pred_area - intersection
+                                iou = intersection / union
+
+                                if iou > best_iou:
+                                    best_iou = iou
+                                    best_idx = i
+
+                        # 如果找到了匹配的预测框
+                        if best_idx >= 0 and best_iou > 0.3:
+                            keypoints = full_predictions[0]['keypoints'][best_idx].cpu(
+                            ).numpy()
+                            scores = full_predictions[0]['scores'][best_idx].cpu(
+                            ).numpy()
+
+                            # 过滤低置信度的关键点
+                            mask = keypoints[:, 2] < self.keypoint_threshold
+                            keypoints[mask, 2] = 0
+
+                            keypoints_list.append(keypoints.tolist())
+                            scores_list.append(float(scores))
 
             return keypoints_list, scores_list
 
@@ -936,42 +984,40 @@ class PoseEstimator:
 
         return vis_image
 
-    def _letterbox(self, img, new_shape=640, color=(114, 114, 114), auto=True, scaleFill=False, scaleup=True, stride=32):
+    def _letterbox(self, img, new_shape=(640, 640), stride=32):
         """
-        调整图像大小并填充以保持宽高比
+        调整图像大小并在边缘添加填充。
         """
-        shape = img.shape[:2]  # current shape [height, width]
+        # 获取原始尺寸
+        shape = img.shape[:2]  # 当前尺寸 [高, 宽]
+
         if isinstance(new_shape, int):
             new_shape = (new_shape, new_shape)
 
-        # Scale ratio (new / old)
+        # 计算缩放比例和填充
         r = min(new_shape[0] / shape[0], new_shape[1] / shape[1])
-        # only scale down, do not scale up (for better test mAP)
-        if not scaleup:
-            r = min(r, 1.0)
 
-        # Compute padding
-        ratio = r, r  # width, height ratios
+        # 计算填充
+        ratio = r, r  # 宽高缩放比例
         new_unpad = int(round(shape[1] * r)), int(round(shape[0] * r))
-        dw, dh = (new_shape[1] - new_unpad[0]
-                  ), (new_shape[0] - new_unpad[1])  # wh padding
-        if auto:  # minimum rectangle
-            dw, dh = np.mod(dw, stride), np.mod(dh, stride)  # wh padding
-        elif scaleFill:  # stretch
-            dw, dh = 0.0, 0.0
-            new_unpad = (new_shape[1], new_shape[0])
-            # width, height ratios
-            ratio = (new_shape[1] / shape[1]), (new_shape[0] / shape[0])
+        dw, dh = new_shape[1] - \
+            new_unpad[0], new_shape[0] - new_unpad[1]  # wh填充
 
-        dw /= 2  # divide padding into 2 sides
-        dh /= 2
+        # 分配填充到左/右、上/下
+        dw /= 2  # 分割填充到左和右
+        dh /= 2  # 分割填充到上和下
 
-        if shape[::-1] != new_unpad:  # resize
+        # 如果形状不同，则调整图像大小
+        if shape[::-1] != new_unpad:  # 调整大小
             img = cv2.resize(img, new_unpad, interpolation=cv2.INTER_LINEAR)
+
         top, bottom = int(round(dh - 0.1)), int(round(dh + 0.1))
         left, right = int(round(dw - 0.1)), int(round(dw + 0.1))
+
+        # 添加填充
         img = cv2.copyMakeBorder(
-            img, top, bottom, left, right, cv2.BORDER_CONSTANT, value=color)
+            img, top, bottom, left, right, cv2.BORDER_CONSTANT, value=(114, 114, 114))  # 添加边框
+
         return img, ratio, (dw, dh)
 
 
