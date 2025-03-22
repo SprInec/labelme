@@ -27,6 +27,11 @@ class LabelItemDelegate(QtWidgets.QStyledItemDelegate):
 
     def __init__(self, parent=None):
         super(LabelItemDelegate, self).__init__(parent)
+        self.is_dark = False  # 添加暗色主题标志，默认为浅色主题
+
+    def setDarkMode(self, is_dark):
+        """设置是否使用暗色主题"""
+        self.is_dark = is_dark
 
     def paint(self, painter, option, index):
         # 保存画笔状态
@@ -51,9 +56,12 @@ class LabelItemDelegate(QtWidgets.QStyledItemDelegate):
 
         # 背景色绘制
         if color_data and isinstance(color_data, QtGui.QColor):
-            # 使用标签颜色创建更淡的半透明背景 (10%透明度)
+            # 使用标签颜色创建半透明背景，根据主题调整透明度
             bg_color = QtGui.QColor(color_data)
-            bg_color.setAlpha(25)  # 10%透明度 (255*0.1≈25)
+            if self.is_dark:
+                bg_color.setAlpha(45)  # 暗色主题下提高透明度到约18%
+            else:
+                bg_color.setAlpha(25)  # 浅色主题下保持10%透明度
 
             # 使用路径来填充圆角背景
             painter.fillPath(path, bg_color)
@@ -90,13 +98,26 @@ class LabelItemDelegate(QtWidgets.QStyledItemDelegate):
         if option.state & QtWidgets.QStyle.State_Selected:
             highlight_color = QtGui.QColor(0, 120, 215, 178)  # 70%透明度
             painter.fillPath(path, highlight_color)
-            painter.setPen(QtGui.QColor(255, 255, 255))
+            painter.setPen(QtGui.QColor(255, 255, 255))  # 选中时文本为白色
         elif option.state & QtWidgets.QStyle.State_MouseOver:
-            hover_color = QtGui.QColor(0, 0, 0, 13)  # 5%透明度
+            # 根据主题设置不同的悬停高亮颜色
+            if self.is_dark:
+                hover_color = QtGui.QColor(255, 255, 255, 20)  # 暗色主题下使用白色半透明
+            else:
+                hover_color = QtGui.QColor(0, 0, 0, 13)  # 浅色主题下使用黑色半透明
             painter.fillPath(path, hover_color)
-            painter.setPen(QtGui.QColor(0, 0, 0))
+
+            # 根据主题设置文本颜色
+            if self.is_dark:
+                painter.setPen(QtGui.QColor(220, 220, 220))  # 暗色主题下使用亮色文本
+            else:
+                painter.setPen(QtGui.QColor(0, 0, 0))  # 浅色主题下使用黑色文本
         else:
-            painter.setPen(QtGui.QColor(0, 0, 0))
+            # 根据主题设置常规状态的文本颜色
+            if self.is_dark:
+                painter.setPen(QtGui.QColor(220, 220, 220))  # 暗色主题下使用亮色文本
+            else:
+                painter.setPen(QtGui.QColor(0, 0, 0))  # 浅色主题下使用黑色文本
 
         # 文本绘制区域 (增加左边距)
         text_rect = QtCore.QRect(
@@ -321,6 +342,13 @@ class LabelDialog(QtWidgets.QDialog):
             }
         """)
 
+        # 所有UI元素创建完成后，应用默认主题样式
+        is_dark_theme = False
+        if self.app and hasattr(self.app, 'currentTheme'):
+            is_dark_theme = self.app.currentTheme == "dark"
+
+        self.setThemeStyleSheet(is_dark=is_dark_theme)
+
     def createStandardListLayout(self, layout, labels, sort_labels):
         """创建标准的列表布局"""
         # label_list
@@ -424,36 +452,8 @@ class LabelDialog(QtWidgets.QDialog):
         self.scrollArea = QtWidgets.QScrollArea()
         self.scrollArea.setWidgetResizable(True)
         self.scrollArea.setFrameShape(QtWidgets.QFrame.NoFrame)
-        self.scrollArea.setStyleSheet("""
-            QScrollArea {
-                background-color: #FFFFFF;
-                border: 1px solid #ddd;
-                border-radius: 8px;
-                padding: 8px;
-            }
-            QScrollBar:vertical {
-                background-color: #f0f0f0;
-                width: 8px;
-                margin: 10px 0 10px 0;
-                border-radius: 4px;
-            }
-            QScrollBar::handle:vertical {
-                background-color: #c0c0c0;
-                min-height: 30px;
-                border-radius: 4px;
-            }
-            QScrollBar::handle:vertical:hover {
-                background-color: #a0a0a0;
-            }
-            QScrollBar::add-line:vertical, 
-            QScrollBar::sub-line:vertical {
-                height: 0px;
-            }
-            QScrollBar::add-page:vertical, 
-            QScrollBar::sub-page:vertical {
-                background: none;
-            }
-        """)
+
+        # 样式在setThemeStyleSheet方法中设置
 
         # 创建一个容器窗口
         self.cloudContainer = LabelCloudContainer(self)
@@ -474,6 +474,9 @@ class LabelDialog(QtWidgets.QDialog):
         layout.addWidget(self.scrollArea)
         # 最低高度设置
         self.scrollArea.setMinimumHeight(240)  # 增加最小高度从200到240
+
+        # 不再在此处应用样式，将在所有UI元素创建完成后应用
+        # self.setThemeStyleSheet(is_dark=False)
 
     def addLabelToCloud(self, label_text):
         """添加标签到标签云布局"""
@@ -548,6 +551,19 @@ class LabelDialog(QtWidgets.QDialog):
             self._use_cloud_layout = not self._use_cloud_layout
         else:
             self._use_cloud_layout = use_cloud
+
+        # 获取当前主题
+        is_dark_theme = False
+        if self.app and hasattr(self.app, 'currentTheme'):
+            is_dark_theme = self.app.currentTheme == "dark"
+
+        # 更新标签云容器的主题
+        if hasattr(self, 'cloudContainer') and self.cloudContainer:
+            for label_item in self.cloudContainer.label_items:
+                label_item.setDarkTheme(is_dark_theme)
+
+        # 更新滚动区域和列表的主题样式
+        self.setThemeStyleSheet(is_dark=is_dark_theme)
 
         # 根据布局模式显示/隐藏对应的控件
         if hasattr(self, 'scrollArea'):
@@ -1074,6 +1090,180 @@ class LabelDialog(QtWidgets.QDialog):
                 if rgb_color:
                     label_item.setLabelColor(QtGui.QColor(*rgb_color))
 
+    def setThemeStyleSheet(self, is_dark=False):
+        """设置主题样式，用于适配亮色/暗色主题"""
+        # 检查必要的UI元素是否已创建
+        if not hasattr(self, 'scrollArea'):
+            return
+
+        # 更新标签项代理的主题设置
+        if hasattr(self, 'labelList') and hasattr(self.labelList, 'itemDelegate'):
+            self.labelList.itemDelegate().setDarkMode(is_dark)
+
+        if is_dark:
+            # 暗色主题样式
+            if hasattr(self, 'scrollArea'):
+                self.scrollArea.setStyleSheet("""
+                    QScrollArea {
+                        background-color: #2d2d30;
+                        border: 1px solid #3f3f46;
+                        border-radius: 8px;
+                        padding: 8px;
+                    }
+                    QScrollBar:vertical {
+                        background-color: #252526;
+                        width: 8px;
+                        margin: 10px 0 10px 0;
+                        border-radius: 4px;
+                    }
+                    QScrollBar::handle:vertical {
+                        background-color: #686868;
+                        min-height: 30px;
+                        border-radius: 4px;
+                    }
+                    QScrollBar::handle:vertical:hover {
+                        background-color: #9e9e9e;
+                    }
+                    QScrollBar::add-line:vertical, 
+                    QScrollBar::sub-line:vertical {
+                        height: 0px;
+                    }
+                    QScrollBar::add-page:vertical, 
+                    QScrollBar::sub-page:vertical {
+                        background: none;
+                    }
+                """)
+
+            # 同时更新标签列表样式
+            if hasattr(self, 'labelList'):
+                self.labelList.setStyleSheet("""
+                    QListWidget {
+                        background-color: #2d2d30;
+                        border: 1px solid #3f3f46;
+                        border-radius: 8px;
+                        color: #e0e0e0;
+                    }
+                    QListWidget::item {
+                        padding: 4px;
+                    }
+                    QListWidget::item:selected {
+                        background-color: #0078d7;
+                        color: #ffffff;
+                    }
+                    QListWidget::item:hover {
+                        background-color: #3e3e42;
+                    }
+                """)
+
+            # 设置输入框样式，增强边框可见度
+            if hasattr(self, 'edit'):
+                self.edit.setStyleSheet("""
+                    QLineEdit {
+                        background-color: #1e1e1e;
+                        color: #ffffff;
+                        border: 1.5px solid #3f3f46;
+                        border-radius: 6px;
+                        padding: 6px;
+                        selection-background-color: #0078d7;
+                    }
+                    QLineEdit:focus {
+                        border: 1.5px solid #0078d7;
+                    }
+                """)
+
+            # 同样设置组ID输入框样式
+            if hasattr(self, 'edit_group_id'):
+                self.edit_group_id.setStyleSheet("""
+                    QLineEdit {
+                        background-color: #1e1e1e;
+                        color: #ffffff;
+                        border: 1.5px solid #3f3f46;
+                        border-radius: 6px;
+                        padding: 6px;
+                        selection-background-color: #0078d7;
+                    }
+                    QLineEdit:focus {
+                        border: 1.5px solid #0078d7;
+                    }
+                """)
+
+            # 设置描述输入框样式
+            if hasattr(self, 'editDescription'):
+                self.editDescription.setStyleSheet("""
+                    QLineEdit {
+                        background-color: #1e1e1e;
+                        color: #ffffff;
+                        border: 1.5px solid #3f3f46;
+                        border-radius: 6px;
+                        padding: 6px;
+                        selection-background-color: #0078d7;
+                    }
+                    QLineEdit:focus {
+                        border: 1.5px solid #0078d7;
+                    }
+                """)
+        else:
+            # 亮色主题样式
+            if hasattr(self, 'scrollArea'):
+                self.scrollArea.setStyleSheet("""
+                    QScrollArea {
+                        background-color: #fafafa;
+                        border: 1px solid #d0d0d0;
+                        border-radius: 8px;
+                        padding: 8px;
+                    }
+                    QScrollBar:vertical {
+                        background-color: #f0f0f0;
+                        width: 8px;
+                        margin: 10px 0 10px 0;
+                        border-radius: 4px;
+                    }
+                    QScrollBar::handle:vertical {
+                        background-color: #c0c0c0;
+                        min-height: 30px;
+                        border-radius: 4px;
+                    }
+                    QScrollBar::handle:vertical:hover {
+                        background-color: #a0a0a0;
+                    }
+                    QScrollBar::add-line:vertical, 
+                    QScrollBar::sub-line:vertical {
+                        height: 0px;
+                    }
+                    QScrollBar::add-page:vertical, 
+                    QScrollBar::sub-page:vertical {
+                        background: none;
+                    }
+                """)
+
+            # 同时更新标签列表样式
+            if hasattr(self, 'labelList'):
+                self.labelList.setStyleSheet("""
+                    QListWidget {
+                        background-color: #ffffff;
+                        border: 1px solid #d0d0d0;
+                        border-radius: 8px;
+                    }
+                    QListWidget::item {
+                        padding: 4px;
+                    }
+                    QListWidget::item:selected {
+                        background-color: #006dd7;
+                        color: #ffffff;
+                    }
+                    QListWidget::item:hover {
+                        background-color: #f0f0f0;
+                    }
+                """)
+
+            # 重置输入框样式为默认
+            if hasattr(self, 'edit'):
+                self.edit.setStyleSheet("")
+            if hasattr(self, 'edit_group_id'):
+                self.edit_group_id.setStyleSheet("")
+            if hasattr(self, 'editDescription'):
+                self.editDescription.setStyleSheet("")
+
 
 class FlowLayout(QtWidgets.QLayout):
     """流式布局实现，自动将部件排列在一行，超出则换行"""
@@ -1234,6 +1424,7 @@ class LabelCloudItem(QtWidgets.QWidget):
         self.hover = False
         self.drop_hover = False  # 拖拽悬停状态
         self._drag_start_position = None  # 拖拽起始位置
+        self.is_dark = False  # 添加暗色主题标志，默认为浅色主题
 
         # 清理文本，移除HTML标记
         if '<font' in text:
@@ -1263,6 +1454,11 @@ class LabelCloudItem(QtWidgets.QWidget):
         self.color = color
         self.update()
 
+    def setDarkTheme(self, is_dark):
+        """设置是否使用暗色主题"""
+        self.is_dark = is_dark
+        self.update()
+
     def paintEvent(self, event):
         """绘制标签项"""
         painter = QtGui.QPainter(self)
@@ -1280,7 +1476,11 @@ class LabelCloudItem(QtWidgets.QWidget):
 
         # 绘制背景
         bg_color = QtGui.QColor(self.color)
-        bg_color.setAlpha(25)  # 10%透明度
+        # 根据主题调整透明度
+        if self.is_dark:
+            bg_color.setAlpha(45)  # 暗色主题下增加透明度到约18%
+        else:
+            bg_color.setAlpha(25)  # 浅色主题下保持10%透明度
         painter.fillPath(path, bg_color)
 
         # 左边框宽度
@@ -1321,17 +1521,29 @@ class LabelCloudItem(QtWidgets.QWidget):
                 radius, radius
             )
 
-        # 选中状态或悬停状态高亮
+        # 根据主题设置选中状态或悬停状态高亮颜色
         if self.selected:
             highlight_color = QtGui.QColor(0, 120, 215, 178)  # 70%透明度
             painter.fillPath(path, highlight_color)
+            # 选中文本为白色，不管暗色还是亮色主题
             painter.setPen(QtGui.QColor(255, 255, 255))
         elif self.hover or self.dragging:
-            hover_color = QtGui.QColor(0, 0, 0, 13)  # 5%透明度
-            painter.fillPath(path, hover_color)
-            painter.setPen(QtGui.QColor(0, 0, 0))
+            if self.is_dark:
+                # 暗色主题悬停颜色
+                hover_color = QtGui.QColor(255, 255, 255, 20)
+                painter.fillPath(path, hover_color)
+                painter.setPen(QtGui.QColor(220, 220, 220))
+            else:
+                # 亮色主题悬停颜色
+                hover_color = QtGui.QColor(0, 0, 0, 13)  # 5%透明度
+                painter.fillPath(path, hover_color)
+                painter.setPen(QtGui.QColor(0, 0, 0))
         else:
-            painter.setPen(QtGui.QColor(0, 0, 0))
+            # 根据主题选择正常状态文本颜色
+            if self.is_dark:
+                painter.setPen(QtGui.QColor(220, 220, 220))
+            else:
+                painter.setPen(QtGui.QColor(0, 0, 0))
 
         # 文本区域 - 增加左边距
         text_rect = QtCore.QRect(
@@ -1344,7 +1556,7 @@ class LabelCloudItem(QtWidgets.QWidget):
         # 绘制文本
         # 设置字体
         font = painter.font()
-        font.setPointSize(10)  # 确保字体大小合适
+        font.setPointSize(10)
         painter.setFont(font)
         painter.drawText(text_rect, QtCore.Qt.AlignVCenter, self.clean_text)
 

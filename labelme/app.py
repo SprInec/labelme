@@ -159,7 +159,7 @@ class MainWindow(QtWidgets.QMainWindow):
         )
 
         # 将LabelListWidget替换为LabelTreeWidget
-        self.labelList = LabelTreeWidget()
+        self.labelList = LabelTreeWidget(is_dark=(self.currentTheme == "dark"))
         self.lastOpenDir = None
 
         self.flag_dock = self.flag_widget = None
@@ -181,7 +181,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self.shape_dock.setWidget(self.labelList)
 
         # 使用树形结构的标签列表替代原来的列表
-        self.uniqLabelList = UniqueLabelTreeWidget()
+        self.uniqLabelList = UniqueLabelTreeWidget(
+            is_dark=(self.currentTheme == "dark"))
         self.uniqLabelList.setToolTip(
             self.tr(
                 "Select label to start annotating for it. "
@@ -3193,57 +3194,79 @@ class MainWindow(QtWidgets.QMainWindow):
         # 获取标记面板的计数
         flag_count = self.flag_widget.count() if self.flag_widget else 0
 
-        # 创建更新的计数徽章样式 - 浅灰色背景且尺寸增大
-        badge_style = """
-            QLabel { 
-                background-color: #dfeaf7; 
-                color: #2d81f7; 
-                border-radius: 8px; 
-                min-width: 26px; 
-                max-width: 60px;
-                height: 14px; 
-                font-size: 25px; 
-                font-weight: 700; 
-                margin-left: 10px;
-                padding: 0px 8px;
-                text-align: center;
-                font-family: 'Segoe UI', 'Roboto', 'Helvetica Neue', 'Arial', sans-serif;
-                border: none;
-            }
-        """
+        # 判断当前主题
+        is_dark_theme = self.currentTheme == "dark"
 
-        # 标题容器样式保持不变
-        title_container_style = """
-            QWidget {
-                background-color: #F8F9FA;
-                padding: 3px;
-            }
-        """
+        # 根据当前主题设置徽章样式和标题栏容器样式
+        if is_dark_theme:
+            # 暗色主题徽章样式 - 使用蓝色背景和白色文字
+            badge_style = """
+                QLabel { 
+                    background-color: #2d5f9e; 
+                    color: #ffffff; 
+                    border-radius: 8px; 
+                    min-width: 26px; 
+                    max-width: 60px;
+                    height: 14px; 
+                    font-size: 25px; 
+                    font-weight: 700; 
+                    margin-left: 10px;
+                    padding: 0px 8px;
+                    text-align: center;
+                    font-family: 'Segoe UI', 'Roboto', 'Helvetica Neue', 'Arial', sans-serif;
+                    border: none;
+                }
+            """
+            # 暗色主题标题容器样式 - 深色背景和亮色文字
+            title_container_style = """
+                QWidget {
+                    background-color: #2d2d30;
+                    padding: 3px;
+                    border-bottom: 1px solid #3e3e42;
+                }
+                QLabel {
+                    color: #e0e0e0;
+                    font-weight: 500;
+                }
+            """
+        else:
+            # 亮色主题徽章样式 - 使用浅蓝色背景和深蓝色文字
+            badge_style = """
+                QLabel { 
+                    background-color: #dfeaf7; 
+                    color: #2d81f7; 
+                    border-radius: 8px; 
+                    min-width: 26px; 
+                    max-width: 60px;
+                    height: 14px; 
+                    font-size: 25px; 
+                    font-weight: 700; 
+                    margin-left: 10px;
+                    padding: 0px 8px;
+                    text-align: center;
+                    font-family: 'Segoe UI', 'Roboto', 'Helvetica Neue', 'Arial', sans-serif;
+                    border: none;
+                }
+            """
+            # 亮色主题标题容器样式 - 浅色背景和深色文字
+            title_container_style = """
+                QWidget {
+                    background-color: #F8F9FA;
+                    padding: 3px;
+                    border-bottom: 1px solid #e0e0e0;
+                }
+                QLabel {
+                    color: #333333;
+                    font-weight: 500;
+                }
+            """
 
-        # 为文件列表创建计数徽章
-        file_badge = QtWidgets.QLabel(f"{file_count}")
-        file_badge.setAlignment(QtCore.Qt.AlignCenter)
-        file_badge.setStyleSheet(badge_style)
-
-        # 创建文件列表标题 - 不设置文本标签样式
-        file_title_widget = QtWidgets.QWidget()
-        file_title_widget.setStyleSheet(title_container_style)
-        file_layout = QtWidgets.QHBoxLayout(file_title_widget)
-        file_layout.setContentsMargins(5, 2, 5, 2)
-        file_layout.setSpacing(0)
-
-        file_text = QtWidgets.QLabel(self.tr("文件列表"))
-        # 移除自定义标题样式
-        file_layout.addWidget(file_text)
-        file_layout.addWidget(file_badge)
-        file_layout.addStretch()
-
-        # 为标签列表创建计数徽章
+        # 创建标签面板计数徽章
         label_badge = QtWidgets.QLabel(f"{label_count}")
         label_badge.setAlignment(QtCore.Qt.AlignCenter)
         label_badge.setStyleSheet(badge_style)
 
-        # 创建标签列表标题
+        # 创建标签面板标题
         label_title_widget = QtWidgets.QWidget()
         label_title_widget.setStyleSheet(title_container_style)
         label_layout = QtWidgets.QHBoxLayout(label_title_widget)
@@ -3251,17 +3274,33 @@ class MainWindow(QtWidgets.QMainWindow):
         label_layout.setSpacing(0)
 
         label_text = QtWidgets.QLabel(self.tr("标签列表"))
-        # 移除自定义标题样式
         label_layout.addWidget(label_text)
         label_layout.addWidget(label_badge)
         label_layout.addStretch()
 
-        # 为形状属性创建计数徽章
+        # 为文件列表创建计数徽章
+        file_badge = QtWidgets.QLabel(f"{file_count}")
+        file_badge.setAlignment(QtCore.Qt.AlignCenter)
+        file_badge.setStyleSheet(badge_style)
+
+        # 创建文件列表标题
+        file_title_widget = QtWidgets.QWidget()
+        file_title_widget.setStyleSheet(title_container_style)
+        file_layout = QtWidgets.QHBoxLayout(file_title_widget)
+        file_layout.setContentsMargins(5, 2, 5, 2)
+        file_layout.setSpacing(0)
+
+        file_text = QtWidgets.QLabel(self.tr("文件列表"))
+        file_layout.addWidget(file_text)
+        file_layout.addWidget(file_badge)
+        file_layout.addStretch()
+
+        # 为多边形标签面板创建计数徽章
         shape_badge = QtWidgets.QLabel(f"{shape_count}")
         shape_badge.setAlignment(QtCore.Qt.AlignCenter)
         shape_badge.setStyleSheet(badge_style)
 
-        # 创建形状属性标题
+        # 创建多边形标签面板标题
         shape_title_widget = QtWidgets.QWidget()
         shape_title_widget.setStyleSheet(title_container_style)
         shape_layout = QtWidgets.QHBoxLayout(shape_title_widget)
@@ -3385,8 +3424,99 @@ class MainWindow(QtWidgets.QMainWindow):
             self.actions.darkTheme.setChecked(False)
             self.actions.defaultTheme.setChecked(False)
 
+        # 更新标签组件和形状组件的主题
+        if hasattr(self, 'labelList'):
+            self.labelList.setDarkMode(False)
+        if hasattr(self, 'uniqLabelList'):
+            self.uniqLabelList.setDarkMode(False)
+
+        # 更新标签对话框主题
+        if hasattr(self, 'labelDialog'):
+            self.labelDialog.setThemeStyleSheet(is_dark=False)
+            # 更新标签云布局中的所有标签项
+            if hasattr(self.labelDialog, 'cloudContainer') and self.labelDialog.cloudContainer:
+                for label_item in self.labelDialog.cloudContainer.label_items:
+                    label_item.setDarkTheme(False)
+
+        # 更新dock窗口标题栏
+        self.updateDockTitles()
+
+        # 更新文件列表和标记组件的主题
+        if hasattr(self, 'fileListWidget'):
+            # 为文件列表设置亮色主题样式
+            self.fileListWidget.setStyleSheet("""
+                QListWidget {
+                    background-color: white;
+                    alternate-background-color: #f5f5f5;
+                    border: 1px solid #d0d0d0;
+                    border-radius: 6px;
+                    padding: 5px;
+                    color: #303030;
+                }
+                QListWidget::item {
+                    padding: 8px;
+                    border-radius: 4px;
+                    margin: 2px 1px;
+                }
+                QListWidget::item:hover {
+                    background-color: #e6f3ff;
+                }
+                QListWidget::item:selected {
+                    background-color: #0078d7;
+                    color: white;
+                }
+            """)
+
+        if hasattr(self, 'fileSearch'):
+            # 为搜索框设置亮色主题样式
+            self.fileSearch.setStyleSheet("""
+                QLineEdit {
+                    background-color: white;
+                    border: 1px solid #d0d0d0;
+                    border-radius: 4px;
+                    padding: 6px;
+                    color: #303030;
+                }
+                QLineEdit:focus {
+                    border: 1px solid #0078d7;
+                }
+            """)
+
+        if hasattr(self, 'flag_widget'):
+            # 为标记列表设置亮色主题样式
+            self.flag_widget.setStyleSheet("""
+                QListWidget {
+                    background-color: white;
+                    alternate-background-color: #f5f5f5;
+                    border: 1px solid #d0d0d0;
+                    border-radius: 6px;
+                    padding: 5px;
+                    color: #303030;
+                }
+                QListWidget::item {
+                    padding: 8px;
+                    border-radius: 4px;
+                    margin: 2px 1px;
+                }
+                QListWidget::item:hover {
+                    background-color: #e6f3ff;
+                }
+                QListWidget::item:selected {
+                    background-color: #0078d7;
+                    color: white;
+                }
+            """)
+
         # 保存当前主题设置
         self.currentTheme = "light"
+
+        # 更新配置
+        self._config["theme"] = "light"
+        try:
+            from labelme.config import save_config
+            save_config(self._config)
+        except Exception as e:
+            logger.exception("保存主题配置失败: %s", e)
 
     def setDarkTheme(self, update_actions=True):
         """设置为暗黑主题"""
@@ -3401,8 +3531,99 @@ class MainWindow(QtWidgets.QMainWindow):
             self.actions.darkTheme.setChecked(True)
             self.actions.defaultTheme.setChecked(False)
 
+        # 更新标签组件和形状组件的主题
+        if hasattr(self, 'labelList'):
+            self.labelList.setDarkMode(True)
+        if hasattr(self, 'uniqLabelList'):
+            self.uniqLabelList.setDarkMode(True)
+
+        # 更新标签对话框主题
+        if hasattr(self, 'labelDialog'):
+            self.labelDialog.setThemeStyleSheet(is_dark=True)
+            # 更新标签云布局中的所有标签项
+            if hasattr(self.labelDialog, 'cloudContainer') and self.labelDialog.cloudContainer:
+                for label_item in self.labelDialog.cloudContainer.label_items:
+                    label_item.setDarkTheme(True)
+
+        # 更新dock窗口标题栏
+        self.updateDockTitles()
+
+        # 更新文件列表和标记组件的主题
+        if hasattr(self, 'fileListWidget'):
+            # 为文件列表设置暗色主题样式
+            self.fileListWidget.setStyleSheet("""
+                QListWidget {
+                    background-color: #252526;
+                    alternate-background-color: #2d2d30;
+                    border: 1px solid #3e3e42;
+                    border-radius: 8px;
+                    padding: 5px;
+                    color: #cccccc;
+                }
+                QListWidget::item {
+                    padding: 8px;
+                    border-radius: 4px;
+                    margin: 2px 1px;
+                }
+                QListWidget::item:hover {
+                    background-color: #3e3e42;
+                }
+                QListWidget::item:selected {
+                    background-color: #007acc;
+                    color: #ffffff;
+                }
+            """)
+
+        if hasattr(self, 'fileSearch'):
+            # 为搜索框设置暗色主题样式
+            self.fileSearch.setStyleSheet("""
+                QLineEdit {
+                    background-color: #252526;
+                    border: 1px solid #3e3e42;
+                    border-radius: 4px;
+                    padding: 6px;
+                    color: #cccccc
+                }
+                QLineEdit:focus {
+                    border: 1px solid #007acc;
+                }
+            """)
+
+        if hasattr(self, 'flag_widget'):
+            # 为标记列表设置暗色主题样式
+            self.flag_widget.setStyleSheet("""
+                QListWidget {
+                    background-color: #252526;
+                    alternate-background-color: #2d2d30;
+                    border: 1px solid #3e3e42;
+                    border-radius: 8px;
+                    padding: 5px;
+                    color: #cccccc;
+                }
+                QListWidget::item {
+                    padding: 8px;
+                    border-radius: 4px;
+                    margin: 2px 1px;
+                }
+                QListWidget::item:hover {
+                    background-color: #3e3e42;
+                }
+                QListWidget::item:selected {
+                    background-color: #007acc;
+                    color: #ffffff;
+                }
+            """)
+
         # 保存当前主题设置
         self.currentTheme = "dark"
+
+        # 更新配置
+        self._config["theme"] = "dark"
+        try:
+            from labelme.config import save_config
+            save_config(self._config)
+        except Exception as e:
+            logger.exception("保存主题配置失败: %s", e)
 
     def setDefaultTheme(self, update_actions=True):
         """恢复原始主题"""
@@ -3417,8 +3638,33 @@ class MainWindow(QtWidgets.QMainWindow):
             self.actions.darkTheme.setChecked(False)
             self.actions.defaultTheme.setChecked(True)
 
+        # 重置标签组件和形状组件的主题
+        if hasattr(self, 'labelList'):
+            self.labelList.setDarkMode(False)
+        if hasattr(self, 'uniqLabelList'):
+            self.uniqLabelList.setDarkMode(False)
+
+        # 重置标签对话框主题
+        if hasattr(self, 'labelDialog'):
+            self.labelDialog.setThemeStyleSheet(is_dark=False)
+            # 更新标签云布局中的所有标签项
+            if hasattr(self.labelDialog, 'cloudContainer') and self.labelDialog.cloudContainer:
+                for label_item in self.labelDialog.cloudContainer.label_items:
+                    label_item.setDarkTheme(False)
+
+        # 更新dock窗口标题栏
+        self.updateDockTitles()
+
         # 保存当前主题设置
         self.currentTheme = "default"
+
+        # 更新配置
+        self._config["theme"] = "default"
+        try:
+            from labelme.config import save_config
+            save_config(self._config)
+        except Exception as e:
+            logger.exception("保存主题配置失败: %s", e)
 
     def toggleShowLabelNames(self, checked):
         """切换是否在标注上显示标签名称

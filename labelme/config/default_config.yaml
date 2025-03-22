@@ -11,6 +11,7 @@ logger_level: info
 last_dir: null
 output_dir: null
 last_output_dir: null
+theme: light
 
 flags: null
 label_flags: null
