@@ -3412,7 +3412,10 @@ class MainWindow(QtWidgets.QMainWindow):
         return (r, g, b)
 
     def setLightTheme(self, update_actions=True):
-        """设置为明亮主题"""
+        """设置为亮色主题"""
+        # 保存当前主题设置
+        self.currentTheme = "light"
+
         app = QtWidgets.QApplication.instance()
         app.setStyle("Fusion")
         app.setPalette(labelme.styles.get_light_palette())
@@ -3424,13 +3427,13 @@ class MainWindow(QtWidgets.QMainWindow):
             self.actions.darkTheme.setChecked(False)
             self.actions.defaultTheme.setChecked(False)
 
-        # 更新标签组件和形状组件的主题
+        # 重置标签组件和形状组件的主题
         if hasattr(self, 'labelList'):
             self.labelList.setDarkMode(False)
         if hasattr(self, 'uniqLabelList'):
             self.uniqLabelList.setDarkMode(False)
 
-        # 更新标签对话框主题
+        # 重置标签对话框主题
         if hasattr(self, 'labelDialog'):
             self.labelDialog.setThemeStyleSheet(is_dark=False)
             # 更新标签云布局中的所有标签项
@@ -3441,75 +3444,6 @@ class MainWindow(QtWidgets.QMainWindow):
         # 更新dock窗口标题栏
         self.updateDockTitles()
 
-        # 更新文件列表和标记组件的主题
-        if hasattr(self, 'fileListWidget'):
-            # 为文件列表设置亮色主题样式
-            self.fileListWidget.setStyleSheet("""
-                QListWidget {
-                    background-color: white;
-                    alternate-background-color: #f5f5f5;
-                    border: 1px solid #d0d0d0;
-                    border-radius: 6px;
-                    padding: 5px;
-                    color: #303030;
-                }
-                QListWidget::item {
-                    padding: 8px;
-                    border-radius: 4px;
-                    margin: 2px 1px;
-                }
-                QListWidget::item:hover {
-                    background-color: #e6f3ff;
-                }
-                QListWidget::item:selected {
-                    background-color: #0078d7;
-                    color: white;
-                }
-            """)
-
-        if hasattr(self, 'fileSearch'):
-            # 为搜索框设置亮色主题样式
-            self.fileSearch.setStyleSheet("""
-                QLineEdit {
-                    background-color: white;
-                    border: 1px solid #d0d0d0;
-                    border-radius: 4px;
-                    padding: 6px;
-                    color: #303030;
-                }
-                QLineEdit:focus {
-                    border: 1px solid #0078d7;
-                }
-            """)
-
-        if hasattr(self, 'flag_widget'):
-            # 为标记列表设置亮色主题样式
-            self.flag_widget.setStyleSheet("""
-                QListWidget {
-                    background-color: white;
-                    alternate-background-color: #f5f5f5;
-                    border: 1px solid #d0d0d0;
-                    border-radius: 6px;
-                    padding: 5px;
-                    color: #303030;
-                }
-                QListWidget::item {
-                    padding: 8px;
-                    border-radius: 4px;
-                    margin: 2px 1px;
-                }
-                QListWidget::item:hover {
-                    background-color: #e6f3ff;
-                }
-                QListWidget::item:selected {
-                    background-color: #0078d7;
-                    color: white;
-                }
-            """)
-
-        # 保存当前主题设置
-        self.currentTheme = "light"
-
         # 更新配置
         self._config["theme"] = "light"
         try:
@@ -3518,8 +3452,36 @@ class MainWindow(QtWidgets.QMainWindow):
         except Exception as e:
             logger.exception("保存主题配置失败: %s", e)
 
+        # 更新文件列表的主题
+        if hasattr(self, 'fileListWidget'):
+            # 为文件列表设置亮色主题样式
+            self.fileListWidget.setStyleSheet("""
+                QListWidget {
+                    background-color: #fafafa;
+                    alternate-background-color: #f5f5f5;
+                    border: 1px solid #e0e0e0;
+                    border-radius: 8px;
+                    padding: 5px;
+                }
+                QListWidget::item {
+                    padding: 8px;
+                    border-radius: 4px;
+                    margin: 2px 1px;
+                }
+                QListWidget::item:hover {
+                    background-color: #e6f3ff;
+                }
+                QListWidget::item:selected {
+                    background-color: #0078d7;
+                    color: white;
+                }
+            """)
+
     def setDarkTheme(self, update_actions=True):
         """设置为暗黑主题"""
+        # 保存当前主题设置
+        self.currentTheme = "dark"
+
         app = QtWidgets.QApplication.instance()
         app.setStyle("Fusion")
         app.setPalette(labelme.styles.get_dark_palette())
@@ -3548,6 +3510,14 @@ class MainWindow(QtWidgets.QMainWindow):
         # 更新dock窗口标题栏
         self.updateDockTitles()
 
+        # 更新配置
+        self._config["theme"] = "dark"
+        try:
+            from labelme.config import save_config
+            save_config(self._config)
+        except Exception as e:
+            logger.exception("保存主题配置失败: %s", e)
+
         # 更新文件列表和标记组件的主题
         if hasattr(self, 'fileListWidget'):
             # 为文件列表设置暗色主题样式
@@ -3574,63 +3544,15 @@ class MainWindow(QtWidgets.QMainWindow):
                 }
             """)
 
-        if hasattr(self, 'fileSearch'):
-            # 为搜索框设置暗色主题样式
-            self.fileSearch.setStyleSheet("""
-                QLineEdit {
-                    background-color: #252526;
-                    border: 1px solid #3e3e42;
-                    border-radius: 4px;
-                    padding: 6px;
-                    color: #cccccc
-                }
-                QLineEdit:focus {
-                    border: 1px solid #007acc;
-                }
-            """)
-
-        if hasattr(self, 'flag_widget'):
-            # 为标记列表设置暗色主题样式
-            self.flag_widget.setStyleSheet("""
-                QListWidget {
-                    background-color: #252526;
-                    alternate-background-color: #2d2d30;
-                    border: 1px solid #3e3e42;
-                    border-radius: 8px;
-                    padding: 5px;
-                    color: #cccccc;
-                }
-                QListWidget::item {
-                    padding: 8px;
-                    border-radius: 4px;
-                    margin: 2px 1px;
-                }
-                QListWidget::item:hover {
-                    background-color: #3e3e42;
-                }
-                QListWidget::item:selected {
-                    background-color: #007acc;
-                    color: #ffffff;
-                }
-            """)
-
-        # 保存当前主题设置
-        self.currentTheme = "dark"
-
-        # 更新配置
-        self._config["theme"] = "dark"
-        try:
-            from labelme.config import save_config
-            save_config(self._config)
-        except Exception as e:
-            logger.exception("保存主题配置失败: %s", e)
-
     def setDefaultTheme(self, update_actions=True):
         """恢复原始主题"""
+        # 保存当前主题设置
+        self.currentTheme = "default"
+
         app = QtWidgets.QApplication.instance()
-        app.setStyle("")  # 使用系统默认样式
-        app.setPalette(app.style().standardPalette())  # 恢复默认调色板
-        app.setStyleSheet("")  # 清空样式表
+        app.setStyle("")  # 使用默认样式
+        app.setPalette(QtWidgets.QApplication.style().standardPalette())
+        app.setStyleSheet("")  # 清除所有样式表
 
         # 更新选中状态（如果动作已初始化且需要更新）
         if update_actions and hasattr(self, 'actions') and hasattr(self.actions, 'defaultTheme'):
@@ -3654,9 +3576,6 @@ class MainWindow(QtWidgets.QMainWindow):
 
         # 更新dock窗口标题栏
         self.updateDockTitles()
-
-        # 保存当前主题设置
-        self.currentTheme = "default"
 
         # 更新配置
         self._config["theme"] = "default"
