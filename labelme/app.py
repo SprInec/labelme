@@ -1807,6 +1807,9 @@ class MainWindow(QtWidgets.QMainWindow):
         # 连接复选框状态变化信号
         self.connectItemCheckState(label_list_item)
 
+        # 更新文件列表中当前文件的复选框状态
+        self.updateFileItemCheckState()
+
         # 更新未使用标签的高亮状态
         self.uniqLabelList.highlightUnusedLabels(self.labelList)
 
@@ -1911,16 +1914,19 @@ class MainWindow(QtWidgets.QMainWindow):
                     self.labelMenu.addAction(action)
 
     def remLabels(self, shapes):
-        if shapes:
-            for shape in shapes:
-                item = self.labelList.findItemByShape(shape)
-                if item:  # 确保item不是None
-                    self.labelList.removeItem(item)
-            self.labelList.updateAllCategoryCounts()  # 更新所有分类的数量
-            self.updateDockTitles()
+        for shape in shapes:
+            item = self.labelList.findItemByShape(shape)
+            if item:
+                self.labelList.removeItem(item)
 
-            # 更新未使用标签的高亮状态
-            self.uniqLabelList.highlightUnusedLabels(self.labelList)
+        # 更新文件列表中当前文件的复选框状态
+        self.updateFileItemCheckState()
+
+        # 更新dock标题
+        self.updateDockTitles()
+
+        # 更新未使用标签的高亮状态
+        self.uniqLabelList.highlightUnusedLabels(self.labelList)
 
     def loadShapes(self, shapes, replace=True):
         self._noSelectionSlot = True
@@ -2027,26 +2033,26 @@ class MainWindow(QtWidgets.QMainWindow):
             data = s.other_data.copy()
             data.update(
                 dict(
-                    label=s.label,
+                    label=s.label.encode("utf-8") if PY2 else s.label,
                     points=[(p.x(), p.y()) for p in s.points],
                     group_id=s.group_id,
                     description=s.description,
                     shape_type=s.shape_type,
                     flags=s.flags,
-                    mask=None
-                    if s.mask is None
-                    else utils.img_arr_to_b64(s.mask.astype(np.uint8)),
+                    # 删除对不存在方法的调用
                 )
             )
             return data
 
         shapes = [format_shape(item.shape()) for item in self.labelList]
+        # 获取flags
         flags = {}
-        for i in range(self.flag_widget.count()):
-            item = self.flag_widget.item(i)
-            key = item.text()
-            flag = item.checkState() == Qt.Checked
-            flags[key] = flag
+        if hasattr(self, 'flag_widget'):
+            for i in range(self.flag_widget.count()):
+                item = self.flag_widget.item(i)
+                key = item.text()
+                flag = item.checkState() == Qt.Checked
+                flags[key] = flag
         try:
             imagePath = osp.relpath(self.imagePath, osp.dirname(filename))
             imageData = self.imageData if self._config["store_data"] else None
@@ -2064,11 +2070,16 @@ class MainWindow(QtWidgets.QMainWindow):
             )
             self.labelFile = lf
             items = self.fileListWidget.findItems(
-                self.imagePath, Qt.MatchExactly)
+                "   " + self.imagePath, Qt.MatchEndsWith
+            )
             if len(items) > 0:
                 if len(items) != 1:
                     raise RuntimeError("There are duplicate files.")
                 items[0].setCheckState(Qt.Checked)
+
+            # 确保文件项的复选框状态与标注列表同步
+            self.updateFileItemCheckState()
+
             # disable allows next and previous image to proceed
             # self.filename = filename
             return True
@@ -2318,14 +2329,18 @@ class MainWindow(QtWidgets.QMainWindow):
                 self.tr("No such file: <b>%s</b>") % filename,
             )
             return False
+
         # assumes same name, but json extension
-        self.status(str(self.tr("Loading %s...")) %
-                    osp.basename(str(filename)))
+        self.status(
+            str(self.tr("Loading %s...")) % osp.basename(str(filename))
+        )
         label_file = osp.splitext(filename)[0] + ".json"
         if self.output_dir:
             label_file_without_path = osp.basename(label_file)
             label_file = osp.join(self.output_dir, label_file_without_path)
-        if QtCore.QFile.exists(label_file) and LabelFile.is_label_file(label_file):
+        if QtCore.QFile.exists(label_file) and LabelFile.is_label_file(
+            label_file
+        ):
             try:
                 self.labelFile = LabelFile(label_file)
             except LabelFileError as e:
@@ -2344,12 +2359,20 @@ class MainWindow(QtWidgets.QMainWindow):
                 osp.dirname(label_file),
                 self.labelFile.imagePath,
             )
+            if len(self.labelFile.shapes) == 0:
+                # 如果存在标签文件但没有标注，则确保文件列表中的复选框状态为未选中
+                self.updateFileItemCheckState()
+
             self.otherData = self.labelFile.otherData
         else:
             self.imageData = LabelFile.load_image_file(filename)
             if self.imageData:
                 self.imagePath = filename
             self.labelFile = None
+
+            # 确保文件列表中的复选框状态为未选中
+            self.updateFileItemCheckState()
+
         image = QtGui.QImage.fromData(self.imageData)
 
         if image.isNull():
@@ -2889,7 +2912,9 @@ class MainWindow(QtWidgets.QMainWindow):
 
             # 创建一个QListWidgetItem，但只显示文件名，不显示路径
             basename = osp.basename(file)
-            item = QtWidgets.QListWidgetItem(basename)
+            item = QtWidgets.QListWidgetItem()
+            # 设置文本格式，在文本前添加空格以增加与复选框的距离
+            item.setText("   " + basename)
             # 存储完整路径作为项的数据，用于后续加载文件
             item.setData(Qt.UserRole, file)
 
@@ -2931,7 +2956,9 @@ class MainWindow(QtWidgets.QMainWindow):
 
             # 创建一个QListWidgetItem，但只显示文件名，不显示路径
             basename = osp.basename(filename)
-            item = QtWidgets.QListWidgetItem(basename)
+            item = QtWidgets.QListWidgetItem()
+            # 设置文本格式，在文本前添加空格以增加与复选框的距离
+            item.setText("   " + basename)
             # 存储完整路径作为项的数据，用于后续加载文件
             item.setData(Qt.UserRole, filename)
 
@@ -3927,3 +3954,24 @@ class MainWindow(QtWidgets.QMainWindow):
         # 暂时禁用事件过滤，让原生菜单行为正常工作
         # 直接返回False表示不处理事件，让Qt默认处理逻辑接管
         return False
+
+    def updateFileItemCheckState(self):
+        """根据当前标注列表更新文件列表中当前文件的复选框状态"""
+        if self.filename and self.fileListWidget:
+            # 查找当前文件在文件列表中的项
+            items = self.fileListWidget.findItems(
+                "   " + osp.basename(self.filename), Qt.MatchEndsWith)
+            if not items and self.filename in self.imageList:
+                # 如果没有找到，尝试通过存储的数据查找
+                for i in range(self.fileListWidget.count()):
+                    item = self.fileListWidget.item(i)
+                    if item.data(Qt.UserRole) == self.filename:
+                        items = [item]
+                        break
+
+            if items:
+                item = items[0]
+                # 根据当前标注列表中是否有标注来设置复选框状态
+                has_annotations = len(self.labelList) > 0
+                item.setCheckState(
+                    Qt.Checked if has_annotations else Qt.Unchecked)
