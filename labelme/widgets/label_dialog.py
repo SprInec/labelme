@@ -498,12 +498,24 @@ class LabelDialog(QtWidgets.QDialog):
         label_widget = LabelCloudItem(label_text, self.cloudContainer)
 
         # 获取标签颜色
+        clean_text = label_text.replace("●", "").strip()
+        if '<font' in clean_text:
+            clean_text = re.sub(r'<[^>]*>|</[^>]*>',
+                                '', clean_text).strip()
+
+        # 检查是否为当前编辑的标签，如果是，使用当前选择的颜色
         rgb_color = None
-        if self.app:
-            clean_text = label_text.replace("●", "").strip()
-            if '<font' in clean_text:
-                clean_text = re.sub(r'<[^>]*>|</[^>]*>',
-                                    '', clean_text).strip()
+        use_current_color = False
+
+        # 检查当前编辑的标签是否与添加的标签相同
+        if self.edit.text().strip() == label_text:
+            use_current_color = True
+            current_color = self.get_color()
+            rgb_color = (current_color.red(),
+                         current_color.green(), current_color.blue())
+
+        # 如果不使用当前选择的颜色，从应用程序获取
+        if not use_current_color and self.app:
             rgb_color = self.app._get_rgb_by_label(clean_text)
 
         if not rgb_color:
@@ -617,13 +629,45 @@ class LabelDialog(QtWidgets.QDialog):
             return
         item = QtWidgets.QListWidgetItem(label)
         self.labelList.addItem(item)
-        self._set_label_item_style(item, label)
+
+        # 获取标签颜色 - 优先使用当前选择的颜色
+        clean_text = label.replace("●", "").strip()
+        if '<font' in clean_text:
+            clean_text = re.sub(r'<[^>]*>|</[^>]*>', '', clean_text).strip()
+
+        # 使用当前选择的颜色
+        current_color = self.get_color()
+        use_current_color = False
+
+        # 检查当前编辑的标签是否与添加的标签相同
+        if self.edit.text().strip() == label:
+            use_current_color = True
+
+        # 如果app对象存在且当前未编辑标签，从app获取颜色
+        if not use_current_color and self.app:
+            rgb_color = self.app._get_rgb_by_label(clean_text)
+            if rgb_color:
+                current_color = QtGui.QColor(*rgb_color)
+
+        # 设置标签项样式，应用获取到的颜色
+        background = QtGui.QBrush(QtGui.QColor(current_color.red(
+        ), current_color.green(), current_color.blue(), 25))  # 10%透明度
+        item.setBackground(background)
+        item.setData(QtCore.Qt.UserRole+1, current_color)
+
         if self._sort_labels:
             self.labelList.sortItems()
 
         # 添加到标签云视图
         if hasattr(self, 'cloudLayout'):
             self.addLabelToCloud(label)
+
+            # 如果使用当前选择的颜色，同步到云布局中的标签项
+            if use_current_color:
+                for label_item in self.cloudContainer.label_items:
+                    if label_item.clean_text == clean_text:
+                        label_item.setLabelColor(current_color)
+                        label_item.update()
 
     def labelSelected(self, item):
         self.edit.setText(item.text())
@@ -673,6 +717,17 @@ class LabelDialog(QtWidgets.QDialog):
         else:
             text = text.trimmed()
         if text:
+            # 在接受对话框前，确保当前标签的颜色被正确同步到主应用程序
+            if self.app and hasattr(self.app, '_update_same_label_colors'):
+                clean_text = text.replace("●", "").strip()
+                if '<font' in clean_text:
+                    clean_text = re.sub(
+                        r'<[^>]*>|</[^>]*>', '', clean_text).strip()
+
+                # 获取当前选中的颜色并同步到应用程序
+                color = self.get_color()
+                self.app._update_same_label_colors(clean_text, color)
+
             self.accept()
 
     def labelDoubleClicked(self, item):
@@ -793,6 +848,9 @@ class LabelDialog(QtWidgets.QDialog):
             self.selected_color = color
             self.update_color_button()
 
+        # 刷新所有标签项的颜色
+        self.refreshLabelColors()
+
         if flags:
             self.setFlags(flags)
         else:
@@ -854,6 +912,37 @@ class LabelDialog(QtWidgets.QDialog):
         if color.isValid():
             self.selected_color = color
             self.update_color_button()
+
+            # 如果标签文本已经输入，尝试更新当前选中的标签项颜色
+            current_text = self.edit.text().strip()
+            if current_text:
+                # 更新当前标签在列表视图中的颜色
+                items = self.labelList.findItems(
+                    current_text, QtCore.Qt.MatchFixedString)
+                if items:
+                    for item in items:
+                        # 更新标签项样式
+                        item.setBackground(QtGui.QBrush(QtGui.QColor(
+                            color.red(), color.green(), color.blue(), 25)))  # 10%透明度
+                        item.setData(QtCore.Qt.UserRole+1, color)
+
+                # 更新当前标签在云布局中的颜色
+                if hasattr(self, 'cloudContainer') and self.cloudContainer:
+                    for label_item in self.cloudContainer.label_items:
+                        # 检查是否为当前编辑的标签
+                        if label_item.clean_text == current_text:
+                            label_item.setLabelColor(color)
+                            label_item.update()
+
+                # 如果主应用程序存在，同步颜色到应用程序
+                if self.app and hasattr(self.app, '_update_same_label_colors'):
+                    clean_text = current_text.replace("●", "").strip()
+                    if '<font' in clean_text:
+                        clean_text = re.sub(
+                            r'<[^>]*>|</[^>]*>', '', clean_text).strip()
+
+                    # 更新主应用程序中的标签颜色映射
+                    self.app._update_same_label_colors(clean_text, color)
 
     def update_color_button(self):
         """更新颜色按钮的样式"""
@@ -965,6 +1054,25 @@ class LabelDialog(QtWidgets.QDialog):
     def onLayoutToggleClicked(self):
         """处理布局切换按钮的点击事件"""
         self.toggleCloudLayout()
+
+    def refreshLabelColors(self):
+        """刷新所有标签项的颜色，确保与主应用程序中的颜色一致"""
+        if not self.app:
+            return
+
+        # 刷新标准列表中的标签颜色
+        for i in range(self.labelList.count()):
+            item = self.labelList.item(i)
+            if item:
+                self._set_label_item_style(item, item.text())
+
+        # 刷新流式布局中的标签颜色
+        if hasattr(self, 'cloudContainer') and self.cloudContainer:
+            for label_item in self.cloudContainer.label_items:
+                clean_text = label_item.clean_text
+                rgb_color = self.app._get_rgb_by_label(clean_text)
+                if rgb_color:
+                    label_item.setLabelColor(QtGui.QColor(*rgb_color))
 
 
 class FlowLayout(QtWidgets.QLayout):
