@@ -36,6 +36,7 @@ class Canvas(QtWidgets.QWidget):
     vertexSelected = QtCore.pyqtSignal(bool)
     mouseMoved = QtCore.pyqtSignal(QtCore.QPointF)
     modeChanged = QtCore.pyqtSignal(str)  # 添加模式改变的信号，用于通知状态栏
+    toggleVisibilityRequest = QtCore.pyqtSignal(list)  # 添加切换可见性请求信号
 
     CREATE, EDIT = 0, 1
 
@@ -1304,6 +1305,11 @@ class Canvas(QtWidgets.QWidget):
                     # 然后可以通过其他方式触发删除操作
                     # 这里我们直接删除，MainWindow会在下一次调用时处理UI更新
                     self.deleteSelected()
+            elif key == QtCore.Qt.Key_Space:
+                # 空格键切换选中形状的可见性
+                if self.selectedShapes:
+                    # 发出信号，由MainWindow处理可见性切换
+                    self.toggleVisibilityRequest.emit(self.selectedShapes)
             elif key == QtCore.Qt.Key_Up:
                 self.moveByKeyboard(QtCore.QPointF(0.0, -MOVE_SPEED))
             elif key == QtCore.Qt.Key_Down:

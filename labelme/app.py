@@ -246,6 +246,8 @@ class MainWindow(QtWidgets.QMainWindow):
         self.canvas.shapeMoved.connect(self.setDirty)
         self.canvas.selectionChanged.connect(self.shapeSelectionChanged)
         self.canvas.drawingPolygon.connect(self.toggleDrawingSensitive)
+        self.canvas.toggleVisibilityRequest.connect(
+            self.toggleShapesVisibility)  # 连接新的信号
 
         self.setCentralWidget(scrollArea)
 
@@ -3980,3 +3982,14 @@ class MainWindow(QtWidgets.QMainWindow):
                 has_annotations = len(self.labelList) > 0
                 item.setCheckState(
                     Qt.Checked if has_annotations else Qt.Unchecked)
+
+    def toggleShapesVisibility(self, shapes):
+        """通过空格键切换选中形状的可见性"""
+        for shape in shapes:
+            # 查找对应的标签项
+            item = self.labelList.findItemByShape(shape)
+            if item:
+                # 切换复选框状态
+                current_state = item.checkState()
+                new_state = QtCore.Qt.Unchecked if current_state == QtCore.Qt.Checked else QtCore.Qt.Checked
+                item.setCheckState(new_state)
