@@ -165,8 +165,8 @@ class PoseEstimator:
 
             # 加载模型
             self.model_name = 'yolov7_w6_pose'  # 使用固定的模型名称
-            model_path = os.path.join(os.path.dirname(
-                os.path.abspath(__file__)), 'weights', 'yolov7-w6-pose.pt')
+            model_path = os.path.join(os.path.dirname(os.path.dirname(
+                os.path.abspath(__file__))), 'weights', 'yolov7-w6-pose.pt')
 
             # 检查模型文件是否存在
             if not os.path.exists(model_path):
@@ -615,6 +615,8 @@ class PoseEstimator:
         # 判断是否使用RTMPose模型
         if self.is_rtmpose:
             return self._detect_rtmpose_from_boxes(image, boxes)
+        elif self.is_keypointrcnn:
+            return self._detect_keypointrcnn_from_boxes(image, boxes)
         else:
             # YOLOv7 Pose模型不支持从边界框中检测姿态，因此直接返回空结果
             logger.warning("YOLOv7 Pose模型不支持从边界框中检测姿态")
@@ -682,6 +684,92 @@ class PoseEstimator:
             return keypoints_list, scores_list
 
         return [], []
+
+    def _detect_keypointrcnn_from_boxes(self, image: np.ndarray, boxes: List[List[float]]) -> Tuple[List[List[List[float]]], List[float]]:
+        """使用KeypointRCNN从给定的边界框中检测姿态"""
+        try:
+            # 拷贝图像以避免修改原图
+            orig_image = image.copy()
+
+            # 转换为RGB格式
+            image_rgb = cv2.cvtColor(orig_image, cv2.COLOR_BGR2RGB)
+
+            # 转换为PyTorch张量
+            image_tensor = torch.from_numpy(image_rgb.transpose(
+                2, 0, 1)).float().div(255.0).unsqueeze(0)
+
+            # 将张量移到设备上
+            image_tensor = image_tensor.to(self.device)
+
+            # 进行预测（直接对整个图像进行预测）
+            with torch.no_grad():
+                predictions = self.model(image_tensor)
+
+            # 如果没有检测到任何目标，返回空列表
+            if len(predictions) == 0 or len(predictions[0]["boxes"]) == 0:
+                return [], []
+
+            # 获取预测结果
+            pred_boxes = predictions[0]["boxes"].cpu().numpy()
+            pred_scores = predictions[0]["scores"].cpu().numpy()
+            pred_keypoints = predictions[0]["keypoints"].cpu().numpy()
+
+            # 查找与输入框最匹配的预测框
+            keypoints_list = []
+            scores_list = []
+
+            for input_box in boxes:
+                x1, y1, x2, y2 = [int(v) for v in input_box]
+                input_area = (x2 - x1) * (y2 - y1)
+
+                best_iou = 0
+                best_idx = -1
+
+                # 找到与输入框IoU最高的预测框
+                for i, pred_box in enumerate(pred_boxes):
+                    px1, py1, px2, py2 = pred_box
+
+                    # 计算交集
+                    ix1 = max(x1, px1)
+                    iy1 = max(y1, py1)
+                    ix2 = min(x2, px2)
+                    iy2 = min(y2, py2)
+
+                    if ix2 > ix1 and iy2 > iy1:
+                        # 有交集
+                        intersection = (ix2 - ix1) * (iy2 - iy1)
+                        pred_area = (px2 - px1) * (py2 - py1)
+                        union = input_area + pred_area - intersection
+                        iou = intersection / union
+
+                        if iou > best_iou:
+                            best_iou = iou
+                            best_idx = i
+
+                # 如果找到了匹配的预测框
+                if best_idx >= 0 and best_iou > 0.5 and pred_scores[best_idx] > self.conf_threshold:
+                    kpts = pred_keypoints[best_idx]
+
+                    # 转换为所需格式 [K, 3] - (x, y, score)
+                    formatted_kpts = np.zeros((kpts.shape[0], 3))
+                    formatted_kpts[:, 0] = kpts[:, 0]  # x
+                    formatted_kpts[:, 1] = kpts[:, 1]  # y
+                    formatted_kpts[:, 2] = kpts[:, 2]  # score
+
+                    # 过滤低置信度关键点
+                    formatted_kpts[formatted_kpts[:, 2]
+                                   < self.keypoint_threshold, 2] = 0
+
+                    keypoints_list.append(formatted_kpts.tolist())
+                    scores_list.append(float(pred_scores[best_idx]))
+
+            return keypoints_list, scores_list
+
+        except Exception as e:
+            logger.error(f"KeypointRCNN从边界框检测姿态失败: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
+            return [], []
 
     def visualize_poses(self, image: np.ndarray, keypoints: List[List[List[float]]], scores: List[float] = None) -> np.ndarray:
         """
