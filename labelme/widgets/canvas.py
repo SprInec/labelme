@@ -893,6 +893,30 @@ class Canvas(QtWidgets.QWidget):
     def boundedMoveShapes(self, shapes, pos):
         if self.outOfPixmap(pos):
             return False  # No need to move
+
+        # 特殊处理点标签：对于点标签，只需要确保点本身不超出图像范围
+        if len(shapes) == 1 and shapes[0].shape_type == "point":
+            # 获取点的新位置
+            new_pos = shapes[0].points[0] + (pos - self.prevPoint)
+            # 确保新位置在图像范围内
+            if new_pos.x() < 0:
+                new_pos.setX(0)
+            elif new_pos.x() >= self.pixmap.width():
+                new_pos.setX(self.pixmap.width() - 1)
+            if new_pos.y() < 0:
+                new_pos.setY(0)
+            elif new_pos.y() >= self.pixmap.height():
+                new_pos.setY(self.pixmap.height() - 1)
+
+            # 计算实际需要移动的偏移量
+            actual_offset = new_pos - shapes[0].points[0]
+            if actual_offset != QtCore.QPointF(0, 0):
+                shapes[0].moveBy(actual_offset)
+                self.prevPoint = pos
+                return True
+            return False
+
+        # 其他形状使用原有的边界检测逻辑
         o1 = pos + self.offsets[0]
         if self.outOfPixmap(o1):
             pos -= QtCore.QPointF(min(0, o1.x()), min(0, o1.y()))
