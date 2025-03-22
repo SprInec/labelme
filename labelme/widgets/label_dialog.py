@@ -832,32 +832,29 @@ class LabelDialog(QtWidgets.QDialog):
 
         # 如果没有提供颜色或提供的是默认绿色，尝试查找标签对应的颜色
         has_found_color = False
-        if color is None or color.getRgb()[:3] == (0, 255, 0):  # 默认绿色
-            # 1. 首先从主应用程序获取颜色
-            clean_text = text.replace("●", "").strip()
-            # 移除HTML标记
-            if '<font' in clean_text:
-                clean_text = re.sub(r'<[^>]*>|</[^>]*>',
-                                    '', clean_text).strip()
+        # 清理文本，移除HTML标记和颜色标记
+        clean_text = text.replace("●", "").strip()
+        if '<font' in clean_text:
+            clean_text = re.sub(r'<[^>]*>|</[^>]*>', '', clean_text).strip()
 
-            if self.app:
-                rgb_color = self.app._get_rgb_by_label(clean_text)
-                if rgb_color:
-                    color = QtGui.QColor(*rgb_color)
-                    has_found_color = True
+        # 1. 首先从主应用程序获取颜色
+        if self.app:
+            qcolor = self.app.get_label_default_color(clean_text)
+            if qcolor and isinstance(qcolor, QtGui.QColor):
+                color = qcolor
+                has_found_color = True
 
-            # 2. 如果从app获取不到，尝试从标签文本提取
-            if not has_found_color:
-                if "●" in text and 'color="' in text:
-                    try:
-                        color_str = text.split('color="')[1].split('">')[0]
-                        r = int(color_str[1:3], 16)
-                        g = int(color_str[3:5], 16)
-                        b = int(color_str[5:7], 16)
-                        color = QtGui.QColor(r, g, b)
-                        has_found_color = True
-                    except (IndexError, ValueError):
-                        pass
+        # 2. 如果从app获取不到，尝试从标签文本提取
+        if not has_found_color and "●" in text and 'color="' in text:
+            try:
+                color_str = text.split('color="')[1].split('">')[0]
+                r = int(color_str[1:3], 16)
+                g = int(color_str[3:5], 16)
+                b = int(color_str[5:7], 16)
+                color = QtGui.QColor(r, g, b)
+                has_found_color = True
+            except (IndexError, ValueError):
+                pass
 
         # 设置颜色按钮
         if color is not None and isinstance(color, QtGui.QColor):

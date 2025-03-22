@@ -1404,3 +1404,11 @@ class Canvas(QtWidgets.QWidget):
         self.pixmap = None
         self.shapesBackups = []
         self.update()
+
+    def shapeIsInSelectionBox(self, shape, selection_box):
+        """判断形状是否在选择框内"""
+        # 获取形状的边界矩形
+        shape_rect = shape.boundingRect()
+
+        # 检查形状的边界矩形是否与选择框相交
+        return selection_box.intersects(shape_rect)
