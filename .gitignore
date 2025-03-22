@@ -12,4 +12,5 @@
 
 
 labelme/_automation/weight/models/
+labelme/weights/
 models/
