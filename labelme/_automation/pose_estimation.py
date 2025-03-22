@@ -143,57 +143,93 @@ class PoseEstimator:
     def _load_yolov7_pose_model(self):
         """加载YOLOv7姿态估计模型"""
         try:
-            # 导入PyTorch
-            import torch
-            import torchvision
+            import sys
+            import os
 
-            # 导入yolov7专用模型代码
+            # 添加YOLOv7路径到系统路径
+            yolov7_dir = os.path.join(os.path.dirname(
+                os.path.abspath(__file__)), "yolov7")
+            if yolov7_dir not in sys.path:
+                sys.path.append(yolov7_dir)
+
+            print("YOLOv7目录:", yolov7_dir)
+            print("系统路径:", sys.path)
+
+            # 导入YOLOv7依赖
             try:
-                from labelme._automation.yolov7.models.experimental import attempt_load
-                from labelme._automation.yolov7.utils.general import check_img_size, non_max_suppression_kpt
-                from labelme._automation.yolov7.utils.torch_utils import select_device
-                HAS_YOLOV7 = True
-            except ImportError:
-                HAS_YOLOV7 = False
-                logger.warning("YOLOv7依赖未安装，请安装YOLOv7")
-                raise ImportError("YOLOv7依赖未安装")
+                from models.experimental import attempt_load
+                from utils.torch_utils import select_device
+                from utils.general import check_img_size
+                print("成功导入YOLOv7依赖")
+            except ImportError as e:
+                print(f"导入YOLOv7依赖失败: {e}")
+                raise ImportError(f"无法导入YOLOv7依赖: {e}")
 
-            # 检查是否已经安装了YOLOv7的依赖项
-            if not HAS_YOLOV7:
-                raise ImportError(
-                    "YOLOv7姿态估计依赖未安装，请安装YOLOv7依赖")
+            # 设置设备
+            self.device = select_device(
+                self.device) if self.device else select_device('')
+            print(f"使用设备: {self.device}")
+
+            # 设置权重文件路径
+            weights_path = self.params.get("weights_path")
+            if not weights_path:
+                # 如果未指定，使用默认路径
+                weights_path = os.path.join(
+                    os.path.dirname(os.path.abspath(__file__)),
+                    "weights",
+                    "yolov7-w6-pose.pt"
+                )
+
+            print(f"权重文件路径: {weights_path}")
+
+            # 检查权重文件是否存在
+            if not os.path.exists(weights_path):
+                weights_dir = os.path.dirname(weights_path)
+                os.makedirs(weights_dir, exist_ok=True)
+                error_msg = (
+                    f"YOLOv7-pose模型权重文件不存在: {weights_path}\n"
+                    f"请下载yolov7-w6-pose.pt权重文件并放置到以下位置:\n"
+                    f"{weights_path}\n"
+                    f"可以从https://github.com/WongKinYiu/yolov7/releases下载"
+                )
+                print(error_msg)
+                logger.error(error_msg)
+                raise FileNotFoundError(error_msg)
+
+            print(f"权重文件已找到: {weights_path}")
 
             # 加载模型
-            self.model_name = 'yolov7_w6_pose'  # 使用固定的模型名称
-            model_path = os.path.join(os.path.dirname(os.path.dirname(
-                os.path.abspath(__file__))), 'weights', 'yolov7-w6-pose.pt')
+            print("尝试加载YOLOv7模型...")
+            self.model = attempt_load(weights_path, map_location=self.device)
+            print("YOLOv7模型加载成功")
 
-            # 检查模型文件是否存在
-            if not os.path.exists(model_path):
-                model_dir = os.path.dirname(model_path)
-                os.makedirs(model_dir, exist_ok=True)
-                raise FileNotFoundError(
-                    f"模型文件不存在: {model_path}，请手动下载YOLOv7姿态估计模型权重文件到此位置")
+            # 设置模型为评估模式
+            self.model.eval()
 
-            # 加载模型
-            device = select_device(self.device)
-            model = attempt_load(model_path, map_location=device)
-            self.stride = int(model.stride.max())
-            self.imgsz = check_img_size(640, s=self.stride)
-            model.to(device)
+            # 获取其他参数
+            self.half = self.params.get(
+                "half", False) and self.device.type != 'cpu'
+            if self.half:
+                self.model.half()
 
-            # 存储模型相关方法
-            self.non_max_suppression_kpt = non_max_suppression_kpt
+            # 获取步长
+            self.stride = int(self.model.stride.max()) if hasattr(
+                self.model, 'stride') else 32
 
-            # 标记模型为eval模式
-            model.eval()
+            # 设置图像大小
+            self.img_size = self.params.get("img_size", 640)
+            if isinstance(self.img_size, (list, tuple)):
+                self.img_size = self.img_size[0]
+            self.img_size = check_img_size(self.img_size, s=self.stride)
 
-            logger.info(f"姿态估计模型加载成功: {self.model_name}")
-            return model
+            logger.info(f"YOLOv7姿态估计模型加载成功: {self.model_name}")
+            return True
 
         except Exception as e:
             logger.error(f"加载YOLOv7姿态估计模型失败: {e}")
-            raise
+            import traceback
+            logger.error(traceback.format_exc())
+            raise ImportError(f"加载YOLOv7姿态估计模型失败，请确保已安装正确的YOLOv7依赖: {e}")
 
     def _load_rtmpose_model(self):
         """加载RTMPose模型"""
@@ -618,8 +654,95 @@ class PoseEstimator:
         elif self.is_keypointrcnn:
             return self._detect_keypointrcnn_from_boxes(image, boxes)
         else:
-            # YOLOv7 Pose模型不支持从边界框中检测姿态，因此直接返回空结果
-            logger.warning("YOLOv7 Pose模型不支持从边界框中检测姿态")
+            # YOLOv7 Pose也支持从边界框中检测姿态
+            return self._detect_yolov7_pose_from_boxes(image, boxes)
+
+    def _detect_yolov7_pose_from_boxes(self, image: np.ndarray, boxes: List[List[float]]) -> Tuple[List[List[List[float]]], List[float]]:
+        """使用YOLOv7-pose从给定的边界框中检测姿态"""
+        try:
+            # 获取图像尺寸
+            height, width = image.shape[:2]
+
+            # 准备结果列表
+            keypoints_list = []
+            scores_list = []
+
+            # 对每个边界框单独处理
+            for box in boxes:
+                x1, y1, x2, y2 = [int(coord) for coord in box]
+
+                # 确保坐标在图像范围内
+                x1 = max(0, min(x1, width - 1))
+                y1 = max(0, min(y1, height - 1))
+                x2 = max(0, min(x2, width - 1))
+                y2 = max(0, min(y2, height - 1))
+
+                # 如果框太小，跳过
+                if x2 - x1 < 10 or y2 - y1 < 10:
+                    continue
+
+                # 裁剪出框内的图像
+                cropped_image = image[y1:y2, x1:x2].copy()
+
+                # 处理裁剪图像
+                # 调整图像尺寸
+                img = self._letterbox(
+                    cropped_image, self.imgsz, stride=self.stride)[0]
+
+                # 转换为PyTorch张量
+                img = img.transpose((2, 0, 1))[::-1]  # HWC to CHW, BGR to RGB
+                img = np.ascontiguousarray(img)
+
+                img = torch.from_numpy(img).to(self.device)
+                img = img.float()
+                img /= 255.0
+                if len(img.shape) == 3:
+                    img = img.unsqueeze(0)
+
+                # 推理
+                with torch.no_grad():
+                    output, _ = self.model(img)
+                    # NMS
+                    output = self.non_max_suppression_kpt(
+                        output, self.conf_threshold, self.keypoint_threshold, nc=1)
+
+                # 处理输出
+                for i, det in enumerate(output):
+                    if len(det):
+                        # 重新调整到原始图像尺寸
+                        scale = torch.tensor([cropped_image.shape[1], cropped_image.shape[0],
+                                              cropped_image.shape[1], cropped_image.shape[0]]).to(self.device)
+
+                        for j, (*xyxy, conf, cls) in enumerate(reversed(det[:, :6].detach().cpu().numpy())):
+                            # 获取关键点
+                            kpts = det[j, 6:].detach().cpu().numpy()
+                            kpts = kpts.reshape(-1, 3)  # 17, 3
+
+                            # 重新调整关键点到裁剪图像尺寸
+                            crop_width = cropped_image.shape[1]
+                            crop_height = cropped_image.shape[0]
+                            r = min(self.imgsz / crop_width,
+                                    self.imgsz / crop_height)
+                            pad_w = (self.imgsz - crop_width * r) / 2
+                            pad_h = (self.imgsz - crop_height * r) / 2
+
+                            # 调整关键点坐标
+                            adjusted_kpts = kpts.copy()
+                            for k in range(len(kpts)):
+                                adjusted_kpts[k][0] = (
+                                    kpts[k][0] - pad_w) / r + x1  # 调整到原图x坐标
+                                adjusted_kpts[k][1] = (
+                                    kpts[k][1] - pad_h) / r + y1  # 调整到原图y坐标
+
+                            keypoints_list.append(adjusted_kpts.tolist())
+                            scores_list.append(float(conf))
+
+            return keypoints_list, scores_list
+
+        except Exception as e:
+            logger.error(f"YOLOv7从边界框检测姿态失败: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
             return [], []
 
     def _detect_rtmpose_from_boxes(self, image: np.ndarray, boxes: List[List[float]]) -> Tuple[List[List[List[float]]], List[float]]:

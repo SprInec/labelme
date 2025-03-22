@@ -279,13 +279,32 @@ def attempt_load(weights, map_location=None):
                 model = model['ema']
             elif 'model' in model:
                 model = model['model']
-            # 删除不必要的属性
-            for k in ['optimizer', 'training_results', 'wandb_id']:
-                if k in model:
-                    del model[k]
+
+            # 只有当模型仍然是字典类型时才尝试删除属性
+            if isinstance(model, dict):
+                # 删除不必要的属性
+                for k in ['optimizer', 'training_results', 'wandb_id']:
+                    if k in model:
+                        del model[k]
+
+        # 标记模型为评估模式
+        if hasattr(model, 'eval'):
+            model.eval()
+
+        # 获取步长
+        if hasattr(model, 'stride'):
+            stride = int(model.stride.max()) if isinstance(
+                model.stride, torch.Tensor) else int(model.stride)
+        else:
+            stride = 32  # 默认步长
+
+        # 存储步长作为模型属性
+        model.stride = torch.tensor([stride])
 
         # 返回模型
         return model
     except Exception as e:
         logger.error(f"加载YOLOv7模型失败: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
         raise ImportError(f"加载YOLOv7模型失败，请确保已安装正确的YOLOv7依赖: {e}")
