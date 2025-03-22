@@ -1180,8 +1180,21 @@ class MainWindow(QtWidgets.QMainWindow):
                     current_filename = self.filename
                     # 重新加载目录
                     self.importDirImages(self.lastOpenDir, load=False)
-                    # 如果当前有选中的文件，保持选中状态
-                    if current_filename and current_filename in self.imageList:
+
+                    # 如果存在上次编辑的图片索引，优先跳转到该图片
+                    if self._config.get("last_image_index") is not None and self._config["last_image_index"] < len(self.imageList):
+                        last_idx = self._config["last_image_index"]
+                        if last_idx >= 0 and last_idx < len(self.imageList):
+                            self.fileListWidget.setCurrentRow(last_idx)
+                            self.fileListWidget.repaint()
+                            # 加载该索引的图片
+                            self.loadFile(self.imageList[last_idx])
+                            # 设置默认适应窗口
+                            self.setFitWindow(True)
+                            self.actions.fitWindow.setChecked(True)
+                            self.adjustScale(initial=True)
+                    # 如果没有上次编辑索引或者索引无效，但有当前文件名，则跳转到当前文件
+                    elif current_filename and current_filename in self.imageList:
                         self.fileListWidget.setCurrentRow(
                             self.imageList.index(current_filename))
                         self.fileListWidget.repaint()
@@ -2293,6 +2306,12 @@ class MainWindow(QtWidgets.QMainWindow):
         if filename is None:
             filename = self.settings.value("filename", "")
         filename = str(filename)
+
+        # 记录当前图片索引
+        if filename in self.imageList:
+            current_index = self.imageList.index(filename)
+            self._config["last_image_index"] = current_index
+
         if not QtCore.QFile.exists(filename):
             self.errorMessage(
                 self.tr("Error opening file"),
@@ -2472,6 +2491,12 @@ class MainWindow(QtWidgets.QMainWindow):
         if hasattr(self, "output_dir") and self.output_dir:
             self._config["output_dir"] = self.output_dir
             logger.info("Saving output directory: {}".format(self.output_dir))
+
+        # 保存当前图片索引
+        if hasattr(self, "filename") and self.filename and hasattr(self, "imageList") and self.filename in self.imageList:
+            current_index = self.imageList.index(self.filename)
+            self._config["last_image_index"] = current_index
+            logger.info("Saving current image index: {}".format(current_index))
 
         # 保存当前主题设置
         if hasattr(self, "currentTheme"):
@@ -2918,6 +2943,17 @@ class MainWindow(QtWidgets.QMainWindow):
             self.fileListWidget.addItem(item)
         # 更新dock标题
         self.updateDockTitles()
+
+        # 如果有上次记录的图片索引，并且是有效的索引，则优先加载该图片
+        if load and self._config.get("last_image_index") is not None:
+            last_idx = self._config["last_image_index"]
+            if last_idx >= 0 and last_idx < len(self.imageList):
+                self.fileListWidget.setCurrentRow(last_idx)
+                self.fileListWidget.repaint()
+                self.loadFile(self.imageList[last_idx])
+                return
+
+        # 否则加载下一张图片
         self.openNextImg(load=load)
 
     def scanAllImages(self, folderPath):
