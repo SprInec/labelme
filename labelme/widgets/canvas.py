@@ -489,7 +489,23 @@ class Canvas(QtWidgets.QWidget):
 
         for shape in reversed([s for s in self.shapes if self.isVisible(s)]):
             # 处理所有类型标签的悬停效果和提示
-            if shape.containsPoint(pos):
+            # 检查是否是点形状
+            if shape.shape_type == "point" and shape.points and len(shape.points) > 0:
+                # 对于点形状，扩大检测范围
+                center = shape.points[0]
+                dx = pos.x() - center.x()
+                dy = pos.y() - center.y()
+                distance = (dx * dx + dy * dy) ** 0.5
+                # 如果距离小于一定范围(15像素)，则视为悬停在该点上
+                if distance <= 15:
+                    if hasattr(shape, 'setHoverState'):
+                        shape.setHoverState(True)
+                        self.setToolTip(shape.label)
+                        self.setStatusTip(self.toolTip())
+                        self.overrideCursor(CURSOR_POINT)
+                        self.update()
+                        break
+            elif shape.containsPoint(pos):
                 # 设置悬停状态
                 if hasattr(shape, 'setHoverState'):
                     shape.setHoverState(True)
@@ -801,21 +817,48 @@ class Canvas(QtWidgets.QWidget):
             index, shape = self.hVertex, self.hShape
             shape.highlightVertex(index, shape.MOVE_VERTEX)
         else:
+            # 特殊处理点形状：增加点形状的选择范围
             for shape in reversed(self.shapes):
-                if self.isVisible(shape) and shape.containsPoint(point):
-                    self.setHiding()
-                    if shape not in self.selectedShapes:
-                        if multiple_selection_mode:
-                            self.selectionChanged.emit(
-                                self.selectedShapes + [shape])
+                if self.isVisible(shape):
+                    # 先判断是否是点形状
+                    if shape.shape_type == "point":
+                        # 对于点形状，扩大检测范围
+                        if shape.points and len(shape.points) > 0:
+                            # 获取点的位置
+                            center = shape.points[0]
+                            # 计算当前点与形状中心点的距离
+                            dx = point.x() - center.x()
+                            dy = point.y() - center.y()
+                            distance = (dx * dx + dy * dy) ** 0.5
+                            # 如果距离小于一定范围(15像素)，则认为选中了该点
+                            if distance <= 15:
+                                self.setHiding()
+                                if shape not in self.selectedShapes:
+                                    if multiple_selection_mode:
+                                        self.selectionChanged.emit(
+                                            self.selectedShapes + [shape])
+                                    else:
+                                        self.selectionChanged.emit([shape])
+                                    self.hShapeIsSelected = False
+                                else:
+                                    self.hShapeIsSelected = True
+                                self.calculateOffsets(point)
+                                return
+                    # 其他形状使用正常的containsPoint判断
+                    elif shape.containsPoint(point):
+                        self.setHiding()
+                        if shape not in self.selectedShapes:
+                            if multiple_selection_mode:
+                                self.selectionChanged.emit(
+                                    self.selectedShapes + [shape])
+                            else:
+                                self.selectionChanged.emit([shape])
+                            self.hShapeIsSelected = False
                         else:
-                            self.selectionChanged.emit([shape])
-                        self.hShapeIsSelected = False
-                    else:
-                        self.hShapeIsSelected = True
-                    self.calculateOffsets(point)
-                    return
-        self.deSelectShape()
+                            self.hShapeIsSelected = True
+                        self.calculateOffsets(point)
+                        return
+            self.deSelectShape()
 
     def calculateOffsets(self, point):
         left = self.pixmap.width() - 1
@@ -1169,7 +1212,7 @@ class Canvas(QtWidgets.QWidget):
         """Find intersecting edges.
 
         For each edge formed by `points', yield the intersection
-        with the line segment `(x1,y1) - (x2,y2)`, if it exists.
+        with the line segment `(x1,y1) - (x2,y2)', if it exists.
         Also return the distance of `(x2,y2)' to the middle of the
         edge along with its index, so that the one closest can be chosen.
         """
@@ -1193,6 +1236,17 @@ class Canvas(QtWidgets.QWidget):
                 m = QtCore.QPointF((x3 + x4) / 2, (y3 + y4) / 2)
                 d = labelme.utils.distance(m - QtCore.QPointF(x2, y2))
                 yield d, i, (x, y)
+
+    def undoLastPoint(self):
+        if not self.current or self.current.isClosed():
+            return
+        self.current.popPoint()
+        if len(self.current) > 0:
+            self.line[0] = self.current[-1]
+        else:
+            self.current = None
+            self.drawingPolygon.emit(False)
+        self.update()
 
     # These two, along with a call to adjustSize are required for the
     # scroll area.
@@ -1344,126 +1398,3 @@ class Canvas(QtWidgets.QWidget):
         self.pixmap = None
         self.shapesBackups = []
         self.update()
-
-    def shapeIsInSelectionBox(self, shape, selection_box):
-        """检查形状是否在选择框内"""
-        # 检查形状的任何点是否在选择框内
-        for point in shape.points:
-            if selection_box.contains(point):
-                return True
-        return False
-
-
-def _update_shape_with_sam(
-    shape: Shape,
-    createMode: str,
-    model_name: str,
-    image_embedding: osam.types.ImageEmbedding,
-) -> None:
-    if createMode not in ["ai_polygon", "ai_mask"]:
-        raise ValueError(
-            f"createMode must be 'ai_polygon' or 'ai_mask', not {createMode}"
-        )
-
-    try:
-        logger.info(f"使用模型 {model_name} 进行分割")
-
-        if not shape.points:
-            logger.warning("形状没有点")
-            return
-
-        points = [[point.x(), point.y()] for point in shape.points]
-        point_labels = shape.point_labels
-
-        if len(points) != len(point_labels):
-            logger.warning(
-                f"点数量 ({len(points)}) 与标签数量 ({len(point_labels)}) 不匹配")
-            # 确保长度一致
-            point_labels = [1] * len(points)
-
-        logger.info(f"点: {points}")
-        logger.info(f"标签: {point_labels}")
-
-        response: osam.types.GenerateResponse = osam.apis.generate(
-            osam.types.GenerateRequest(
-                model=model_name,
-                image_embedding=image_embedding,
-                prompt=osam.types.Prompt(
-                    points=points,
-                    point_labels=point_labels,
-                ),
-            )
-        )
-
-        logger.info(
-            f"获取到注释数量: {len(response.annotations) if response.annotations else 0}")
-
-        if not response.annotations:
-            logger.warning("模型 {!r} 未返回任何注释", model_name)
-            return
-
-        if createMode == "ai_mask":
-            y1: int
-            x1: int
-            y2: int
-            x2: int
-            if response.annotations[0].bounding_box is None:
-                mask = response.annotations[0].mask
-                if mask is None or mask.size == 0:
-                    logger.warning("返回的掩码为空")
-                    return
-
-                logger.info(f"掩码形状: {mask.shape}")
-                bbox = imgviz.instances.mask_to_bbox([mask])
-                if len(bbox) == 0:
-                    logger.warning("无法从掩码计算边界框")
-                    return
-
-                y1, x1, y2, x2 = bbox[0].astype(int)
-                logger.info(f"从掩码计算的边界框: [{x1}, {y1}, {x2}, {y2}]")
-            else:
-                y1 = response.annotations[0].bounding_box.ymin
-                x1 = response.annotations[0].bounding_box.xmin
-                y2 = response.annotations[0].bounding_box.ymax
-                x2 = response.annotations[0].bounding_box.xmax
-                logger.info(f"模型提供的边界框: [{x1}, {y1}, {x2}, {y2}]")
-
-            mask_roi = response.annotations[0].mask[y1: y2 + 1, x1: x2 + 1]
-            if mask_roi is None or mask_roi.size == 0:
-                logger.warning("裁剪后的掩码为空")
-                return
-
-            logger.info(f"裁剪后的掩码形状: {mask_roi.shape}")
-
-            shape.setShapeRefined(
-                shape_type="mask",
-                points=[QtCore.QPointF(x1, y1), QtCore.QPointF(x2, y2)],
-                point_labels=[1, 1],
-                mask=mask_roi,
-            )
-        elif createMode == "ai_polygon":
-            mask = response.annotations[0].mask
-            if mask is None or mask.size == 0:
-                logger.warning("返回的掩码为空")
-                return
-
-            logger.info(f"多边形掩码形状: {mask.shape}")
-
-            points = polygon_from_mask.compute_polygon_from_mask(mask=mask)
-
-            if len(points) < 2:
-                logger.warning("计算的多边形点数过少")
-                return
-
-            logger.info(f"计算的多边形点数: {len(points)}")
-
-            shape.setShapeRefined(
-                shape_type="polygon",
-                points=[QtCore.QPointF(point[0], point[1])
-                        for point in points],
-                point_labels=[1] * len(points),
-            )
-    except Exception as e:
-        logger.error(f"使用AI模型更新形状时出错: {e}")
-        import traceback
-        logger.error(traceback.format_exc())

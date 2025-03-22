@@ -3450,15 +3450,20 @@ class MainWindow(QtWidgets.QMainWindow):
             self.toggleFullScreen()
             return
 
-        # 空格键切换选中标签的显示状态
+        # 空格键切换选中形状的显示/隐藏状态
         if event.key() == QtCore.Qt.Key_Space:
-            selectedItems = self.labelList.selectedItems()
-            if selectedItems:
-                for item in selectedItems:
-                    if item.checkState() == QtCore.Qt.Checked:
-                        item.setCheckState(QtCore.Qt.Unchecked)
-                    else:
-                        item.setCheckState(QtCore.Qt.Checked)
+            # 在编辑模式下且有选中的形状时，切换显示/隐藏状态
+            if self.canvas.editing() and self.canvas.selectedShapes:
+                for shape in self.canvas.selectedShapes:
+                    # 查找对应的标签项
+                    item = self.labelList.findItemByShape(shape)
+                    if item:
+                        # 切换复选框状态
+                        current_state = item.checkState()
+                        new_state = QtCore.Qt.Unchecked if current_state == QtCore.Qt.Checked else QtCore.Qt.Checked
+                        item.setCheckState(new_state)
+                        # 因为状态变化会自动通过信号槽调用labelItemCheckStateChanged方法
+                        # 所以这里不需要额外更新画布的可见性
                 return
 
         # 如果没有使用上面的快捷键，则将事件传递给父类处理
