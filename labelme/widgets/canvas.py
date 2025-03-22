@@ -1410,5 +1410,16 @@ class Canvas(QtWidgets.QWidget):
         # 获取形状的边界矩形
         shape_rect = shape.boundingRect()
 
-        # 检查形状的边界矩形是否与选择框相交
+        # 如果是点形状，需要特殊处理，扩大点的边界
+        if shape.shape_type == "point" and shape.points:
+            # 将点扩展为小矩形区域
+            point = shape.points[0]
+            expanded_rect = QtCore.QRectF(
+                point.x() - 10, point.y() - 10,
+                20, 20
+            )
+            # 检查扩展的点区域是否与选择框相交
+            return selection_box.intersects(expanded_rect)
+
+        # 对于其他形状类型，检查边界矩形是否与选择框相交
         return selection_box.intersects(shape_rect)

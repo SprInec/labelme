@@ -480,11 +480,11 @@ class Shape(object):
 
                 # 判断是否需要特殊圆角处理
                 has_gid = Shape.show_label_gid and self.group_id is not None
-                
+
                 # 绘制背景
                 painter.setPen(QtCore.Qt.NoPen)
                 painter.setBrush(bg_color)
-                
+
                 if has_gid:
                     # 当有GID时，标签右侧不使用圆角
                     painter.save()
@@ -524,7 +524,7 @@ class Shape(object):
                 # 绘制GID背景，左侧不使用圆角
                 painter.setPen(QtCore.Qt.NoPen)
                 painter.setBrush(bg_color)
-                
+
                 painter.save()
                 painter.setClipRect(gid_bg_rect)
                 # 绘制一个更大的圆角矩形，然后通过裁剪区域来实现左侧直角
@@ -559,26 +559,31 @@ class Shape(object):
 
                 # 使用浅灰色作为气泡背景色
                 bubble_bg_color = QtGui.QColor(240, 240, 240, 100)  # 浅灰色带透明度
-                
+
                 # 根据背景亮度确定文字颜色
                 bubble_text_color = QtGui.QColor(60, 60, 60)  # 深灰色文字
-                
+
                 # 绘制气泡形状的背景
                 painter.setPen(QtCore.Qt.NoPen)
                 painter.setBrush(bubble_bg_color)
                 painter.drawRoundedRect(desc_bg_rect, 8, 8)  # 增加圆角半径使其更圆润
-                
+
                 triangle_path = QtGui.QPainterPath()
                 # 调整三角形位置和大小
-                triangle_top = QtCore.QPointF(current_x + 15, current_y - 6)  # Y坐标调整，更靠近气泡，距离更远
-                triangle_left = QtCore.QPointF(current_x + 5, current_y - 1)  # 左侧点向左移动
-                triangle_right = QtCore.QPointF(current_x + 25, current_y - 1)  # 右侧点向右移动
+                triangle_top = QtCore.QPointF(
+                    current_x + 15, current_y - 6)  # Y坐标调整，更靠近气泡，距离更远
+                triangle_left = QtCore.QPointF(
+                    current_x + 5, current_y - 1)  # 左侧点向左移动
+                triangle_right = QtCore.QPointF(
+                    current_x + 25, current_y - 1)  # 右侧点向右移动
 
                 # 使用贝塞尔曲线创建圆润的三角形
                 triangle_path.moveTo(triangle_top)
-                triangle_path.quadTo(triangle_left + QtCore.QPointF(2, -1), triangle_left)
+                triangle_path.quadTo(
+                    triangle_left + QtCore.QPointF(2, -1), triangle_left)
                 triangle_path.lineTo(triangle_right)
-                triangle_path.quadTo(triangle_right + QtCore.QPointF(-2, -1), triangle_top)
+                triangle_path.quadTo(
+                    triangle_right + QtCore.QPointF(-2, -1), triangle_top)
                 painter.fillPath(triangle_path, bubble_bg_color)
 
                 # 绘制描述文本
@@ -657,6 +662,7 @@ class Shape(object):
         return post_i
 
     def containsPoint(self, point):
+        # 处理蒙版形状
         if self.mask is not None:
             y = np.clip(
                 int(round(point.y() - self.points[0].y())),
@@ -669,6 +675,19 @@ class Shape(object):
                 self.mask.shape[1] - 1,
             )
             return self.mask[y, x]
+
+        # 点形状特殊处理：扩大选择范围
+        if self.shape_type == "point" and self.points and len(self.points) > 0:
+            # 获取点的位置
+            center = self.points[0]
+            # 计算点击位置到点中心的距离
+            dx = point.x() - center.x()
+            dy = point.y() - center.y()
+            distance = (dx * dx + dy * dy) ** 0.5
+            # 如果距离在20像素内，认为点击到了这个点
+            return distance <= 20
+
+        # 其他形状使用路径判断
         return self.makePath().contains(point)
 
     def makePath(self):
