@@ -248,6 +248,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.canvas.drawingPolygon.connect(self.toggleDrawingSensitive)
         self.canvas.toggleVisibilityRequest.connect(
             self.toggleShapesVisibility)  # 连接新的信号
+        self.canvas.editLabelRequest.connect(self._edit_label)  # 连接双击编辑标签信号
 
         self.setCentralWidget(scrollArea)
 
@@ -1535,6 +1536,17 @@ class MainWindow(QtWidgets.QMainWindow):
         return False
 
     def _edit_label(self, value=None):
+        """编辑当前选中形状的标签
+
+        Args:
+            value: 可能是双击的形状项或鼠标位置（QtCore.QPoint）
+        """
+        # 处理从鼠标双击传递过来的位置信息
+        mouse_pos = None
+        if isinstance(value, QtCore.QPoint):
+            mouse_pos = value
+            value = None
+
         shapes = [s for s in self.canvas.selectedShapes if s.selected]
         if not shapes or len(shapes) != 1:
             return
@@ -1554,6 +1566,7 @@ class MainWindow(QtWidgets.QMainWindow):
             group_id=old_group_id,
             description=old_description,
             color=shape_color,  # 传递形状的颜色
+            mouse_pos=mouse_pos,  # 传递鼠标位置
         )
         if result is None:
             return
@@ -2158,6 +2171,13 @@ class MainWindow(QtWidgets.QMainWindow):
         b = random.randint(0, 255)
         default_color = QtGui.QColor(r, g, b)
 
+        # 获取鼠标当前位置
+        # 将鼠标在屏幕上的位置与窗口位置相关联，以便更准确地定位标签对话框
+        mouse_pos = QtGui.QCursor.pos()  # 获取全局位置
+
+        # 保存当前位置，每次添加新形状后重新弹出对话框，对话框位置应该一致
+        saved_mouse_pos = mouse_pos
+
         while True:
             result = self.labelDialog.popUp(
                 text=text,
@@ -2165,6 +2185,7 @@ class MainWindow(QtWidgets.QMainWindow):
                 group_id=group_id,
                 description=description,
                 color=default_color,
+                mouse_pos=saved_mouse_pos,  # 使用保存的鼠标位置
             )
             if result is None:
                 # 用户取消了标签对话框，删除当前绘制的形状
@@ -4016,3 +4037,24 @@ class MainWindow(QtWidgets.QMainWindow):
                 current_state = item.checkState()
                 new_state = QtCore.Qt.Unchecked if current_state == QtCore.Qt.Checked else QtCore.Qt.Checked
                 item.setCheckState(new_state)
+
+    def setupCanvas(self):
+        # Create canvas and set its default shape colors/text.
+        canvas = self.canvas = Canvas(
+            epsilon=self._config["epsilon"],
+            double_click=self._config["canvas"]["double_click"],
+            num_backups=self._config["canvas"]["num_backups"],
+            crosshair=self._config["canvas"]["crosshair"],
+        )
+        # 连接信号到槽
+        canvas.zoomRequest.connect(self.zoomRequest)
+        canvas.scrollRequest.connect(self.scrollRequest)
+        canvas.newShape.connect(self.newShape)
+        canvas.selectionChanged.connect(self.shapeSelectionChanged)
+        canvas.shapeMoved.connect(self.setDirty)
+        canvas.drawingPolygon.connect(self.toggleDrawingSensitive)
+        canvas.vertexSelected.connect(self.actions.edit.setEnabled)
+        canvas.mouseMoved.connect(self.updateStatusBarCoordinates)
+        canvas.modeChanged.connect(self.updateModeLabel)
+        canvas.toggleVisibilityRequest.connect(self.toggleShapesVisibility)
+        canvas.editLabelRequest.connect(self._edit_label)  # 连接双击编辑标签信号

@@ -37,7 +37,12 @@ RTMPOSE_MODELS = {
     "rtmpose-t": "https://download.openmmlab.com/mmpose/v1/projects/rtmposev1/rtmpose-t_simcc-aic-coco_pt-aic-coco_420e-256x192-e0c9327b_20230127.pth",
     "rtmpose-s": "https://download.openmmlab.com/mmpose/v1/projects/rtmposev1/rtmpose-s_simcc-aic-coco_pt-aic-coco_420e-256x192-fcb2599b_20230127.pth",
     "rtmpose-m": "https://download.openmmlab.com/mmpose/v1/projects/rtmposev1/rtmpose-m_simcc-aic-coco_pt-aic-coco_420e-256x192-63eb25f7_20230126.pth",
-    "rtmpose-l": "https://download.openmmlab.com/mmpose/v1/projects/rtmposev1/rtmpose-l_simcc-aic-coco_pt-aic-coco_420e-256x192-1f9a0168_20230126.pth"
+    "rtmpose-l": "https://download.openmmlab.com/mmpose/v1/projects/rtmposev1/rtmpose-l_simcc-aic-coco_pt-aic-coco_420e-256x192-1f9a0168_20230126.pth",
+    # 添加RTMO模型链接
+    "rtmo-t": "https://download.openmmlab.com/mmpose/v1/projects/rtmo/rtmo-t_8xb32-600e_body7-416x416-f48f75cb_20231219.pth",
+    "rtmo-s": "https://download.openmmlab.com/mmpose/v1/projects/rtmo/rtmo-s_8xb32-600e_body7-640x640-dac2bf74_20231211.pth",
+    "rtmo-m": "https://download.openmmlab.com/mmpose/v1/projects/rtmo/rtmo-m_16xb16-600e_body7-640x640-39e78cc4_20231211.pth",
+    "rtmo-l": "https://download.openmmlab.com/mmpose/v1/projects/rtmo/rtmo-l_16xb16-600e_body7-640x640-1008211f_20231211.pth"
 }
 
 # 国内镜像站RTMPose模型下载链接 - 更新为多个备用镜像
@@ -46,7 +51,12 @@ RTMPOSE_MODELS_MIRROR = {
     "rtmpose-t": "https://mirror.openmmlab.com/mmpose/v1/projects/rtmposev1/rtmpose-t_simcc-aic-coco_pt-aic-coco_420e-256x192-e0c9327b_20230127.pth",
     "rtmpose-s": "https://mirror.openmmlab.com/mmpose/v1/projects/rtmposev1/rtmpose-s_simcc-aic-coco_pt-aic-coco_420e-256x192-fcb2599b_20230127.pth",
     "rtmpose-m": "https://mirror.openmmlab.com/mmpose/v1/projects/rtmposev1/rtmpose-m_simcc-aic-coco_pt-aic-coco_420e-256x192-63eb25f7_20230126.pth",
-    "rtmpose-l": "https://mirror.openmmlab.com/mmpose/v1/projects/rtmposev1/rtmpose-l_simcc-aic-coco_pt-aic-coco_420e-256x192-1f9a0168_20230126.pth"
+    "rtmpose-l": "https://mirror.openmmlab.com/mmpose/v1/projects/rtmposev1/rtmpose-l_simcc-aic-coco_pt-aic-coco_420e-256x192-1f9a0168_20230126.pth",
+    # 添加RTMO模型镜像链接
+    "rtmo-t": "https://mirror.openmmlab.com/mmpose/v1/projects/rtmo/rtmo-t_8xb32-600e_body7-416x416-f48f75cb_20231219.pth",
+    "rtmo-s": "https://mirror.openmmlab.com/mmpose/v1/projects/rtmo/rtmo-s_8xb32-600e_body7-640x640-dac2bf74_20231211.pth",
+    "rtmo-m": "https://mirror.openmmlab.com/mmpose/v1/projects/rtmo/rtmo-m_16xb16-600e_body7-640x640-39e78cc4_20231211.pth",
+    "rtmo-l": "https://mirror.openmmlab.com/mmpose/v1/projects/rtmo/rtmo-l_16xb16-600e_body7-640x640-1008211f_20231211.pth"
 }
 
 # RTMDet模型下载链接
@@ -291,28 +301,16 @@ RTMPOSE_MODEL_LINKS = {
         ]
     },
     # 添加HRNet模型
-    "hrnet_w32": {
+    "hrnet-w32": {
         "original": "https://download.openmmlab.com/mmpose/top_down/hrnet/hrnet_w32_coco_256x192-c78dce93_20200708.pth",
         "backup": [
             "https://mirror.openmmlab.com/mmpose/top_down/hrnet/hrnet_w32_coco_256x192-c78dce93_20200708.pth"
         ]
     },
-    "hrnet_w32_udp": {
-        "original": "https://download.openmmlab.com/mmpose/top_down/hrnet/hrnet_w32_coco_256x192_udp-aba0be42_20220624.pth",
-        "backup": [
-            "https://mirror.openmmlab.com/mmpose/top_down/hrnet/hrnet_w32_coco_256x192_udp-aba0be42_20220624.pth"
-        ]
-    },
-    "hrnet_w48": {
+    "hrnet-w48": {
         "original": "https://download.openmmlab.com/mmpose/top_down/hrnet/hrnet_w48_coco_256x192-b9e0b3ab_20200708.pth",
         "backup": [
             "https://mirror.openmmlab.com/mmpose/top_down/hrnet/hrnet_w48_coco_256x192-b9e0b3ab_20200708.pth"
-        ]
-    },
-    "hrnet_w48_udp": {
-        "original": "https://download.openmmlab.com/mmpose/top_down/hrnet/hrnet_w48_coco_256x192_udp-7f9d1e8a_20220624.pth",
-        "backup": [
-            "https://mirror.openmmlab.com/mmpose/top_down/hrnet/hrnet_w48_coco_256x192_udp-7f9d1e8a_20220624.pth"
         ]
     }
 }

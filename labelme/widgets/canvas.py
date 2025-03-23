@@ -37,6 +37,7 @@ class Canvas(QtWidgets.QWidget):
     mouseMoved = QtCore.pyqtSignal(QtCore.QPointF)
     modeChanged = QtCore.pyqtSignal(str)  # 添加模式改变的信号，用于通知状态栏
     toggleVisibilityRequest = QtCore.pyqtSignal(list)  # 添加切换可见性请求信号
+    editLabelRequest = QtCore.pyqtSignal(QtCore.QPoint)  # 添加编辑标签请求信号，传递鼠标位置
 
     CREATE, EDIT = 0, 1
 
@@ -799,13 +800,42 @@ class Canvas(QtWidgets.QWidget):
         )
 
     def mouseDoubleClickEvent(self, ev):
-        if self.double_click != "close":
-            return
-
-        if (
-            self.createMode == "polygon" and self.canCloseShape()
+        # 如果是多边形创建模式并且可以闭合形状，则闭合形状
+        if self.double_click == "close" and (
+            (self.createMode == "polygon" and self.canCloseShape())
         ) or self.createMode in ["ai_polygon", "ai_mask"]:
             self.finalise()
+            return
+
+        # 如果是编辑模式，并且双击在已有形状上，则发出编辑标签请求
+        if self.editing():
+            # 获取鼠标位置
+            pos = self.transformPos(ev.pos())
+            # 获取鼠标在屏幕上的绝对位置
+            global_pos = self.mapToGlobal(ev.pos())
+
+            # 检查是否双击在已有的形状上
+            for shape in reversed([s for s in self.shapes if self.isVisible(s)]):
+                # 对于点形状特殊处理
+                if shape.shape_type == "point" and shape.points and len(shape.points) > 0:
+                    center = shape.points[0]
+                    dx = pos.x() - center.x()
+                    dy = pos.y() - center.y()
+                    distance = (dx * dx + dy * dy) ** 0.5
+                    # 如果距离小于一定范围(15像素)，视为双击了该点
+                    if distance <= 15:
+                        # 选中该形状
+                        self.selectShapes([shape])
+                        # 发出编辑标签请求信号
+                        self.editLabelRequest.emit(global_pos)
+                        return
+                # 其他形状使用包含点判断
+                elif shape.containsPoint(pos):
+                    # 选中该形状
+                    self.selectShapes([shape])
+                    # 发出编辑标签请求信号
+                    self.editLabelRequest.emit(global_pos)
+                    return
 
     def selectShapes(self, shapes):
         self.setHiding()

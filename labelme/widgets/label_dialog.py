@@ -806,7 +806,7 @@ class LabelDialog(QtWidgets.QDialog):
     def getDescription(self):
         return self.editDescription.text()
 
-    def popUp(self, text=None, move=True, flags=None, group_id=None, description=None, color=None):
+    def popUp(self, text=None, move=True, flags=None, group_id=None, description=None, color=None, mouse_pos=None):
         # 移除这些限制，允许窗口自由调整大小
         if self._fit_to_content["row"]:
             pass
@@ -893,15 +893,65 @@ class LabelDialog(QtWidgets.QDialog):
 
         self.edit.setFocus(QtCore.Qt.PopupFocusReason)
 
-        # 确保对话框显示在屏幕中央
+        # 处理对话框位置
         if move:
-            # 获取屏幕几何信息
-            screen = QtWidgets.QApplication.desktop().screenGeometry()
+            # 获取屏幕几何信息，考虑多屏幕情况
+            desktop = QtWidgets.QApplication.desktop()
+            # 如果有鼠标位置，获取鼠标所在的屏幕
+            screen_number = desktop.screenNumber(
+                mouse_pos) if mouse_pos else desktop.primaryScreen()
+            screen = desktop.screenGeometry(screen_number)
+
             # 获取对话框大小
-            size = self.sizeHint()
-            # 计算居中位置
-            x = (screen.width() - size.width()) // 2
-            y = (screen.height() - size.height()) // 2
+            dialog_size = self.sizeHint()
+
+            if mouse_pos:
+                # 如果提供了鼠标位置，根据鼠标在屏幕中的位置智能放置对话框
+
+                # 确定鼠标位置在屏幕中的相对位置（左半边还是右半边，上半边还是下半边）
+                is_right_half = mouse_pos.x() > (screen.x() + screen.width() / 2)
+                is_bottom_half = mouse_pos.y() > (screen.y() + screen.height() / 2)
+
+                # 计算对话框应该放置的位置
+                if is_right_half:
+                    # 右侧区域，对话框右下角对齐鼠标位置
+                    x = mouse_pos.x() - dialog_size.width()
+                else:
+                    # 左侧区域，对话框左下角对齐鼠标位置
+                    x = mouse_pos.x()
+
+                if is_bottom_half:
+                    if is_right_half:
+                        # 右下区域，对话框右下角对齐鼠标位置
+                        y = mouse_pos.y() - (dialog_size.height() + 200)
+                    else:
+                        # 左下区域，对话框左下角对齐鼠标位置
+                        y = mouse_pos.y() - (dialog_size.height() + 200)
+                else:
+                    # 顶部区域，对话框顶边在鼠标位置下方
+                    y = mouse_pos.y() + 5
+
+                # 边界检查：确保对话框不超出屏幕边界
+                # 左边界检查
+                if x < screen.x():
+                    x = screen.x() + 5
+
+                # 右边界检查
+                if x + dialog_size.width() > screen.x() + screen.width():
+                    x = screen.x() + screen.width() - dialog_size.width() - 5
+
+                # 上边界检查
+                if y < screen.y():
+                    y = screen.y() + 5
+
+                # 下边界检查
+                if y + dialog_size.height() > screen.y() + screen.height():
+                    y = screen.y() + screen.height() - dialog_size.height() - 5
+            else:
+                # 默认居中显示
+                x = screen.x() + (screen.width() - dialog_size.width()) // 2
+                y = screen.y() + (screen.height() - dialog_size.height()) // 2
+
             self.move(x, y)
 
         if self.exec_():

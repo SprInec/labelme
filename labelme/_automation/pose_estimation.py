@@ -26,7 +26,11 @@ RTMPOSE_MODEL_CONFIGS = {
     "rtmpose-t": 'labelme/_automation/mmpose/configs/body_2d_keypoint/rtmpose/coco/rtmpose-t_8xb256-420e_coco-256x192.py',
     "rtmpose-s": 'labelme/_automation/mmpose/configs/body_2d_keypoint/rtmpose/coco/rtmpose-s_8xb256-420e_coco-256x192.py',
     "rtmpose-m": 'labelme/_automation/mmpose/configs/body_2d_keypoint/rtmpose/coco/rtmpose-m_8xb256-420e_coco-256x192.py',
-    "rtmpose-l": 'labelme/_automation/mmpose/configs/body_2d_keypoint/rtmpose/coco/rtmpose-l_8xb256-420e_coco-256x192.py'
+    "rtmpose-l": 'labelme/_automation/mmpose/configs/body_2d_keypoint/rtmpose/coco/rtmpose-l_8xb256-420e_coco-256x192.py',
+    "rtmo-t": 'labelme/_automation/mmpose/configs/body_2d_keypoint/rtmo/body7/rtmo-t_8xb32-600e_body7-416x416.py',
+    "rtmo-s": 'labelme/_automation/mmpose/configs/body_2d_keypoint/rtmo/body7/rtmo-s_8xb32-600e_body7-640x640.py',
+    "rtmo-m": 'labelme/_automation/mmpose/configs/body_2d_keypoint/rtmo/body7/rtmo-m_16xb16-600e_body7-640x640.py',
+    "rtmo-l": 'labelme/_automation/mmpose/configs/body_2d_keypoint/rtmo/body7/rtmo-l_16xb16-600e_body7-640x640.py',
 }
 
 # RTMPose模型权重文件
@@ -34,7 +38,11 @@ RTMPOSE_MODEL_CHECKPOINTS = {
     "rtmpose-t": 'labelme/_automation/mmpose/checkpoints/rtmpose-s.pth',
     "rtmpose-s": 'labelme/_automation/mmpose/checkpoints/rtmpose-s.pth',
     "rtmpose-m": 'labelme/_automation/mmpose/checkpoints/rtmpose-m.pth',
-    "rtmpose-l": 'labelme/_automation/mmpose/checkpoints/rtmpose-l.pth'
+    "rtmpose-l": 'labelme/_automation/mmpose/checkpoints/rtmpose-l.pth',
+    "rtmo-t": 'labelme/_automation/mmpose/checkpoints/rtmo-t.pth',
+    "rtmo-s": 'labelme/_automation/mmpose/checkpoints/rtmo-s.pth',
+    "rtmo-m": 'labelme/_automation/mmpose/checkpoints/rtmo-m.pth',
+    "rtmo-l": 'labelme/_automation/mmpose/checkpoints/rtmo-l.pth',
 }
 
 # COCO数据集的关键点定义
@@ -85,8 +93,9 @@ class PoseEstimator:
 
         Args:
             model_name: 模型名称，可选值: 
-                - rtmpose_tiny, rtmpose_s, rtmpose_m, rtmpose_l (RTMPose模型)
-                - hrnet_w32, hrnet_w32_udp, hrnet_w48, hrnet_w48_udp (HRNet模型)
+                - rtmpose-t, rtmpose-s, rtmpose-m, rtmpose-l (RTMPose模型)
+                - rtmo-t, rtmo-s, rtmo-m, rtmo-l (RTMO模型，更精确的人体姿态估计模型)
+                - hrnet_w32, hrnet_w48 (HRNet模型)
                 - yolov7_w6_pose (YOLOv7-Pose模型)
                 - keypointrcnn_resnet50_fpn (KeypointRCNN模型)
             device: 运行设备 ('cpu' 或 'cuda')
@@ -122,6 +131,9 @@ class PoseEstimator:
         if self.model_name:
             if self.model_name.startswith("rtmpose"):
                 self.model_type = "rtmpose"
+            elif self.model_name.startswith("rtmo-"):
+                # 添加RTMO模型的识别
+                self.model_type = "rtmpose"  # RTMO使用与RTMPose相同的处理逻辑
             elif self.model_name.startswith("hrnet"):
                 self.model_type = "hrnet"
             elif self.model_name.startswith("yolov7"):
@@ -245,13 +257,13 @@ class PoseEstimator:
 
             # HRNet模型配置和权重映射
             hrnet_configs = {
-                "hrnet_w32": {
+                "hrnet-w32": {
                     "config": "td-hm_hrnet-w32_8xb64-210e_coco-256x192.py",
-                    "checkpoint": "hrnet_w32_coco_256x192-c78dce93_20200708.pth"
+                    "checkpoint": "hrnet-w32.pth"
                 },
-                "hrnet_w48": {
+                "hrnet-w48": {
                     "config": "td-hm_hrnet-w48_8xb32-210e_coco-256x192.py",
-                    "checkpoint": "hrnet_w48_coco_256x192-b9e0b3ab_20200708.pth"
+                    "checkpoint": "hrnet-w48.pth"
                 },
             }
 
@@ -262,8 +274,8 @@ class PoseEstimator:
             }
 
             if self.model_name not in hrnet_configs:
-                logger.warning(f"未知的HRNet模型: {self.model_name}，使用hrnet_w32")
-                self.model_name = "hrnet_w32"
+                logger.warning(f"未知的HRNet模型: {self.model_name}，使用hrnet-w32")
+                self.model_name = "hrnet-w32"
 
             # 获取模型配置和权重
             model_config = hrnet_configs[self.model_name]
@@ -573,21 +585,37 @@ class PoseEstimator:
 
             # RTMPose模型配置和权重映射
             rtmpose_configs = {
-                "rtmpose_tiny": {
+                "rtmpose-t": {
                     "config": "rtmpose-t_8xb256-420e_coco-256x192.py",
-                    "checkpoint": "rtmpose-tiny_simcc-coco_pt-aic-coco_420e-256x192-e613ba3f_20230127.pth"
+                    "checkpoint": "rtmpose-t.pth"
                 },
-                "rtmpose_s": {
+                "rtmpose-s": {
                     "config": "rtmpose-s_8xb256-420e_coco-256x192.py",
-                    "checkpoint": "rtmpose-s_simcc-aic-coco_pt-aic-coco_420e-256x192-fcb2599b_20230127.pth"
+                    "checkpoint": "rtmpose-s.pth"
                 },
-                "rtmpose_m": {
+                "rtmpose-m": {
                     "config": "rtmpose-m_8xb256-420e_coco-256x192.py",
-                    "checkpoint": "rtmpose-m_simcc-aic-coco_pt-aic-coco_420e-256x192-63eb25f7_20230126.pth"
+                    "checkpoint": "rtmpose-m.pth"
                 },
-                "rtmpose_l": {
+                "rtmpose-l": {
                     "config": "rtmpose-l_8xb256-420e_coco-256x192.py",
-                    "checkpoint": "rtmpose-l_simcc-aic-coco_pt-aic-coco_420e-256x192-1f9a0168_20230126.pth"
+                    "checkpoint": "rtmpose-l.pth"
+                },
+                "rtmo-t": {
+                    "config": "rtmo-t_8xb32-600e_body7-416x416.py",
+                    "checkpoint": "rtmo-t.pth"
+                },
+                "rtmo-s": {
+                    "config": "rtmo-s_8xb32-600e_body7-640x640.py",
+                    "checkpoint": "rtmo-s.pth"
+                },
+                "rtmo-m": {
+                    "config": "rtmo-m_16xb16-600e_body7-640x640.py",
+                    "checkpoint": "rtmo-m.pth"
+                },
+                "rtmo-l": {
+                    "config": "rtmo-l_16xb16-600e_body7-640x640.py",
+                    "checkpoint": "rtmo-l.pth"
                 }
             }
 
@@ -2374,6 +2402,14 @@ class PoseEstimator:
                     config_file = 'labelme/_automation/mmpose/configs/body_2d_keypoint/rtmpose/coco/rtmpose-l_8xb256-420e_coco-256x192.py'
                 elif 'rtmpose-t' in self.model_name.lower():
                     config_file = 'labelme/_automation/mmpose/configs/body_2d_keypoint/rtmpose/coco/rtmpose-t_8xb256-420e_coco-256x192.py'
+                elif 'rtmo-t' in self.model_name.lower():
+                    config_file = 'labelme/_automation/mmpose/configs/body_2d_keypoint/rtmo/body7/rtmo-t_8xb32-600e_body7-416x416.py'
+                elif 'rtmo-s' in self.model_name.lower():
+                    config_file = 'labelme/_automation/mmpose/configs/body_2d_keypoint/rtmo/body7/rtmo-s_8xb32-600e_body7-640x640.py'
+                elif 'rtmo-m' in self.model_name.lower():
+                    config_file = 'labelme/_automation/mmpose/configs/body_2d_keypoint/rtmo/body7/rtmo-m_16xb16-600e_body7-640x640.py'
+                elif 'rtmo-l' in self.model_name.lower():
+                    config_file = 'labelme/_automation/mmpose/configs/body_2d_keypoint/rtmo/body7/rtmo-l_16xb16-600e_body7-640x640.py'
                 else:
                     # 默认使用s模型
                     config_file = 'labelme/_automation/mmpose/configs/body_2d_keypoint/rtmpose/coco/rtmpose-s_8xb256-420e_coco-256x192.py'
