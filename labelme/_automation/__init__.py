@@ -7,3 +7,4 @@ AI自动化模块
 """
 
 from labelme._automation.config_loader import ConfigLoader
+from labelme._automation.pose_estimation import PoseEstimator
