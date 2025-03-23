@@ -2764,110 +2764,118 @@ def estimate_poses(
     draw_skeleton: bool = None
 ) -> List[Dict]:
     """
-    检测图像中的人体姿态并返回形状列表（兼容旧API）
+    检测图像中的人体姿态并返回可供标注工具使用的形状列表
 
     Args:
         image: 输入图像
-        model_name: 模型名称
+        model_name: 姿态估计模型名称
         conf_threshold: 置信度阈值
         device: 运行设备
-        existing_person_boxes: 已存在的人体框列表
-        existing_person_boxes_ids: 已存在的人体框ID列表
-        use_detection_results: 是否使用检测结果
-        keypoint_threshold: 关键点置信度阈值
-        advanced_params: 高级参数字典
-        start_group_id: 起始分组ID
+        existing_person_boxes: 已有的人体框列表
+        existing_person_boxes_ids: 已有的人体框ID列表
+        use_detection_results: 是否使用已有的人体框进行姿态估计
+        keypoint_threshold: 关键点阈值
+        advanced_params: 高级参数
+        start_group_id: 分组ID起始值
         draw_skeleton: 是否绘制骨骼
 
     Returns:
-        shapes: 形状列表
+        可供标注工具使用的形状列表
     """
-    try:
-        # 日志记录图像信息和参数
-        img_height, img_width = image.shape[:2]
-        logger.info(
-            f"开始进行姿态估计, 模型: {model_name}, 使用已有人体框: {use_detection_results}, 图像尺寸: {img_width}x{img_height}")
-
-        # 检查并记录边界框信息
-        if existing_person_boxes and len(existing_person_boxes) > 0:
-            for i, box in enumerate(existing_person_boxes):
-                if len(box) >= 4:
-                    logger.debug(
-                        f"边界框 {i}: x1={box[0]:.1f}, y1={box[1]:.1f}, x2={box[2]:.1f}, y2={box[3]:.1f}, 宽={box[2]-box[0]:.1f}, 高={box[3]-box[1]:.1f}")
-
-        # 初始化姿态估计器
-        estimator = PoseEstimator(
-            model_name=model_name,
-            device=device,
-            conf_threshold=conf_threshold,
-            keypoint_threshold=keypoint_threshold,
-            advanced_params=advanced_params,
-            draw_skeleton=draw_skeleton
-        )
-
-        keypoints = []
-        scores = []
-
-        # 如果提供了人体框并且用户选择使用已有框，从框中检测姿态
-        if existing_person_boxes and len(existing_person_boxes) > 0 and (use_detection_results is True):
-            logger.info(f"使用已有的 {len(existing_person_boxes)} 个人体框进行姿态估计")
-
-            # 规范化边界框 - 确保坐标是有效值且在图像范围内
-            valid_boxes = []
-            for box in existing_person_boxes:
-                if len(box) >= 4:
-                    x1 = max(0, min(float(box[0]), img_width - 1))
-                    y1 = max(0, min(float(box[1]), img_height - 1))
-                    x2 = max(0, min(float(box[2]), img_width - 1))
-                    y2 = max(0, min(float(box[3]), img_height - 1))
-
-                    # 确保边界框有效
-                    if x2 > x1 and y2 > y1:
-                        valid_boxes.append([x1, y1, x2, y2])
-
-            if valid_boxes:
-                # 根据模型类型选择不同的处理方法
-                if estimator.is_rtmpose:
-                    logger.info("使用RTMPose从已有人体框进行姿态估计")
-                    keypoints, scores = estimator._detect_rtmpose_from_boxes(
-                        image, valid_boxes)
-                else:
-                    keypoints, scores = estimator.detect_poses_from_boxes(
-                        image, valid_boxes)
-            else:
-                logger.warning("没有有效的边界框，将使用自动检测")
-        else:
-            # 如果没有选择使用已有框或没有提供人体框，使用自动检测
-            logger.info("未启用使用已有框或未提供人体框，使用自动检测")
-            if estimator.is_rtmpose:
-                # 如果是RTMPose模型，优先使用RTMDet进行人体检测
-                keypoints, scores = estimator._detect_rtmpose(image)
-            else:
-                keypoints, scores = estimator.detect_poses(image)
-
-        # 验证并记录关键点信息
-        if keypoints and len(keypoints) > 0:
-            logger.info(f"检测到 {len(keypoints)} 个姿态")
-            for i, person_kpts in enumerate(keypoints):
-                valid_kpts = sum(1 for kpt in person_kpts if len(
-                    kpt) > 2 and kpt[2] > 0)
-                logger.debug(
-                    f"姿态 {i}: 有效关键点数量 {valid_kpts}/{len(person_kpts)}")
-        else:
-            logger.warning("未检测到任何有效姿态")
-
-        # 将姿态结果转换为形状列表
-        group_id = start_group_id
-        if existing_person_boxes_ids and len(existing_person_boxes_ids) > 0 and use_detection_results is True:
-            group_id = existing_person_boxes_ids[0] if existing_person_boxes_ids[0] is not None else start_group_id
-
-        shapes = get_shapes_from_poses(
-            keypoints, scores, group_id, draw_skeleton)
-
-        logger.info(f"姿态估计完成，共检测到 {len(keypoints)} 个姿态，生成 {len(shapes)} 个标注形状")
-        return shapes
-    except Exception as e:
-        logger.error(f"姿态估计过程中出错: {e}")
-        import traceback
-        logger.error(traceback.format_exc())
+    # 记录原始图像尺寸
+    if image is None or image.size == 0:
+        logger.warning("输入图像为空")
         return []
+
+    img_height, img_width = image.shape[:2]
+
+    # 初始化姿态估计器
+    estimator = PoseEstimator(
+        model_name=model_name,
+        conf_threshold=conf_threshold,
+        keypoint_threshold=keypoint_threshold,
+        device=device,
+        advanced_params=advanced_params,
+        draw_skeleton=draw_skeleton
+    )
+
+    # 如果提供了人体框并且用户选择使用已有框，从框中检测姿态
+    if existing_person_boxes and len(existing_person_boxes) > 0 and (use_detection_results is True):
+        logger.info(f"使用已有的 {len(existing_person_boxes)} 个人体框进行姿态估计")
+
+        # 规范化边界框 - 确保坐标是有效值且在图像范围内
+        valid_boxes = []
+        for box in existing_person_boxes:
+            if len(box) >= 4:
+                x1 = max(0, min(float(box[0]), img_width - 1))
+                y1 = max(0, min(float(box[1]), img_height - 1))
+                x2 = max(0, min(float(box[2]), img_width - 1))
+                y2 = max(0, min(float(box[3]), img_height - 1))
+
+                # 确保边界框有效
+                if x2 > x1 and y2 > y1:
+                    valid_boxes.append([x1, y1, x2, y2])
+
+        if valid_boxes:
+            # 根据模型类型选择不同的处理方法
+            if estimator.is_rtmpose:
+                logger.info("使用RTMPose从已有人体框进行姿态估计")
+                keypoints, scores = estimator._detect_rtmpose_from_boxes(
+                    image, valid_boxes)
+            else:
+                keypoints, scores = estimator.detect_poses_from_boxes(
+                    image, valid_boxes)
+        else:
+            logger.warning("没有有效的边界框，将使用自动检测")
+            keypoints, scores = estimator.detect_poses(image)
+    else:
+        # 如果没有选择使用已有框或没有提供人体框，使用自动检测
+        logger.info("未启用使用已有框或未提供人体框，使用自动检测")
+        if estimator.is_rtmpose:
+            # 优化：如果是RTMPose模型且未勾选使用现有人体框，则先使用目标检测功能检测人体框
+            if use_detection_results is False:
+                logger.info("RTMPose模式下未勾选使用已有框，先使用目标检测器检测人体")
+                try:
+                    # 导入目标检测器
+                    from labelme._automation.object_detection import ObjectDetector
+
+                    # 初始化目标检测器（使用用户在设置中配置的参数）
+                    detector = ObjectDetector()
+
+                    # 执行目标检测
+                    boxes, class_ids, scores_det = detector.detect(image)
+
+                    # 筛选人体框（COCO数据集中人的类别id为0或名称为'person'）
+                    person_boxes = []
+                    for i, class_id in enumerate(class_ids):
+                        # 检查是否为人体
+                        is_person = (class_id == 0) or (
+                            detector.class_names[class_id] == 'person')
+                        if is_person and scores_det[i] >= detector.conf_threshold:
+                            person_boxes.append(boxes[i])
+
+                    logger.info(f"目标检测器检测到 {len(person_boxes)} 个人体框")
+
+                    # 如果检测到人体框，则使用这些框进行姿态估计
+                    if person_boxes and len(person_boxes) > 0:
+                        keypoints, scores = estimator._detect_rtmpose_from_boxes(
+                            image, person_boxes)
+                    else:
+                        # 如果没有检测到人体框，则使用原始方法
+                        logger.info("未检测到人体框，使用原始RTMPose检测方法")
+                        keypoints, scores = estimator._detect_rtmpose(image)
+                except Exception as e:
+                    logger.error(f"使用目标检测器检测人体框失败: {e}")
+                    # 出错时回退到原始方法
+                    keypoints, scores = estimator._detect_rtmpose(image)
+            else:
+                # 原始方法
+                keypoints, scores = estimator._detect_rtmpose(image)
+        else:
+            keypoints, scores = estimator.detect_poses(image)
+
+    # 将关键点转换为形状列表
+    shapes = get_shapes_from_poses(
+        keypoints, scores, start_group_id, draw_skeleton)
+
+    return shapes
