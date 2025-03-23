@@ -1447,3 +1447,92 @@ class Canvas(QtWidgets.QWidget):
 
         # 对于其他形状类型，检查边界矩形是否与选择框相交
         return selection_box.intersects(shape_rect)
+
+# 定义SAM分割所需的函数
+
+
+def _update_shape_with_sam(
+    shape: Shape,
+    createMode: str,
+    model_name: str,
+    image_embedding: osam.types.ImageEmbedding,
+) -> None:
+    """使用SAM模型更新形状
+
+    Args:
+        shape: 要更新的形状
+        createMode: 创建模式，可以是"ai_polygon"或"ai_mask"
+        model_name: SAM模型名称
+        image_embedding: 图像嵌入向量
+    """
+    try:
+        # 提取点坐标
+        points = np.array([[p.x(), p.y()] for p in shape.points])
+        if len(points) == 0:
+            logger.warning("No points in shape")
+            return
+
+        # 提取点标签
+        point_labels = np.array(shape.point_labels, dtype=np.int32)
+
+        # 创建SAM请求 - 使用正确的API
+        mask_request = osam.types.GenerateRequest(
+            model=model_name,
+            image_embedding=image_embedding,
+            prompt=osam.types.Prompt(
+                points=points,  # 使用正确的参数名
+                point_labels=point_labels,  # 点标签
+            ),
+        )
+
+        # 生成掩码
+        mask_response = osam.apis.generate(request=mask_request)
+        if not mask_response.annotations:
+            logger.warning("No segmentation mask generated")
+            return
+
+        # 获取生成的掩码 - 修正属性名
+        annotation = mask_response.annotations[0]
+        mask = annotation.mask  # 使用正确的属性名mask而不是segmentation_mask
+
+        if createMode == "ai_mask":
+            # 保存掩码到形状中
+            y_min, x_min = np.min(points, axis=0).astype(int)
+            y_max, x_max = np.max(points, axis=0).astype(int)
+
+            # 确保区域有效
+            h, w = mask.shape
+            x_min = max(0, x_min)
+            y_min = max(0, y_min)
+            x_max = min(w, x_max)
+            y_max = min(h, y_max)
+
+            shape.shape_type = "mask"
+            shape.mask = mask
+            shape.points = [
+                QtCore.QPointF(x_min, y_min),
+                QtCore.QPointF(x_max, y_max),
+            ]
+            shape.point_labels = [1, 1]
+
+        elif createMode == "ai_polygon":
+            # 找到掩码轮廓并转换为多边形点
+            import skimage.measure
+            contours = skimage.measure.find_contours(mask, 0.5)
+            if not contours:
+                logger.warning("No contours found in the mask")
+                return
+
+            # 使用最大轮廓
+            contour = max(contours, key=len)
+
+            # 简化轮廓点，减少点的数量
+            from skimage.measure import approximate_polygon
+            contour = approximate_polygon(contour, tolerance=2.0)
+
+            # 更新形状的点
+            shape.points = [QtCore.QPointF(p[1], p[0]) for p in contour]
+            shape.point_labels = [1] * len(shape.points)
+            shape.shape_type = "polygon"
+    except Exception as e:
+        logger.exception(f"Error in _update_shape_with_sam: {e}")
