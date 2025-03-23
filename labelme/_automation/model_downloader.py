@@ -68,11 +68,42 @@ RTMDET_MODELS_MIRROR = {
 # 设置PyTorch镜像源环境变量
 
 
+def get_automation_dir():
+    """获取_automation目录的路径"""
+    return os.path.dirname(os.path.abspath(__file__))
+
+
+def get_model_dir(model_type):
+    """
+    获取模型存储目录
+
+    Args:
+        model_type: 模型类型，如'yolov7', 'mmpose', 'mmdetection', 'torch'
+
+    Returns:
+        str: 模型存储目录的路径
+    """
+    base_dir = get_automation_dir()
+    model_dir = os.path.join(base_dir, model_type)
+    checkpoint_dir = os.path.join(model_dir, "checkpoints")
+    os.makedirs(checkpoint_dir, exist_ok=True)
+    return checkpoint_dir
+
+
+def get_torch_home():
+    """获取自定义的torch模型目录"""
+    torch_dir = get_model_dir("torch")
+    return torch_dir
+
+
 def set_torch_home():
-    """设置PyTorch模型下载镜像源"""
-    # 注意：这需要在import torch之前设置
-    os.environ['TORCH_HOME'] = os.path.join(
-        os.path.expanduser('~'), '.cache', 'torch')
+    """设置PyTorch模型下载镜像源和模型存储目录"""
+    # 获取自定义的torch模型目录
+    torch_home = get_torch_home()
+
+    # 设置PyTorch模型下载目录（使用自定义目录而不是默认的~/.cache/torch）
+    os.environ['TORCH_HOME'] = torch_home
+
     # 设置PyTorch Hub镜像源
     os.environ['TORCH_MODEL_ZOO'] = 'https://download.pytorch.org/models'
 
@@ -87,32 +118,11 @@ def set_torch_home():
         # 选择一个镜像源
         os.environ['TORCH_MIRROR'] = mirrors[0]
 
+    logger.info(f"设置PyTorch模型下载目录: {os.environ.get('TORCH_HOME')}")
     logger.info(f"设置PyTorch模型下载镜像源: {os.environ.get('TORCH_MIRROR', '使用默认源')}")
 
 
 set_torch_home()
-
-
-def get_automation_dir():
-    """获取_automation目录的路径"""
-    return os.path.dirname(os.path.abspath(__file__))
-
-
-def get_model_dir(model_type):
-    """
-    获取模型存储目录
-
-    Args:
-        model_type: 模型类型，如'yolov7', 'mmpose', 'mmdetection'
-
-    Returns:
-        str: 模型存储目录的路径
-    """
-    base_dir = get_automation_dir()
-    model_dir = os.path.join(base_dir, model_type)
-    checkpoint_dir = os.path.join(model_dir, "checkpoints")
-    os.makedirs(checkpoint_dir, exist_ok=True)
-    return checkpoint_dir
 
 
 def download_file(url, dest_path, chunk_size=8192, use_mirror=True):
@@ -408,7 +418,7 @@ def download_rtmdet_model(model_name="rtmdet_s", dest_dir=None):
 
 def download_torchvision_model(model_name):
     """
-    触发下载Torchvision预训练模型
+    触发下载Torchvision预训练模型到指定目录
 
     Args:
         model_name: 模型名称，例如fasterrcnn_resnet50_fpn
@@ -417,10 +427,14 @@ def download_torchvision_model(model_name):
         bool: 下载是否成功
     """
     try:
+        # 确保torch home目录已经设置为_automation/torch
+        set_torch_home()
+
         import torch
         import torchvision.models.detection as detection_models
 
         logger.info(f"开始下载Torchvision模型: {model_name}")
+        logger.info(f"模型将保存到: {os.environ.get('TORCH_HOME')}")
 
         # 先尝试使用weights参数（新版本torchvision）
         try:

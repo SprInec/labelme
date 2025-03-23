@@ -127,6 +127,13 @@ class ObjectDetector:
         from torchvision.models.detection.faster_rcnn import FastRCNNPredictor
         from torchvision.models.detection.transform import GeneralizedRCNNTransform
 
+        # 确保TORCH_HOME已设置为_automation/torch目录
+        try:
+            from labelme._automation.model_downloader import set_torch_home
+            set_torch_home()
+        except Exception as e:
+            logger.warning(f"设置TORCH_HOME失败: {e}")
+
         # 尝试预下载模型（如果需要）
         try:
             from labelme._automation.model_downloader import download_torchvision_model
