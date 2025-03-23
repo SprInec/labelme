@@ -68,6 +68,7 @@ class PoseEstimator:
         Args:
             model_name: 模型名称，可选值: 
                 - rtmpose_tiny, rtmpose_s, rtmpose_m, rtmpose_l (RTMPose模型)
+                - hrnet_w32, hrnet_w32_udp, hrnet_w48, hrnet_w48_udp (HRNet模型)
                 - yolov7_w6_pose (YOLOv7-Pose模型)
                 - keypointrcnn_resnet50_fpn (KeypointRCNN模型)
             device: 运行设备 ('cpu' 或 'cuda')
@@ -100,11 +101,13 @@ class PoseEstimator:
 
         # 检查是否是RTMPose模型
         self.is_rtmpose = self.model_name.startswith("rtmpose")
+        # 检查是否是HRNet模型
+        self.is_hrnet = self.model_name.startswith("hrnet")
         # 检查是否是KeypointRCNN模型
         self.is_keypointrcnn = self.model_name == "keypointrcnn_resnet50_fpn"
 
-        # 如果不是RTMPose模型且不是KeypointRCNN模型，检查是否可以导入YOLOv7依赖
-        if not self.is_rtmpose and not self.is_keypointrcnn:
+        # 如果不是RTMPose模型、HRNet模型且不是KeypointRCNN模型，检查是否可以导入YOLOv7依赖
+        if not self.is_rtmpose and not self.is_hrnet and not self.is_keypointrcnn:
             try:
                 from labelme._automation.yolov7.models.experimental import attempt_load
                 from labelme._automation.yolov7.utils.general import check_img_size, non_max_suppression_kpt
@@ -132,12 +135,205 @@ class PoseEstimator:
             # 判断是否是RTMPose模型
             if self.is_rtmpose:
                 return self._load_rtmpose_model()
+            elif self.is_hrnet:
+                return self._load_hrnet_model()
             elif self.is_keypointrcnn:
                 return self._load_keypointrcnn_model()
             else:
                 return self._load_yolov7_pose_model()
         except Exception as e:
             logger.error(f"加载姿态估计模型失败: {e}")
+            raise
+
+    def _load_hrnet_model(self):
+        """加载HRNet姿态估计模型"""
+        try:
+            # 尝试导入MMPose相关依赖
+            try:
+                import torch
+                import mmpose
+                from mmpose.apis import inference_topdown, init_model
+                from mmpose.evaluation.functional import nms
+                from mmpose.structures import merge_data_samples
+                from mmpose.registry import VISUALIZERS
+                from mmengine.registry import init_default_scope
+                # 导入检测模型所需库
+                try:
+                    from mmdet.apis import init_detector, inference_detector
+                    HAS_MMDET = True
+                except ImportError:
+                    HAS_MMDET = False
+                    logger.warning(
+                        "MMDet未安装，无法使用RTMDet进行人体检测。请安装mmdet：pip install mmdet")
+
+                HAS_MMPOSE = True
+            except ImportError:
+                HAS_MMPOSE = False
+                logger.warning(
+                    "MMPose未安装，无法使用HRNet模型。请安装mmpose：pip install openmim && mim install mmpose>=1.2.0")
+                raise ImportError(
+                    "MMPose未安装，无法使用HRNet模型。请安装mmpose：pip install openmim && mim install mmpose>=1.2.0")
+
+            # 初始化默认作用域为mmpose
+            init_default_scope('mmpose')
+
+            # HRNet模型配置和权重映射
+            hrnet_configs = {
+                "hrnet_w32": {
+                    "config": "td-hm_hrnet-w32_8xb64-210e_coco-256x192.py",
+                    "checkpoint": "hrnet_w32_coco_256x192-c78dce93_20200708.pth"
+                },
+                "hrnet_w32_udp": {
+                    "config": "td-hm_hrnet-w32_udp-8xb64-210e_coco-256x192.py",
+                    "checkpoint": "hrnet_w32_coco_256x192_udp-aba0be42_20220624.pth"
+                },
+                "hrnet_w48": {
+                    "config": "td-hm_hrnet-w48_8xb32-210e_coco-256x192.py",
+                    "checkpoint": "hrnet_w48_coco_256x192-b9e0b3ab_20200708.pth"
+                },
+                "hrnet_w48_udp": {
+                    "config": "td-hm_hrnet-w48_udp-8xb32-210e_coco-256x192.py",
+                    "checkpoint": "hrnet_w48_coco_256x192_udp-7f9d1e8a_20220624.pth"
+                }
+            }
+
+            # RTMDet人体检测配置
+            rtmdet_config = {
+                "config": "rtmdet_m_8xb32-300e_coco.py",
+                "checkpoint": "rtmdet_m_8xb32-300e_coco_20220719_112220-229f527c.pth"
+            }
+
+            if self.model_name not in hrnet_configs:
+                logger.warning(f"未知的HRNet模型: {self.model_name}，使用hrnet_w32")
+                self.model_name = "hrnet_w32"
+
+            # 获取模型配置和权重
+            model_config = hrnet_configs[self.model_name]
+
+            # 检查是否有本地配置文件，否则使用MMPose默认配置
+            config_file = model_config["config"]
+
+            # 首先检查当前目录是否有配置文件
+            if not os.path.exists(config_file):
+                # 检查mmpose目录下是否有配置文件
+                mmpose_config_path = os.path.join(os.path.dirname(
+                    __file__), "mmpose", "configs", "body_2d_keypoint", "topdown_heatmap", "coco", config_file)
+                if os.path.exists(mmpose_config_path):
+                    logger.info(f"使用本地mmpose目录中的配置文件: {mmpose_config_path}")
+                    config_file = mmpose_config_path
+                else:
+                    # 使用MMPose默认配置
+                    logger.info(
+                        f"使用MMPose默认配置: body_2d_keypoint/topdown_heatmap/coco/{config_file}")
+                    config_file = f"body_2d_keypoint/topdown_heatmap/coco/{config_file}"
+
+            # 检查是否有本地RTMDet配置文件，否则使用MMDet默认配置
+            rtmdet_config_file = rtmdet_config["config"]
+            if not os.path.exists(rtmdet_config_file) and HAS_MMDET:
+                # 使用MMDet默认配置
+                logger.info(f"使用MMDet默认配置: {rtmdet_config_file}")
+                rtmdet_config_file = f"rtmdet/{rtmdet_config_file}"
+
+            # 初始化RTMDet检测模型(如果可用)
+            self.detector_model = None
+            if HAS_MMDET:
+                try:
+                    # 尝试从网络下载RTMDet权重文件
+                    try:
+                        from labelme._automation.model_downloader import download_mmdet_model
+                        logger.info(f"尝试下载RTMDet-m检测模型")
+                        checkpoint_path = download_mmdet_model("rtmdet_m")
+                        if checkpoint_path:
+                            logger.info(f"RTMDet-m模型下载成功: {checkpoint_path}")
+                            rtmdet_checkpoint_file = checkpoint_path
+                        else:
+                            # 如果下载失败，使用MMDet默认权重
+                            logger.warning(f"RTMDet-m模型下载失败, 使用MMDet默认权重")
+                            rtmdet_checkpoint_file = None
+                    except Exception as e:
+                        logger.warning(f"下载RTMDet-m模型失败: {e}, 使用MMDet默认权重")
+                        rtmdet_checkpoint_file = None
+
+                    # 初始化RTMDet模型
+                    from mmdet.apis import init_detector
+                    init_default_scope('mmdet')
+                    self.detector_model = init_detector(
+                        rtmdet_config_file,
+                        rtmdet_checkpoint_file,
+                        device=self.device
+                    )
+                    logger.info("RTMDet-m人体检测模型加载成功")
+
+                    # 重新设置默认作用域为mmpose
+                    init_default_scope('mmpose')
+                except Exception as e:
+                    logger.warning(f"加载RTMDet-m模型失败: {e}，将仅使用HRNet模型")
+                    self.detector_model = None
+
+            # 检查是否有本地权重文件，否则使用MMPose默认权重
+            checkpoint_file = model_config["checkpoint"]
+
+            # 首先在_automation/mmpose/checkpoints目录查找
+            try:
+                from labelme._automation.model_downloader import get_model_dir, download_rtmpose_model
+                local_checkpoint_dir = get_model_dir("mmpose")
+                local_checkpoint_path = os.path.join(
+                    local_checkpoint_dir, f"{self.model_name}.pth")
+                if os.path.exists(local_checkpoint_path):
+                    logger.info(
+                        f"在本地目录找到HRNet模型权重文件: {local_checkpoint_path}")
+                    checkpoint_file = local_checkpoint_path
+                else:
+                    # 检查原有的缓存目录
+                    checkpoint_dir = os.path.join(os.path.expanduser(
+                        "~"), ".cache", "torch", "hub", "checkpoints")
+                    checkpoint_path = os.path.join(
+                        checkpoint_dir, checkpoint_file)
+
+                    if os.path.exists(checkpoint_path):
+                        logger.info(f"在缓存目录找到HRNet模型权重文件: {checkpoint_path}")
+                        checkpoint_file = checkpoint_path
+                    else:
+                        # 尝试从网络下载权重文件
+                        logger.info(f"模型权重不存在，尝试从网络下载: {self.model_name}")
+                        checkpoint_path = download_rtmpose_model(
+                            self.model_name)
+                        if checkpoint_path:
+                            logger.info(f"模型下载成功: {checkpoint_path}")
+                            checkpoint_file = checkpoint_path
+                        else:
+                            # 如果下载失败，使用MMPose默认权重
+                            logger.warning(f"模型下载失败，使用MMPose默认权重")
+                            checkpoint_file = None
+            except Exception as e:
+                logger.warning(f"查找模型路径时出错: {e}，尝试使用默认路径")
+                checkpoint_dir = os.path.join(os.path.expanduser(
+                    "~"), ".cache", "torch", "hub", "checkpoints")
+                checkpoint_path = os.path.join(checkpoint_dir, checkpoint_file)
+
+                if os.path.exists(checkpoint_path):
+                    checkpoint_file = checkpoint_path
+                else:
+                    # 如果下载失败，使用MMPose默认权重
+                    logger.warning(f"找不到模型权重，使用MMPose默认权重")
+                    checkpoint_file = None
+
+            # 初始化模型
+            model = init_model(
+                config_file,
+                checkpoint_file,
+                device=self.device,
+                cfg_options={'model': {'test_cfg': {'output_heatmaps': True}}}
+            )
+
+            # 存储可视化器
+            self.visualizer = VISUALIZERS.build(model.cfg.visualizer)
+            self.visualizer.set_dataset_meta(model.dataset_meta)
+
+            logger.info(f"HRNet模型 {self.model_name} 加载成功")
+            return model
+        except Exception as e:
+            logger.error(f"加载HRNet模型失败: {e}")
             raise
 
     def _load_keypointrcnn_model(self):
@@ -210,9 +406,9 @@ class PoseEstimator:
 
             # 导入YOLOv7依赖
             try:
-                from models.experimental import attempt_load
-                from utils.torch_utils import select_device
-                from utils.general import check_img_size
+                from labelme._automation.yolov7.models.experimental import attempt_load
+                from labelme._automation.yolov7.utils.torch_utils import select_device
+                from labelme._automation.yolov7.utils.general import check_img_size
                 print("成功导入YOLOv7依赖")
             except ImportError as e:
                 print(f"导入YOLOv7依赖失败: {e}")
@@ -408,10 +604,10 @@ class PoseEstimator:
                             rtmdet_checkpoint_file = checkpoint_path
                         else:
                             # 如果下载失败，使用MMDet默认权重
-                            logger.warning(f"RTMDet-m模型下载失败，使用MMDet默认权重")
+                            logger.warning(f"RTMDet-m模型下载失败, 使用MMDet默认权重")
                             rtmdet_checkpoint_file = None
                     except Exception as e:
-                        logger.warning(f"下载RTMDet-m模型失败: {e}，使用MMDet默认权重")
+                        logger.warning(f"下载RTMDet-m模型失败: {e}, 使用MMDet默认权重")
                         rtmdet_checkpoint_file = None
 
                     # 初始化RTMDet模型
@@ -787,25 +983,36 @@ class PoseEstimator:
             return [], []
 
     def detect_poses_from_boxes(self, image: np.ndarray, boxes: List[List[float]]) -> Tuple[List[List[List[float]]], List[float]]:
-        """
-        从边界框中检测人体姿态
+        """从已有的人体检测框中检测姿态
 
         Args:
-            image: 输入图像 (BGR格式)
-            boxes: 边界框列表 [N, 4] - (x1, y1, x2, y2)
+            image: 输入图像
+            boxes: 人体检测框列表 (x_min, y_min, x_max, y_max)
 
         Returns:
             keypoints: 关键点列表 [N, K, 3] - (x, y, conf)
             scores: 人体检测的置信度列表 [N]
         """
-        # 判断是否使用RTMPose模型
-        if self.is_rtmpose:
-            return self._detect_rtmpose_from_boxes(image, boxes)
-        elif self.is_keypointrcnn:
-            return self._detect_keypointrcnn_from_boxes(image, boxes)
-        else:
-            # YOLOv7 Pose也支持从边界框中检测姿态
-            return self._detect_yolov7_pose_from_boxes(image, boxes)
+        try:
+            # 根据模型类型选择不同的检测方法
+            if self.is_rtmpose:
+                return self._detect_rtmpose_from_boxes(image, boxes)
+            elif self.is_hrnet:
+                return self._detect_hrnet_from_boxes(image, boxes)
+            elif self.is_keypointrcnn:
+                return self._detect_keypointrcnn_from_boxes(image, boxes)
+            else:
+                return self._detect_yolov7_pose_from_boxes(image, boxes)
+        except Exception as e:
+            logger.error(f"从检测框检测姿态失败: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
+            # 尝试使用备用方法
+            try:
+                return self._detect_keypointrcnn_from_boxes(image, boxes)
+            except Exception as backup_e:
+                logger.error(f"备用姿态检测方法也失败: {backup_e}")
+                return [], []
 
     def _detect_yolov7_pose_from_boxes(self, image: np.ndarray, boxes: List[List[float]]) -> Tuple[List[List[List[float]]], List[float]]:
         """使用YOLOv7-pose从给定的边界框中检测姿态"""
@@ -1170,6 +1377,9 @@ class PoseEstimator:
             # 根据模型类型选择不同的可视化方法
             if self.model_name.startswith("rtmpose"):
                 return self._visualize_rtmpose(image, keypoints, scores)
+            elif self.model_name.startswith("hrnet"):
+                # HRNet 姿态估计模型的可视化
+                return self._visualize_hrnet(image, keypoints, scores)
             elif self.model_name == "yolov7_w6_pose":
                 # YOLOv7 姿态估计模型的可视化
                 return self._visualize_poses_generic(image, keypoints, scores)
@@ -1848,7 +2058,40 @@ class PoseEstimator:
 
     def detect_poses(self, image: np.ndarray) -> Tuple[List[List[List[float]]], List[float]]:
         """
-        检测图像中的所有人体姿态
+        检测图像中的人体姿态
+
+        Args:
+            image: 输入图像数组
+
+        Returns:
+            (keypoints, scores): 关键点列表和置信度列表
+        """
+        start_time = time.time()
+
+        # 检查图像有效性
+        if image is None or image.size == 0:
+            logger.warning("输入图像为空")
+            return [], []
+
+        # 使用不同的检测方法
+        if self.is_rtmpose:
+            keypoints, scores = self._detect_rtmpose(image)
+        elif self.is_hrnet:
+            keypoints, scores = self._detect_hrnet(image)
+        elif self.is_keypointrcnn:
+            keypoints, scores = self._detect_keypointrcnn(image)
+        else:
+            keypoints, scores = self._detect_yolov7_pose(image)
+
+        end_time = time.time()
+        logger.info(f"姿态估计耗时: {end_time - start_time:.2f}秒")
+
+        # 返回检测结果
+        return keypoints, scores
+
+    def _detect_hrnet(self, image: np.ndarray) -> Tuple[List[List[List[float]]], List[float]]:
+        """
+        使用HRNet模型检测图像中的人体姿态
 
         Args:
             image: 输入图像
@@ -1858,23 +2101,236 @@ class PoseEstimator:
             scores: 人体检测的置信度列表 [N]
         """
         try:
-            # 根据模型类型选择相应的检测方法
-            if self.is_rtmpose:
-                return self._detect_rtmpose(image)
-            elif self.is_keypointrcnn:
-                return self._detect_keypointrcnn(image)
+            import torch
+            from mmpose.apis import inference_topdown
+            from mmpose.evaluation.functional import nms
+            from mmpose.structures import merge_data_samples
+            from mmdet.apis import inference_detector
+
+            # 保存原始图像尺寸
+            img_h, img_w = image.shape[:2]
+
+            # 获取检测结果
+            if self.detector_model is not None:
+                # 使用RTMDet模型进行人体检测
+                det_result = inference_detector(self.detector_model, image)
+                pred_instance = det_result.pred_instances.cpu().numpy()
+
+                # 过滤置信度较低的检测框
+                bboxes = np.concatenate(
+                    (pred_instance.bboxes, pred_instance.scores[:, None]), axis=1)
+                bboxes = bboxes[np.logical_and(
+                    pred_instance.labels == 0, pred_instance.scores > self.conf_threshold)]
+
+                # 应用NMS
+                bboxes = bboxes[nms(bboxes, 0.3)][:, :4]
             else:
-                return self._detect_yolov7_pose(image)
+                # 如果没有检测模型，则假设整个图像都是人体
+                bboxes = np.array([[0, 0, img_w, img_h]])
+
+            # 如果没有检测到人体
+            if len(bboxes) == 0:
+                logger.info("没有检测到人体")
+                return [], []
+
+            # 使用HRNet模型进行关键点检测
+            pose_results = inference_topdown(self.model, image, bboxes)
+
+            # 合并结果
+            data_samples = merge_data_samples(pose_results)
+
+            # 提取关键点和置信度
+            keypoints_data = []
+            scores_data = []
+
+            # 检查姿态结果
+            for i, pose_result in enumerate(pose_results):
+                # 获取关键点
+                instance_keypoints = pose_result.pred_instances.keypoints
+                instance_keypoint_scores = pose_result.pred_instances.keypoint_scores
+
+                # 转换为需要的格式 [K, 3] - (x, y, conf)
+                kpts = []
+                for j in range(len(instance_keypoints[0])):
+                    x, y = instance_keypoints[0][j]
+                    conf = float(instance_keypoint_scores[0][j])
+                    kpts.append([float(x), float(y), conf])
+
+                keypoints_data.append(kpts)
+
+                # 使用检测框的置信度作为整体置信度
+                if self.detector_model is not None and i < len(bboxes):
+                    score = float(pred_instance.scores[i]) if i < len(
+                        pred_instance.scores) else 1.0
+                else:
+                    score = 1.0
+                scores_data.append(score)
+
+            return keypoints_data, scores_data
+
         except Exception as e:
-            logger.error(f"姿态检测失败: {e}")
+            logger.error(f"HRNet姿态检测失败: {e}")
             import traceback
             logger.error(traceback.format_exc())
-            # 尝试使用备用方法
-            try:
-                return self._detect_keypointrcnn_backup(image)
-            except Exception as backup_e:
-                logger.error(f"备用姿态检测方法也失败: {backup_e}")
+            return [], []
+
+    def _visualize_hrnet(self, image: np.ndarray, keypoints: List[List[List[float]]], scores: List[float] = None) -> np.ndarray:
+        """使用HRNet模型的可视化功能
+
+        Args:
+            image: 输入图像
+            keypoints: 关键点列表 [N, K, 3] - (x, y, conf)
+            scores: 人体置信度列表 [N]
+
+        Returns:
+            np.ndarray: 可视化后的图像
+        """
+        try:
+            from mmpose.structures import merge_data_samples
+
+            # 如果没有检测到姿态，则直接返回原图
+            if not keypoints or len(keypoints) == 0:
+                return image.copy()
+
+            # 复制图像
+            img = image.copy()
+
+            # 准备可视化所需的数据结构
+            # 创建假的检测框（与关键点匹配）
+            bboxes = []
+            for person_kpts in keypoints:
+                valid_points = np.array(
+                    [(p[0], p[1]) for p in person_kpts if p[2] > self.keypoint_threshold])
+                if len(valid_points) > 0:
+                    x_min, y_min = valid_points.min(axis=0)
+                    x_max, y_max = valid_points.max(axis=0)
+                    # 扩大bounding box
+                    width = x_max - x_min
+                    height = y_max - y_min
+                    x_min = max(0, x_min - width * 0.1)
+                    y_min = max(0, y_min - height * 0.1)
+                    x_max = min(img.shape[1], x_max + width * 0.1)
+                    y_max = min(img.shape[0], y_max + height * 0.1)
+                    bboxes.append([x_min, y_min, x_max, y_max])
+                else:
+                    # 如果没有有效点，则使用整个图像
+                    bboxes.append([0, 0, img.shape[1], img.shape[0]])
+
+            # 转换为numpy数组
+            bboxes = np.array(bboxes, dtype=np.float32)
+
+            # 构造mmpose数据样本
+            from mmpose.structures import PoseDataSample, InstanceData
+            import torch
+
+            pose_samples = []
+            for i, person_kpts in enumerate(keypoints):
+                pose_sample = PoseDataSample()
+                keypoints_tensor = torch.tensor(
+                    [[[kpt[0], kpt[1]] for kpt in person_kpts]], device=self.device)
+                keypoint_scores_tensor = torch.tensor(
+                    [[kpt[2] for kpt in person_kpts]], device=self.device)
+
+                pred_instances = InstanceData()
+                pred_instances.keypoints = keypoints_tensor
+                pred_instances.keypoint_scores = keypoint_scores_tensor
+                if len(bboxes) > i:
+                    bbox = bboxes[i]
+                    pred_instances.bboxes = torch.tensor(
+                        [[bbox[0], bbox[1], bbox[2], bbox[3]]], device=self.device)
+                    pred_instances.scores = torch.tensor(
+                        [scores[i] if scores and i < len(scores) else 1.0], device=self.device)
+
+                pose_sample.pred_instances = pred_instances
+                pose_samples.append(pose_sample)
+
+            # 合并数据样本
+            merged_sample = merge_data_samples(pose_samples)
+
+            # 使用mmpose的visualizer进行可视化
+            # 调整可视化参数
+            self.visualizer.radius = 4  # 关键点半径
+            self.visualizer.line_width = 2  # 线宽
+            if hasattr(self.visualizer, 'kpt_thr'):
+                self.visualizer.kpt_thr = self.keypoint_threshold  # 关键点阈值
+
+            # 进行可视化
+            vis_img = self.visualizer.add_datasample(
+                'result',
+                img,
+                data_sample=merged_sample,
+                draw_gt=False,
+                draw_bbox=True,
+                draw_heatmap=False,
+                show_kpt_idx=False,
+                show=False
+            )
+
+            return vis_img
+        except Exception as e:
+            logger.error(f"HRNet可视化失败: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
+            # 如果可视化失败，则回退到通用可视化方法
+            return self._visualize_poses_generic(image, keypoints, scores)
+
+    def _detect_hrnet_from_boxes(self, image: np.ndarray, boxes: List[List[float]]) -> Tuple[List[List[List[float]]], List[float]]:
+        """
+        使用HRNet模型从边界框中检测人体姿态
+
+        Args:
+            image: 输入图像
+            boxes: 边界框列表 [N, 4] - (x1, y1, x2, y2)
+
+        Returns:
+            keypoints: 关键点列表 [N, K, 3] - (x, y, conf)
+            scores: 人体检测的置信度列表 [N]
+        """
+        try:
+            import torch
+            from mmpose.apis import inference_topdown
+            from mmpose.structures import merge_data_samples
+
+            # 如果没有检测框，则返回空结果
+            if not boxes or len(boxes) == 0:
+                logger.info("没有检测框")
                 return [], []
+
+            # 转换边界框格式为numpy数组
+            bboxes = np.array(boxes, dtype=np.float32)
+
+            # 使用HRNet模型进行关键点检测
+            pose_results = inference_topdown(self.model, image, bboxes)
+
+            # 提取关键点和置信度
+            keypoints_data = []
+            scores_data = []
+
+            # 检查姿态结果
+            for i, pose_result in enumerate(pose_results):
+                # 获取关键点
+                instance_keypoints = pose_result.pred_instances.keypoints
+                instance_keypoint_scores = pose_result.pred_instances.keypoint_scores
+
+                # 转换为需要的格式 [K, 3] - (x, y, conf)
+                kpts = []
+                for j in range(len(instance_keypoints[0])):
+                    x, y = instance_keypoints[0][j]
+                    conf = float(instance_keypoint_scores[0][j])
+                    kpts.append([float(x), float(y), conf])
+
+                keypoints_data.append(kpts)
+
+                # 使用检测框的置信度作为整体置信度（如无则设为1.0）
+                scores_data.append(1.0)
+
+            return keypoints_data, scores_data
+
+        except Exception as e:
+            logger.error(f"HRNet从边界框检测姿态失败: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
+            return [], []
 
 
 def get_shapes_from_poses(

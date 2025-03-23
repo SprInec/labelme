@@ -1,0 +1,3 @@
+[submodule "mmpose"]
+	path = labelme/_automation/mmpose
+	url = https://github.com/open-mmlab/mmpose.git

@@ -261,6 +261,31 @@ RTMPOSE_MODEL_LINKS = {
             "https://download.openmmlab.com/mmpose/top_down/resnet/res152_coco_384x288-3860d4c9_20200709.pth"
         ]
     },
+    # 添加HRNet模型
+    "hrnet_w32": {
+        "original": "https://download.openmmlab.com/mmpose/top_down/hrnet/hrnet_w32_coco_256x192-c78dce93_20200708.pth",
+        "backup": [
+            "https://mirror.openmmlab.com/mmpose/top_down/hrnet/hrnet_w32_coco_256x192-c78dce93_20200708.pth"
+        ]
+    },
+    "hrnet_w32_udp": {
+        "original": "https://download.openmmlab.com/mmpose/top_down/hrnet/hrnet_w32_coco_256x192_udp-aba0be42_20220624.pth",
+        "backup": [
+            "https://mirror.openmmlab.com/mmpose/top_down/hrnet/hrnet_w32_coco_256x192_udp-aba0be42_20220624.pth"
+        ]
+    },
+    "hrnet_w48": {
+        "original": "https://download.openmmlab.com/mmpose/top_down/hrnet/hrnet_w48_coco_256x192-b9e0b3ab_20200708.pth",
+        "backup": [
+            "https://mirror.openmmlab.com/mmpose/top_down/hrnet/hrnet_w48_coco_256x192-b9e0b3ab_20200708.pth"
+        ]
+    },
+    "hrnet_w48_udp": {
+        "original": "https://download.openmmlab.com/mmpose/top_down/hrnet/hrnet_w48_coco_256x192_udp-7f9d1e8a_20220624.pth",
+        "backup": [
+            "https://mirror.openmmlab.com/mmpose/top_down/hrnet/hrnet_w48_coco_256x192_udp-7f9d1e8a_20220624.pth"
+        ]
+    }
 }
 
 

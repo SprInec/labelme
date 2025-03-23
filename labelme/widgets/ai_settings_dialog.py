@@ -661,6 +661,11 @@ class AISettingsDialog(QtWidgets.QDialog):
         self.pose_model_name.addItem("RTMPose-Small", "rtmpose_s")
         self.pose_model_name.addItem("RTMPose-Medium", "rtmpose_m")
         self.pose_model_name.addItem("RTMPose-Large", "rtmpose_l")
+        # 添加HRNet模型选项
+        self.pose_model_name.addItem("HRNet-W32", "hrnet_w32")
+        self.pose_model_name.addItem("HRNet-W32-UDP", "hrnet_w32_udp")
+        self.pose_model_name.addItem("HRNet-W48", "hrnet_w48")
+        self.pose_model_name.addItem("HRNet-W48-UDP", "hrnet_w48_udp")
         self.pose_model_name.addItem("YOLOv7-Pose", "yolov7_w6_pose")
         self.pose_model_name.addItem("自定义模型", "custom")
         self.pose_model_name.currentIndexChanged.connect(
@@ -929,5 +934,6 @@ class AISettingsDialog(QtWidgets.QDialog):
 
         # 根据模型类型显示/隐藏特定设置
         is_rtmpose = model_key.startswith("rtmpose")
-        # RTMPose模型特有的设置
-        self.pose_tracking_widget.setVisible(is_rtmpose)
+        is_hrnet = model_key.startswith("hrnet")
+        # RTMPose和HRNet模型特有的设置
+        self.pose_tracking_widget.setVisible(is_rtmpose or is_hrnet)
