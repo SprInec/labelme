@@ -264,6 +264,15 @@ class PoseEstimator:
                 from mmpose.structures import merge_data_samples
                 from mmpose.registry import VISUALIZERS
                 from mmengine.registry import init_default_scope
+                # 导入检测模型所需库
+                try:
+                    from mmdet.apis import init_detector, inference_detector
+                    HAS_MMDET = True
+                except ImportError:
+                    HAS_MMDET = False
+                    logger.warning(
+                        "MMDet未安装，无法使用RTMDet进行人体检测。请安装mmdet：pip install mmdet")
+
                 HAS_MMPOSE = True
             except ImportError:
                 HAS_MMPOSE = False
@@ -295,6 +304,12 @@ class PoseEstimator:
                 }
             }
 
+            # RTMDet人体检测配置
+            rtmdet_config = {
+                "config": "rtmdet_m_8xb32-300e_coco.py",
+                "checkpoint": "rtmdet_m_8xb32-300e_coco_20220719_112220-229f527c.pth"
+            }
+
             if self.model_name not in rtmpose_configs:
                 logger.warning(f"未知的RTMPose模型: {self.model_name}，使用rtmpose_s")
                 self.model_name = "rtmpose_s"
@@ -318,6 +333,49 @@ class PoseEstimator:
                     logger.info(
                         f"使用MMPose默认配置: body_2d_keypoint/rtmpose/{config_file}")
                     config_file = f"body_2d_keypoint/rtmpose/{config_file}"
+
+            # 检查是否有本地RTMDet配置文件，否则使用MMDet默认配置
+            rtmdet_config_file = rtmdet_config["config"]
+            if not os.path.exists(rtmdet_config_file) and HAS_MMDET:
+                # 使用MMDet默认配置
+                logger.info(f"使用MMDet默认配置: {rtmdet_config_file}")
+                rtmdet_config_file = f"rtmdet/{rtmdet_config_file}"
+
+            # 初始化RTMDet检测模型(如果可用)
+            self.detector_model = None
+            if HAS_MMDET:
+                try:
+                    # 尝试从网络下载RTMDet权重文件
+                    try:
+                        from labelme._automation.model_downloader import download_mmdet_model
+                        logger.info(f"尝试下载RTMDet-m检测模型")
+                        checkpoint_path = download_mmdet_model("rtmdet_m")
+                        if checkpoint_path:
+                            logger.info(f"RTMDet-m模型下载成功: {checkpoint_path}")
+                            rtmdet_checkpoint_file = checkpoint_path
+                        else:
+                            # 如果下载失败，使用MMDet默认权重
+                            logger.warning(f"RTMDet-m模型下载失败，使用MMDet默认权重")
+                            rtmdet_checkpoint_file = None
+                    except Exception as e:
+                        logger.warning(f"下载RTMDet-m模型失败: {e}，使用MMDet默认权重")
+                        rtmdet_checkpoint_file = None
+
+                    # 初始化RTMDet模型
+                    from mmdet.apis import init_detector
+                    init_default_scope('mmdet')
+                    self.detector_model = init_detector(
+                        rtmdet_config_file,
+                        rtmdet_checkpoint_file,
+                        device=self.device
+                    )
+                    logger.info("RTMDet-m人体检测模型加载成功")
+
+                    # 重新设置默认作用域为mmpose
+                    init_default_scope('mmpose')
+                except Exception as e:
+                    logger.warning(f"加载RTMDet-m模型失败: {e}，将仅使用RTMPose模型")
+                    self.detector_model = None
 
             # 检查是否有本地权重文件，否则使用MMPose默认权重
             checkpoint_file = model_config["checkpoint"]
@@ -396,14 +454,17 @@ class PoseEstimator:
             self.visualizer = VISUALIZERS.build(model.cfg.visualizer)
             self.visualizer.set_dataset_meta(model.dataset_meta)
 
+            # 确保有KeypointRCNN备用模型
+            self._init_keypointrcnn_backup()
+
             logger.info(f"RTMPose模型加载成功: {self.model_name}")
             return model
         except Exception as e:
             logger.error(f"加载RTMPose模型失败: {e}")
             raise
 
-    def _load_keypointrcnn_model(self):
-        """加载KeypointRCNN模型"""
+    def _init_keypointrcnn_backup(self):
+        """初始化KeypointRCNN备用模型"""
         try:
             import torchvision
             import torch
@@ -425,7 +486,7 @@ class PoseEstimator:
 
             # 尝试使用新接口加载预训练的KeypointRCNN模型
             try:
-                model = detection_models.keypointrcnn_resnet50_fpn(
+                keypointrcnn_model = detection_models.keypointrcnn_resnet50_fpn(
                     weights="DEFAULT",
                     progress=True,
                     num_keypoints=17,
@@ -435,7 +496,7 @@ class PoseEstimator:
                 logger.warning(
                     f"使用weights参数加载模型失败: {e}，尝试使用旧版接口 (pretrained=True)")
                 # 尝试使用旧接口
-                model = detection_models.keypointrcnn_resnet50_fpn(
+                keypointrcnn_model = detection_models.keypointrcnn_resnet50_fpn(
                     pretrained=True,
                     progress=True,
                     num_keypoints=17,
@@ -443,41 +504,117 @@ class PoseEstimator:
                 )
 
             # 设置为评估模式
-            model.eval()
+            keypointrcnn_model.eval()
 
             # 如果使用CUDA且可用
             if self.device == 'cuda' and torch.cuda.is_available():
-                model = model.to('cuda')
+                keypointrcnn_model = keypointrcnn_model.to('cuda')
 
-            logger.info(f"KeypointRCNN模型加载成功: {self.model_name}")
-            return model
+            logger.info(f"KeypointRCNN备用模型加载成功")
+            self.keypointrcnn_model = keypointrcnn_model
+            return keypointrcnn_model
         except Exception as e:
-            logger.error(f"加载KeypointRCNN模型失败: {e}")
-            raise
+            logger.error(f"加载KeypointRCNN备用模型失败: {e}")
+            self.keypointrcnn_model = None
+            return None
 
-    def detect_poses(self, image: np.ndarray) -> Tuple[List[List[List[float]]], List[float]]:
+    def _detect_rtmpose(self, image: np.ndarray) -> Tuple[List[List[List[float]]], List[float]]:
         """
-        检测图像中的人体姿态关键点
+        使用RTMPose检测整张图像中的姿态
 
         Args:
-            image: 输入图像 (BGR格式)
+            image: 输入图像
 
         Returns:
             keypoints: 关键点列表 [N, K, 3] - (x, y, conf)
             scores: 人体检测的置信度列表 [N]
         """
-        logger.debug(f"使用模型 {self.model_name} 进行姿态检测")
+        try:
+            # 导入必要的库
+            try:
+                from mmpose.apis import inference_topdown
+                from mmdet.apis import inference_detector
+            except ImportError as e:
+                logger.error(f"导入mmpose或mmdet库失败: {e}")
+                return self._detect_keypointrcnn_backup(image)
 
-        # 使用对应的检测方法
-        if self.model_name.startswith("rtmpose"):
-            return self._detect_rtmpose(image)
-        elif self.model_name == "yolov7_w6_pose":
-            return self._detect_yolov7_pose(image)
-        elif self.model_name == "keypointrcnn_resnet50_fpn":
-            return self._detect_keypointrcnn(image)
-        else:
-            logger.warning(f"未知的姿态估计模型: {self.model_name}，使用KeypointRCNN")
-            return self._detect_keypointrcnn(image)
+            # 确保图像是RGB格式
+            if image.shape[-1] != 3:
+                logger.warning(f"输入图像通道数为{image.shape[-1]}，转换为RGB")
+                if len(image.shape) == 2:  # 灰度图像
+                    image = cv2.cvtColor(image, cv2.COLOR_GRAY2RGB)
+                else:
+                    # 尝试转换为RGB
+                    image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+
+            # 记录原始图像尺寸
+            img_height, img_width = image.shape[:2]
+            logger.debug(f"原始图像尺寸: {img_width}x{img_height}")
+
+            # 首先使用MMDet进行目标检测
+            if not hasattr(self, 'det_model') or self.det_model is None:
+                logger.warning("未找到检测模型，尝试使用备用方法")
+                return self._detect_keypointrcnn_backup(image)
+
+            try:
+                det_results = inference_detector(self.det_model, image)
+                logger.debug(f"成功调用inference_detector")
+
+                # 提取人体检测结果
+                pred_instances = det_results.pred_instances
+
+                # 获取边界框、置信度和类别
+                if hasattr(pred_instances, 'bboxes'):
+                    bboxes = pred_instances.bboxes.cpu().numpy()
+                    scores = pred_instances.scores.cpu().numpy()
+                    labels = pred_instances.labels.cpu().numpy()
+
+                    # 只保留人体检测结果（类别0通常是人）
+                    human_indices = np.where(labels == 0)[0]
+                    human_bboxes = bboxes[human_indices]
+                    human_scores = scores[human_indices]
+
+                    logger.debug(f"检测到 {len(human_bboxes)} 个人体")
+
+                    # 过滤置信度低的检测结果
+                    valid_indices = np.where(
+                        human_scores >= self.conf_threshold)[0]
+                    if len(valid_indices) == 0:
+                        logger.warning(
+                            f"未检测到置信度大于{self.conf_threshold}的人体，尝试使用备用方法")
+                        return self._detect_keypointrcnn_backup(image)
+
+                    valid_bboxes = human_bboxes[valid_indices]
+                    valid_scores = human_scores[valid_indices]
+                else:
+                    logger.warning("检测结果中未找到边界框信息，尝试使用备用方法")
+                    return self._detect_keypointrcnn_backup(image)
+            except Exception as e:
+                logger.error(f"目标检测失败: {e}")
+                import traceback
+                logger.error(traceback.format_exc())
+                return self._detect_keypointrcnn_backup(image)
+
+            # 使用检测到的边界框进行姿态估计
+            # 将boxes处理为list以提高性能
+            valid_bboxes_list = valid_bboxes.tolist()
+
+            # 直接调用从边界框检测的方法
+            keypoints, scores = self._detect_rtmpose_from_boxes(
+                image, valid_bboxes_list)
+
+            # 返回结果
+            if len(keypoints) > 0:
+                logger.info(f"RTMPose检测到 {len(keypoints)} 个姿态")
+                return keypoints, scores
+            else:
+                logger.warning("RTMPose未检测到有效姿态，尝试使用备用方法")
+                return self._detect_keypointrcnn_backup(image)
+        except Exception as e:
+            logger.error(f"RTMPose检测失败: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
+            return self._detect_keypointrcnn_backup(image)
 
     def _detect_yolov7_pose(self, image: np.ndarray) -> Tuple[List[List[List[float]]], List[float]]:
         """使用YOLOv7姿态估计模型进行检测"""
@@ -538,474 +675,64 @@ class PoseEstimator:
 
         return keypoints_list, scores_list
 
-    def _detect_rtmpose(self, image: np.ndarray) -> Tuple[List[List[List[float]]], List[float]]:
-        """使用RTMPose模型检测关键点"""
-        import numpy as np
-        from mmpose.structures import merge_data_samples
-        from mmpose.apis import inference_topdown
-        from mmengine.registry import init_default_scope
-        import torch
-
-        # 确保正确的默认作用域
-        init_default_scope('mmpose')
-
-        # 记录开始时间
-        t_start = time.time()
-
-        # 准备结果列表
-        keypoints_list = []
-        scores_list = []
-
-        # 获取高级参数
-        max_poses = self.advanced_params.get("max_poses", 20)
-        min_keypoints = self.advanced_params.get("min_keypoints", 5)
-
+    def _detect_keypointrcnn(self, image: np.ndarray) -> Tuple[List[List[List[float]]], List[float]]:
+        """使用KeypointRCNN进行检测"""
         try:
             # 确保图像是RGB格式
             if image.shape[2] == 4:  # 如果有alpha通道
                 image = image[:, :, :3]
 
-            # 从BGR转换为RGB (如果输入是BGR)
-            image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-
-            # 构建默认的人体检测框，覆盖整个图像
-            image_height, image_width = image.shape[:2]
-
-            # 创建检测结果列表并确保bbox不为None
-            try:
-                # 适配mmpose API格式要求
-                # 检查mmpose版本，调整格式
-                import mmpose
-                mmpose_version = mmpose.__version__
-                logger.debug(f"当前mmpose版本: {mmpose_version}")
-
-                # 适配不同版本的mmpose API格式
-                if mmpose_version.startswith('0.'):
-                    # 0.x版本格式
-                    bbox = np.array(
-                        [0, 0, image_width, image_height, 1.0], dtype=np.float32)
-                    det_results = [{'bbox': bbox}]
-                else:
-                    # 根据mmpose 1.3.2版本的实际API需求定制格式
-                    # 查看mmpose/apis/inference.py的inference_topdown函数
-
-                    # 1. 创建数据样本列表
-                    from mmpose.structures.bbox import bbox_xywh2xyxy, bbox_xyxy2xywh
-
-                    # 尝试直接使用数据样本格式 (适用于1.3.x版本)
-                    try:
-                        # 为整张图像创建一个边界框
-                        # 注意：mmpose需要的格式可能是xywh或xyxy，我们两种都尝试
-
-                        # 方法1: 使用PoseDataSample格式
-                        from mmpose.structures import PoseDataSample
-                        data_sample = PoseDataSample()
-
-                        # 设置图像信息
-                        data_sample.set_metainfo({
-                            'img_shape': image_rgb.shape[:2],
-                            'img_id': 0
-                        })
-
-                        # 创建边界框，使用xyxy格式 (x1, y1, x2, y2, score)
-                        xyxy_bbox = np.array(
-                            [0, 0, image_width, image_height, 1.0], dtype=np.float32)
-
-                        # 转换为xywh格式 (x, y, w, h, score) - mmpose内部通常使用这种格式
-                        x, y, w, h = xyxy_bbox[0], xyxy_bbox[1], xyxy_bbox[2] - \
-                            xyxy_bbox[0], xyxy_bbox[3]-xyxy_bbox[1]
-                        xywh_bbox = np.array(
-                            [x, y, w, h, 1.0], dtype=np.float32)
-
-                        # 设置预测实例
-                        data_sample.pred_instances = {
-                            'bboxes': torch.tensor([xyxy_bbox[:4]]).float(),
-                            'scores': torch.tensor([xyxy_bbox[4]]).float(),
-                        }
-
-                        # 创建带有数据样本的推理列表
-                        logger.debug(f"使用PoseDataSample格式调用inference_topdown")
-                        pose_results = inference_topdown(
-                            self.model, image_rgb, [data_sample])
-                        logger.debug(f"姿态检测成功，结果长度: {len(pose_results)}")
-
-                        # 处理返回的结果
-                        # 检查pose_results是否为None或空列表
-                        if pose_results is None:
-                            logger.error("pose_results为None，无法处理")
-                            raise ValueError("pose_results为None")
-
-                        if len(pose_results) == 0:
-                            logger.warning("pose_results为空列表，未检测到姿态")
-                            raise ValueError("pose_results为空列表")
-
-                        # 如果有多个结果，合并结果
-                        pose_result = merge_data_samples(pose_results)
-
-                        # 处理预测实例
-                        pred_instances = pose_result.pred_instances
-
-                        logger.debug(
-                            f"pred_instances类型: {type(pred_instances)}, 属性: {dir(pred_instances)}")
-
-                        if len(pred_instances) > 0:
-                            # 获取关键点和分数
-                            keypoints = pred_instances.keypoints.cpu().numpy()
-                            keypoint_scores = pred_instances.keypoint_scores.cpu().numpy()
-
-                            # 如果有分数，则使用分数；否则，使用默认分数
-                            if hasattr(pred_instances, 'scores'):
-                                instance_scores = pred_instances.scores.cpu().numpy()
-                            else:
-                                instance_scores = np.ones(len(keypoints))
-
-                            # 处理结果，构建关键点列表
-                            for i in range(len(keypoints)):
-                                kpts = np.zeros((keypoints.shape[1], 3))
-                                kpts[:, :2] = keypoints[i]
-                                kpts[:, 2] = keypoint_scores[i]
-
-                                # 计算可见关键点数量
-                                visible_keypoints = sum(
-                                    1 for _, _, conf in kpts if conf >= self.keypoint_threshold)
-
-                                # 过滤掉可见关键点数量少于阈值的姿态
-                                if visible_keypoints >= min_keypoints and instance_scores[i] >= self.conf_threshold:
-                                    keypoints_list.append(kpts.tolist())
-                                    scores_list.append(
-                                        float(instance_scores[i]))
-
-                                    # 如果达到最大姿态数量，停止添加
-                                    if len(keypoints_list) >= max_poses:
-                                        break
-
-                            logger.info(f"RTMPose检测找到{len(keypoints_list)}个姿态")
-                            return keypoints_list, scores_list
-
-                    except Exception as ds_error:
-                        logger.warning(
-                            f"使用PoseDataSample格式失败: {str(ds_error)}")
-
-                        # 方法2: 使用字典格式 - 尝试多种边界框格式
-                        try:
-                            # 使用底层API
-                            logger.debug("尝试使用底层API调用inference_topdown")
-                            # 检查源代码中inference_topdown的实现
-
-                            # 使用dict列表，确保每个dict包含img_path、img_id和img_shape
-                            bbox_xywh = np.array(
-                                [0, 0, image_width, image_height], dtype=np.float32)
-                            data_info = {
-                                'img': image_rgb,  # 提供图像
-                                'img_shape': image_rgb.shape[:2],  # 提供形状
-                                'img_id': 0,  # 提供ID
-                                'bbox': bbox_xywh[None],  # 确保是[1,4]形状的数组
-                                'bbox_score': np.array([1.0], dtype=np.float32),
-                                'bbox_format': 'xywh'  # 指定格式
-                            }
-
-                            # 直接调用API
-                            from mmpose.apis.inference import _inference_single_pose_model
-                            pose_results = _inference_single_pose_model(
-                                self.model, data_info)
-
-                            # 处理API返回结果
-                            if pose_results is not None and hasattr(pose_results, 'pred_instances'):
-                                pred_instances = pose_results.pred_instances
-
-                                if len(pred_instances) > 0:
-                                    # 获取关键点和分数
-                                    keypoints = pred_instances.keypoints.cpu().numpy()
-                                    keypoint_scores = pred_instances.keypoint_scores.cpu().numpy()
-
-                                    # 如果有分数，则使用分数；否则，使用默认分数
-                                    if hasattr(pred_instances, 'scores'):
-                                        instance_scores = pred_instances.scores.cpu().numpy()
-                                    else:
-                                        instance_scores = np.ones(
-                                            len(keypoints))
-
-                                    # 处理结果
-                                    for i in range(len(keypoints)):
-                                        kpts = np.zeros(
-                                            (keypoints.shape[1], 3))
-                                        kpts[:, :2] = keypoints[i]
-                                        kpts[:, 2] = keypoint_scores[i]
-
-                                        visible_keypoints = sum(
-                                            1 for _, _, conf in kpts if conf >= self.keypoint_threshold)
-
-                                        if visible_keypoints >= min_keypoints and instance_scores[i] >= self.conf_threshold:
-                                            keypoints_list.append(
-                                                kpts.tolist())
-                                            scores_list.append(
-                                                float(instance_scores[i]))
-
-                                            if len(keypoints_list) >= max_poses:
-                                                break
-
-                                    logger.info(
-                                        f"底层API检测找到{len(keypoints_list)}个姿态")
-                                    return keypoints_list, scores_list
-
-                        except Exception as api_error:
-                            logger.warning(f"使用底层API调用失败: {str(api_error)}")
-
-                            # 方法3: 直接调用模型
-                            try:
-                                # 直接使用模型前向传播
-                                logger.debug("尝试直接调用模型前向传播")
-                                from mmpose.structures import PoseDataSample
-
-                                # 创建输入数据
-                                input_tensor = torch.from_numpy(image_rgb.transpose(
-                                    2, 0, 1)).float().div(255.0).unsqueeze(0).to(self.device)
-                                data_sample = PoseDataSample()
-                                data_sample.set_metainfo({
-                                    'img_shape': image_rgb.shape[:2],
-                                    'img_id': 0
-                                })
-
-                                # 转换为标准输入格式
-                                result = self.model.forward(
-                                    input_tensor, [data_sample], mode='tensor')
-
-                                # 处理forward返回的结果
-                                if result is not None and isinstance(result, list) and len(result) > 0:
-                                    # 假设返回的是预测实例列表
-                                    for pred_sample in result:
-                                        if hasattr(pred_sample, 'pred_instances'):
-                                            pred_instances = pred_sample.pred_instances
-
-                                            if len(pred_instances) > 0:
-                                                # 获取关键点和分数
-                                                keypoints = pred_instances.keypoints.cpu().numpy()
-                                                keypoint_scores = pred_instances.keypoint_scores.cpu().numpy()
-
-                                                # 分数处理
-                                                if hasattr(pred_instances, 'scores'):
-                                                    instance_scores = pred_instances.scores.cpu().numpy()
-                                                else:
-                                                    instance_scores = np.ones(
-                                                        len(keypoints))
-
-                                                # 处理关键点
-                                                for i in range(len(keypoints)):
-                                                    kpts = np.zeros(
-                                                        (keypoints.shape[1], 3))
-                                                    kpts[:, :2] = keypoints[i]
-                                                    kpts[:, 2] = keypoint_scores[i]
-
-                                                    visible_keypoints = sum(
-                                                        1 for _, _, conf in kpts if conf >= self.keypoint_threshold)
-
-                                                    if visible_keypoints >= min_keypoints and instance_scores[i] >= self.conf_threshold:
-                                                        keypoints_list.append(
-                                                            kpts.tolist())
-                                                        scores_list.append(
-                                                            float(instance_scores[i]))
-
-                                                        if len(keypoints_list) >= max_poses:
-                                                            break
-
-                                logger.info(
-                                    f"直接调用方法找到{len(keypoints_list)}个姿态")
-                                return keypoints_list, scores_list
-
-                            except Exception as e:
-                                logger.error(f"所有尝试都失败: {str(e)}")
-                                # 使用备用模型
-                                logger.info("所有RTMPose方法都失败，切换到备用模型")
-                                raise
-
-            except Exception as e:
-                logger.error(f"姿态检测失败，尝试使用备用方法: {str(e)}")
-                import traceback
-                logger.error(f"异常详情: {traceback.format_exc()}")
-
-                # 尝试使用备用模型方法 - 如果RTMPose失败，使用KeypointRCNN
-                try:
-                    logger.info("RTMPose失败，尝试使用KeypointRCNN备用方法")
-
-                    # 创建独立的KeypointRCNN检测器实例，而不是复用self.model
-                    import torchvision
-                    import torch.nn as nn
-
-                    # 检查是否已经有KeypointRCNN模型
-                    if not hasattr(self, 'keypointrcnn_model') or self.keypointrcnn_model is None:
-                        logger.info("创建新的KeypointRCNN模型")
-                        import torchvision.models.detection as detection_models
-
-                        # 使用兼容性更好的旧式接口
-                        keypointrcnn_model = detection_models.keypointrcnn_resnet50_fpn(
-                            pretrained=True,
-                            progress=True,
-                            num_keypoints=17,
-                            box_score_thresh=self.conf_threshold
-                        )
-
-                        # 设置为评估模式
-                        keypointrcnn_model.eval()
-
-                        # 如果使用CUDA且可用
-                        if self.device == 'cuda' and torch.cuda.is_available():
-                            keypointrcnn_model = keypointrcnn_model.to('cuda')
-
-                        self.keypointrcnn_model = keypointrcnn_model
-
-                    # 使用KeypointRCNN进行检测
-                    import torchvision.transforms.functional as TF
-
-                    # 确保图像是RGB格式
-                    img_rgb = cv2.cvtColor(
-                        image, cv2.COLOR_BGR2RGB) if image.shape[2] == 3 else image
-
-                    # 转换为PyTorch张量
-                    img_tensor = TF.to_tensor(img_rgb)
-
-                    # 确保在正确的设备上
-                    img_tensor = img_tensor.to(self.device)
-
-                    # 使用模型进行推理
-                    with torch.no_grad():
-                        predictions = self.keypointrcnn_model([img_tensor])
-
-                    # 处理关键点结果
-                    keypoints_list = []
-                    scores_list = []
-
-                    if len(predictions) > 0:
-                        pred = predictions[0]
-
-                        if len(pred['keypoints']) > 0:
-                            # 获取人体检测框和分数
-                            boxes = pred['boxes'].cpu().numpy()
-                            scores = pred['scores'].cpu().numpy()
-                            keypoints_tensor = pred['keypoints'].cpu().numpy()
-
-                            # 过滤低置信度的检测结果
-                            mask = scores >= self.conf_threshold
-                            if np.any(mask):  # 确保至少有一个有效检测
-                                boxes = boxes[mask]
-                                scores = scores[mask]
-                                keypoints_tensor = keypoints_tensor[mask]
-
-                                # 处理关键点
-                                for i, kpts in enumerate(keypoints_tensor):
-                                    # 转换keypoints格式：[x, y, visibility] -> [x, y, confidence]
-                                    kpts_list = []
-                                    for kpt in kpts:
-                                        x, y, vis = kpt
-                                        # KeypointRCNN返回的是可见性（0:不可见，1:可见但被遮挡，2:完全可见）
-                                        # 我们需要将其转换为置信度（0-1之间的值）
-                                        conf = vis / 2.0 if vis > 0 else 0.0
-                                        kpts_list.append(
-                                            [float(x), float(y), float(conf)])
-
-                                    # 计算可见关键点数量
-                                    visible_keypoints = sum(
-                                        1 for _, _, conf in kpts_list if conf >= self.keypoint_threshold)
-
-                                    # 过滤掉可见关键点数量少于阈值的姿态
-                                    if visible_keypoints >= min_keypoints:
-                                        keypoints_list.append(kpts_list)
-                                        scores_list.append(float(scores[i]))
-
-                                        # 如果达到最大姿态数量，停止添加
-                                        if len(keypoints_list) >= max_poses:
-                                            break
-
-                    logger.info(f"KeypointRCNN检测找到{len(keypoints_list)}个姿态")
-                    return keypoints_list, scores_list
-
-                except Exception as backup_e:
-                    logger.error(f"备用方法也失败: {str(backup_e)}")
-                    logger.error(traceback.format_exc())
-                    return [], []
+            # 转换为PyTorch张量
+            img_tensor = torch.from_numpy(image.transpose(
+                2, 0, 1)).float().div(255.0).unsqueeze(0)
+
+            # 将张量移到设备上
+            img_tensor = img_tensor.to(self.device)
+
+            # 使用模型预测
+            with torch.no_grad():
+                predictions = self.keypointrcnn_model(img_tensor)
+
+            # 提取关键点和分数
+            keypoints_list = []
+            scores_list = []
+
+            # 处理检测结果
+            if len(predictions) > 0 and 'keypoints' in predictions[0]:
+                pred = predictions[0]
+
+                # 获取人体检测框和分数
+                boxes = pred['boxes'].cpu().numpy()
+                scores = pred['scores'].cpu().numpy()
+                keypoints = pred['keypoints'].cpu().numpy()
+
+                # 过滤低置信度的检测结果
+                mask = scores >= self.conf_threshold
+                boxes = boxes[mask]
+                scores = scores[mask]
+                keypoints = keypoints[mask]
+
+                # 调整关键点坐标到原图位置
+                adjusted_keypoints = keypoints.copy()
+                adjusted_keypoints[:, 0] += boxes[:, 0][:, None]
+                adjusted_keypoints[:, 1] += boxes[:, 1][:, None]
+
+                # 如果检测分数高于阈值
+                if scores >= self.conf_threshold:
+                    # 过滤低置信度的关键点
+                    mask = adjusted_keypoints[:, 2] < self.keypoint_threshold
+                    adjusted_keypoints[mask, 2] = 0
+
+                    keypoints_list.append(adjusted_keypoints.tolist())
+                    scores_list.append(float(scores[mask][0]))
+
+            return keypoints_list, scores_list
 
         except Exception as e:
-            logger.error(f"RTMPose检测失败: {str(e)}")
+            logger.error(f"KeypointRCNN检测失败: {e}")
             import traceback
-            logger.error(f"异常详情: {traceback.format_exc()}")
+            logger.error(traceback.format_exc())
             return [], []
-
-    def _detect_keypointrcnn(self, image: np.ndarray) -> Tuple[List[List[List[float]]], List[float]]:
-        """使用KeypointRCNN模型检测关键点"""
-        import torch
-        import torch.nn.functional as F
-        import torchvision.transforms.functional as TF
-
-        # 记录开始时间
-        t_start = time.time()
-
-        # 确保图像是RGB格式
-        if image.shape[2] == 4:  # 如果有alpha通道
-            image = image[:, :, :3]
-
-        # 从BGR转换为RGB
-        image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-
-        # 转换为PyTorch张量
-        img_tensor = TF.to_tensor(image_rgb)
-
-        # 确保在正确的设备上
-        img_tensor = img_tensor.to(self.device)
-
-        # 使用模型进行推理
-        with torch.no_grad():
-            predictions = self.model([img_tensor])
-
-        # 提取关键点和分数
-        keypoints_list = []
-        scores_list = []
-
-        # 处理检测结果
-        if len(predictions) > 0 and 'keypoints' in predictions[0]:
-            pred = predictions[0]
-
-            # 获取人体检测框和分数
-            boxes = pred['boxes'].cpu().numpy()
-            scores = pred['scores'].cpu().numpy()
-            keypoints = pred['keypoints'].cpu().numpy()
-
-            # 过滤低置信度的检测结果
-            mask = scores >= self.conf_threshold
-            boxes = boxes[mask]
-            scores = scores[mask]
-            keypoints = keypoints[mask]
-
-            # 获取高级参数
-            max_poses = self.advanced_params.get("max_poses", 20)
-            min_keypoints = self.advanced_params.get("min_keypoints", 5)
-
-            # 处理关键点
-            for i, kpts in enumerate(keypoints):
-                # 转换keypoints格式：[x, y, visibility] -> [x, y, confidence]
-                kpts_list = []
-                for kpt in kpts:
-                    x, y, vis = kpt
-                    # KeypointRCNN返回的是可见性（0:不可见，1:可见但被遮挡，2:完全可见）
-                    # 我们需要将其转换为置信度（0-1之间的值）
-                    conf = vis / 2.0 if vis > 0 else 0.0
-                    kpts_list.append([float(x), float(y), float(conf)])
-
-                # 计算可见关键点数量
-                visible_keypoints = sum(
-                    1 for _, _, conf in kpts_list if conf >= self.keypoint_threshold)
-
-                # 过滤掉可见关键点数量少于阈值的姿态
-                if visible_keypoints >= min_keypoints:
-                    keypoints_list.append(kpts_list)
-                    scores_list.append(float(scores[i]))
-
-                    # 如果达到最大姿态数量，停止添加
-                    if len(keypoints_list) >= max_poses:
-                        break
-
-        logger.debug(
-            f"KeypointRCNN检测完成: 找到 {len(keypoints_list)} 个姿态, 耗时 {time.time() - t_start:.3f} [s]")
-
-        return keypoints_list, scores_list
 
     def detect_poses_from_boxes(self, image: np.ndarray, boxes: List[List[float]]) -> Tuple[List[List[List[float]]], List[float]]:
         """
@@ -1117,229 +844,263 @@ class PoseEstimator:
             return [], []
 
     def _detect_rtmpose_from_boxes(self, image: np.ndarray, boxes: List[List[float]]) -> Tuple[List[List[List[float]]], List[float]]:
-        """使用RTMPose从给定的边界框中检测姿态"""
+        """
+        使用RTMPose从已有的人体框中检测关键点
+
+        Args:
+            image: 输入图像
+            boxes: 边界框列表 [[x1, y1, x2, y2], ...]
+
+        Returns:
+            keypoints: 关键点列表 [N, K, 3] - (x, y, conf)
+            scores: 人体检测的置信度列表 [N]
+        """
         try:
-            from mmpose.apis import inference_topdown
-            from mmpose.structures import merge_data_samples
-            from mmengine.registry import init_default_scope
-            import numpy as np
-
-            # 确保正确的默认作用域
-            init_default_scope('mmpose')
-
-            # 记录开始时间
-            t_start = time.time()
+            # 导入必要的库
+            try:
+                from mmpose.apis import inference_topdown
+            except ImportError as e:
+                logger.error(f"导入mmpose库失败: {e}")
+                return self._detect_keypointrcnn_from_boxes(image, boxes)
 
             # 确保图像是RGB格式
-            if image.shape[2] == 4:  # 如果有alpha通道
-                image = image[:, :, :3]
+            if image.shape[-1] != 3:
+                logger.warning(f"输入图像通道数为{image.shape[-1]}，转换为RGB")
+                if len(image.shape) == 2:  # 灰度图像
+                    image = cv2.cvtColor(image, cv2.COLOR_GRAY2RGB)
+                else:
+                    # 尝试转换为RGB
+                    image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
 
-            # 从BGR转换为RGB (如果输入是BGR)
-            image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+            # 记录原始图像尺寸
+            img_height, img_width = image.shape[:2]
+            logger.debug(f"原始图像尺寸: {img_width}x{img_height}")
 
-            # 创建检测结果列表
-            det_results = []
-            for box in boxes:
-                x1, y1, x2, y2 = box
-                # 添加置信度为1.0
-                det_results.append({'bbox': [x1, y1, x2, y2, 1.0]})
+            # 获取模型配置中的输入尺寸
+            model_input_size = None
+            try:
+                if hasattr(self.model, 'cfg') and self.model.cfg:
+                    if 'data_preprocessor' in self.model.cfg and 'input_size' in self.model.cfg.data_preprocessor:
+                        model_input_size = self.model.cfg.data_preprocessor.input_size
+                if not model_input_size and hasattr(self.model, 'data_preprocessor'):
+                    if hasattr(self.model.data_preprocessor, 'input_size'):
+                        model_input_size = self.model.data_preprocessor.input_size
+            except Exception as e:
+                logger.warning(f"获取模型输入尺寸失败: {e}")
 
-            # 如果没有检测框，返回空结果
-            if not det_results:
+            if not model_input_size:
+                logger.warning("未找到模型输入尺寸，使用默认值(192, 256)")
+                model_input_size = (192, 256)  # 默认尺寸 (h, w)
+
+            logger.debug(f"模型输入尺寸: {model_input_size}")
+
+            # 将边界框转换为numpy数组
+            bbox_xyxy = np.array(boxes)
+
+            # 确保边界框格式正确
+            if bbox_xyxy.shape[1] != 4:
+                logger.error(
+                    f"边界框格式错误，预期为[x1, y1, x2, y2]，实际为{bbox_xyxy.shape[1]}维")
                 return [], []
 
-            # 使用TopDown方法进行姿态估计
-            pose_results = inference_topdown(
-                self.model, image_rgb, det_results)
-
-            # 提取关键点和分数
-            keypoints_list = []
-            scores_list = []
-
-            if len(pose_results) > 0:
-                # 合并结果
-                pose_result = merge_data_samples(pose_results)
-
-                # 处理预测实例
-                pred_instances = pose_result.pred_instances
-
-                if len(pred_instances) > 0:
-                    # 获取关键点和分数
-                    # [N, K, 2]
-                    keypoints = pred_instances.keypoints.cpu().numpy()
-                    # [N, K]
-                    keypoint_scores = pred_instances.keypoint_scores.cpu().numpy()
-
-                    # 如果有分数，则使用分数；否则，使用默认分数
-                    if hasattr(pred_instances, 'scores'):
-                        # [N]
-                        instance_scores = pred_instances.scores.cpu().numpy()
-                    else:
-                        instance_scores = np.ones(len(keypoints))
-
-                    # 获取高级参数
-                    min_keypoints = self.advanced_params.get(
-                        "min_keypoints", 5)
-
-                    # 处理结果
-                    for i in range(len(keypoints)):
-                        kpts = np.zeros((keypoints.shape[1], 3))
-                        kpts[:, :2] = keypoints[i]
-                        kpts[:, 2] = keypoint_scores[i]
-
-                        # 计算可见关键点数量
-                        visible_keypoints = sum(
-                            1 for _, _, conf in kpts if conf >= self.keypoint_threshold)
-
-                        # 过滤掉可见关键点数量少于阈值的姿态
-                        if visible_keypoints >= min_keypoints and instance_scores[i] >= self.conf_threshold:
-                            keypoints_list.append(kpts.tolist())
-                            scores_list.append(float(instance_scores[i]))
-
+            # 记录处理前边界框范围
+            x_min, y_min = np.min(bbox_xyxy[:, :2], axis=0)
+            x_max, y_max = np.max(bbox_xyxy[:, 2:4], axis=0)
             logger.debug(
-                f"RTMPose从边界框检测完成: 找到 {len(keypoints_list)} 个姿态, 耗时 {time.time() - t_start:.3f} [s]")
+                f"处理前边界框范围: x({x_min:.1f}-{x_max:.1f}) y({y_min:.1f}-{y_max:.1f})")
 
-            return keypoints_list, scores_list
+            # 使用inference_topdown进行预测
+            results = []
+            try:
+                results = inference_topdown(
+                    self.model, image, bbox_xyxy, bbox_format='xyxy')
+                logger.debug(f"成功调用inference_topdown，获得{len(results)}个预测结果")
+            except Exception as e:
+                logger.error(f"inference_topdown调用失败: {e}")
+                import traceback
+                logger.error(traceback.format_exc())
+                # 尝试使用备用方法
+                logger.info("尝试使用KeypointRCNN备用方法")
+                return self._detect_keypointrcnn_from_boxes(image, boxes)
 
+            # 处理预测结果
+            keypoints = []
+            scores = []
+
+            # 确保结果不为空
+            if not results or len(results) == 0:
+                logger.warning("没有得到预测结果")
+                # 尝试使用备用方法
+                logger.info("尝试使用KeypointRCNN备用方法")
+                return self._detect_keypointrcnn_from_boxes(image, boxes)
+
+            logger.debug(f"预测结果类型: {type(results[0])}")
+
+            # 处理不同类型的结果
+            for i, result in enumerate(results):
+                try:
+                    # 获取关键点和置信度
+                    kpts = None
+                    kpt_scores = None
+                    bbox_score = 1.0
+
+                    # 处理PoseDataSample类型的结果
+                    if hasattr(result, 'pred_instances'):
+                        logger.debug(f"处理PoseDataSample类型的结果: {i}")
+                        pred_instances = result.pred_instances
+
+                        if hasattr(pred_instances, 'keypoints'):
+                            kpts_tensor = pred_instances.keypoints
+                            # 如果是tensor，转换为numpy
+                            if not isinstance(kpts_tensor, np.ndarray):
+                                kpts = kpts_tensor.cpu().numpy()
+                            else:
+                                kpts = kpts_tensor
+
+                            # 获取置信度
+                            if hasattr(pred_instances, 'keypoint_scores'):
+                                scores_tensor = pred_instances.keypoint_scores
+                                if not isinstance(scores_tensor, np.ndarray):
+                                    kpt_scores = scores_tensor.cpu().numpy()
+                                else:
+                                    kpt_scores = scores_tensor
+
+                            # 获取边界框置信度
+                            if hasattr(pred_instances, 'bboxes_scores'):
+                                bbox_score = float(pred_instances.bboxes_scores.item() if hasattr(
+                                    pred_instances.bboxes_scores, 'item') else pred_instances.bboxes_scores)
+
+                    # 如果不是PoseDataSample或获取失败，尝试直接处理结果
+                    if kpts is None:
+                        logger.debug(f"直接处理结果: {i}")
+                        # 尝试提取关键点数据
+                        if isinstance(result, np.ndarray) and result.ndim == 3:
+                            # 假设结果是[k, 3]形状的ndarray，表示[x, y, score]
+                            kpts = result
+                        else:
+                            # 尝试从字典或其他对象中提取
+                            if hasattr(result, 'keypoints'):
+                                kpts = result.keypoints
+                            elif isinstance(result, dict) and 'keypoints' in result:
+                                kpts = result['keypoints']
+
+                    if kpts is None:
+                        logger.warning(f"从结果{i}中无法提取关键点数据")
+                        continue
+
+                    # 处理关键点数据
+                    if len(kpts.shape) == 3 and kpts.shape[0] == 1:
+                        # [1, K, 3] -> [K, 3]
+                        kpts = kpts[0]
+
+                    # 确保关键点格式为 [K, 3]
+                    if len(kpts.shape) != 2 or kpts.shape[1] != 3:
+                        logger.warning(f"关键点格式错误，预期为[K, 3]，实际为{kpts.shape}")
+                        continue
+
+                    # 获取当前人体框
+                    if i < len(bbox_xyxy):
+                        bbox = bbox_xyxy[i]
+                        # 计算框的宽度和高度
+                        box_width = bbox[2] - bbox[0]
+                        box_height = bbox[3] - bbox[1]
+
+                        # 日志记录边界框信息
+                        logger.debug(f"边界框 {i}: x1={bbox[0]:.1f}, y1={bbox[1]:.1f}, x2={bbox[2]:.1f}, y2={bbox[3]:.1f}, "
+                                     f"宽={box_width:.1f}, 高={box_height:.1f}")
+
+                        # 获取模型输入尺寸
+                        model_height, model_width = model_input_size
+
+                        # 记录关键点范围(处理前)
+                        valid_kpts = kpts[kpts[:, 2] > 0]
+                        if len(valid_kpts) > 0:
+                            x_min, y_min = np.min(valid_kpts[:, :2], axis=0)
+                            x_max, y_max = np.max(valid_kpts[:, :2], axis=0)
+                            logger.debug(
+                                f"原始关键点范围: x({x_min:.1f}-{x_max:.1f}) y({y_min:.1f}-{y_max:.1f})")
+
+                        # 关键点坐标转换：从模型输入尺寸映射回原始图像坐标
+                        # 对每个关键点进行转换
+                        transformed_kpts = kpts.copy()
+                        # kpts[:, 0]是x坐标(列)，范围是[0, model_width]
+                        # kpts[:, 1]是y坐标(行)，范围是[0, model_height]
+
+                        # 首先，将关键点坐标从[0-1]标准化范围转换为像素范围
+                        if np.max(kpts[:, 0]) <= 1.0 and np.max(kpts[:, 1]) <= 1.0:
+                            logger.debug("检测到关键点坐标为标准化值[0-1]，转换为像素坐标")
+                            transformed_kpts[:, 0] *= model_width
+                            transformed_kpts[:, 1] *= model_height
+
+                        # 计算从模型输入空间到边界框空间的缩放因子
+                        scale_x = box_width / model_width
+                        scale_y = box_height / model_height
+
+                        # 应用缩放和偏移
+                        transformed_kpts[:, 0] = transformed_kpts[:,
+                                                                  0] * scale_x + bbox[0]
+                        transformed_kpts[:, 1] = transformed_kpts[:,
+                                                                  1] * scale_y + bbox[1]
+
+                        # 确保关键点在图像范围内
+                        transformed_kpts[:, 0] = np.clip(
+                            transformed_kpts[:, 0], 0, img_width - 1)
+                        transformed_kpts[:, 1] = np.clip(
+                            transformed_kpts[:, 1], 0, img_height - 1)
+
+                        # 记录关键点范围(处理后)
+                        valid_kpts = transformed_kpts[transformed_kpts[:, 2] > 0]
+                        if len(valid_kpts) > 0:
+                            x_min, y_min = np.min(valid_kpts[:, :2], axis=0)
+                            x_max, y_max = np.max(valid_kpts[:, :2], axis=0)
+                            logger.debug(
+                                f"转换后关键点范围: x({x_min:.1f}-{x_max:.1f}) y({y_min:.1f}-{y_max:.1f})")
+
+                        # 应用可见性和置信度阈值
+                        final_keypoints = []
+                        for j, (x, y, conf) in enumerate(transformed_kpts):
+                            # 使用kpt_scores如果可用，否则使用原始置信度
+                            score = kpt_scores[j] if kpt_scores is not None and j < len(
+                                kpt_scores) else conf
+
+                            # 应用阈值
+                            if score >= self.keypoint_threshold:
+                                final_keypoints.append(
+                                    [float(x), float(y), float(score)])
+                            else:
+                                # 置信度不足的点设为不可见
+                                final_keypoints.append(
+                                    [float(x), float(y), 0.0])
+
+                        # 添加关键点和置信度
+                        keypoints.append(final_keypoints)
+                        scores.append(float(bbox_score))
+
+                        # 日志记录
+                        valid_count = sum(
+                            1 for kp in final_keypoints if kp[2] > 0)
+                        logger.debug(
+                            f"处理完成人体{i}，有效关键点：{valid_count}/{len(final_keypoints)}")
+                    else:
+                        logger.warning(f"结果索引{i}超出边界框数量{len(bbox_xyxy)}")
+                except Exception as e:
+                    logger.error(f"处理结果{i}时出错: {e}")
+                    import traceback
+                    logger.error(traceback.format_exc())
+                    continue
+
+            # 返回结果
+            if len(keypoints) > 0:
+                logger.info(f"RTMPose从框检测到 {len(keypoints)} 个姿态")
+                return keypoints, scores
+            else:
+                logger.warning("RTMPose未检测到有效姿态，尝试使用备用方法")
+                return self._detect_keypointrcnn_from_boxes(image, boxes)
         except Exception as e:
             logger.error(f"RTMPose从边界框检测失败: {e}")
             import traceback
             logger.error(traceback.format_exc())
-            return [], []
-
-    def _detect_keypointrcnn_from_boxes(self, image: np.ndarray, boxes: List[List[float]]) -> Tuple[List[List[List[float]]], List[float]]:
-        """使用KeypointRCNN从给定的边界框中检测姿态"""
-        try:
-            # 获取图像尺寸
-            height, width = image.shape[:2]
-
-            # 准备结果列表
-            keypoints_list = []
-            scores_list = []
-
-            # 对每个边界框单独处理
-            for box in boxes:
-                x1, y1, x2, y2 = [int(coord) for coord in box]
-
-                # 确保坐标在图像范围内
-                x1 = max(0, min(x1, width - 1))
-                y1 = max(0, min(y1, height - 1))
-                x2 = max(0, min(x2, width - 1))
-                y2 = max(0, min(y2, height - 1))
-
-                # 如果框太小，跳过
-                if x2 - x1 < 10 or y2 - y1 < 10:
-                    continue
-
-                # 裁剪出框内的图像
-                cropped_image = image[y1:y2, x1:x2].copy()
-
-                # 转换为RGB格式
-                cropped_rgb = cv2.cvtColor(cropped_image, cv2.COLOR_BGR2RGB)
-
-                # 转换为PyTorch张量
-                cropped_tensor = torch.from_numpy(cropped_rgb.transpose(
-                    2, 0, 1)).float().div(255.0).unsqueeze(0)
-
-                # 将张量移到设备上
-                cropped_tensor = cropped_tensor.to(self.device)
-
-                # 使用模型预测
-                with torch.no_grad():
-                    predictions = self.model(cropped_tensor)
-
-                # 如果找到关键点
-                if len(predictions) > 0 and len(predictions[0]['keypoints']) > 0:
-                    # 获取第一个预测结果(在裁剪图像上应该只有一个人)
-                    # [K, 3] - 关键点坐标和分数
-                    keypoints = predictions[0]['keypoints'][0].cpu().numpy()
-                    scores = predictions[0]['scores'][0].cpu().numpy()  # 检测框分数
-
-                    # 调整关键点坐标到原图位置
-                    adjusted_keypoints = keypoints.copy()
-                    adjusted_keypoints[:, 0] += x1  # 调整x坐标
-                    adjusted_keypoints[:, 1] += y1  # 调整y坐标
-
-                    # 如果检测分数高于阈值
-                    if scores >= self.conf_threshold:
-                        # 过滤低置信度的关键点
-                        mask = adjusted_keypoints[:,
-                                                  2] < self.keypoint_threshold
-                        adjusted_keypoints[mask, 2] = 0
-
-                        keypoints_list.append(adjusted_keypoints.tolist())
-                        scores_list.append(float(scores))
-
-                # 如果在裁剪图像上没有检测到关键点，直接在原始人体框上创建一个伪检测
-                # 这确保至少能返回一个结果
-                elif len(keypoints_list) == 0:
-                    # 对整个图像进行一次姿态估计
-                    logger.info("裁剪图像上没有检测到关键点，尝试对整个图像进行预测")
-
-                    # 转换为RGB格式
-                    image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-
-                    # 转换为PyTorch张量
-                    image_tensor = torch.from_numpy(image_rgb.transpose(
-                        2, 0, 1)).float().div(255.0).unsqueeze(0)
-
-                    # 将张量移到设备上
-                    image_tensor = image_tensor.to(self.device)
-
-                    # 使用模型预测
-                    with torch.no_grad():
-                        full_predictions = self.model(image_tensor)
-
-                    # 如果在整个图像上找到关键点
-                    if len(full_predictions) > 0 and len(full_predictions[0]['keypoints']) > 0 and len(full_predictions[0]['boxes']) > 0:
-                        # 找到与我们的框IoU最高的预测框
-                        pred_boxes = full_predictions[0]['boxes'].cpu().numpy()
-                        best_iou = 0
-                        best_idx = -1
-
-                        for i, pred_box in enumerate(pred_boxes):
-                            # 计算IoU
-                            px1, py1, px2, py2 = pred_box
-
-                            # 计算交集
-                            ix1 = max(x1, px1)
-                            iy1 = max(y1, py1)
-                            ix2 = min(x2, px2)
-                            iy2 = min(y2, py2)
-
-                            if ix2 > ix1 and iy2 > iy1:
-                                # 有交集
-                                intersection = (ix2 - ix1) * (iy2 - iy1)
-                                box_area = (x2 - x1) * (y2 - y1)
-                                pred_area = (px2 - px1) * (py2 - py1)
-                                union = box_area + pred_area - intersection
-                                iou = intersection / union
-
-                                if iou > best_iou:
-                                    best_iou = iou
-                                    best_idx = i
-
-                        # 如果找到了匹配的预测框
-                        if best_idx >= 0 and best_iou > 0.3:
-                            keypoints = full_predictions[0]['keypoints'][best_idx].cpu(
-                            ).numpy()
-                            scores = full_predictions[0]['scores'][best_idx].cpu(
-                            ).numpy()
-
-                            # 过滤低置信度的关键点
-                            mask = keypoints[:, 2] < self.keypoint_threshold
-                            keypoints[mask, 2] = 0
-
-                            keypoints_list.append(keypoints.tolist())
-                            scores_list.append(float(scores))
-
-            return keypoints_list, scores_list
-
-        except Exception as e:
-            logger.error(f"KeypointRCNN从边界框检测姿态失败: {e}")
-            import traceback
-            logger.error(traceback.format_exc())
-            return [], []
+            return self._detect_keypointrcnn_from_boxes(image, boxes)
 
     def visualize_poses(self, image: np.ndarray, keypoints: List[List[List[float]]], scores: List[float] = None) -> np.ndarray:
         """
@@ -1398,6 +1159,25 @@ class PoseEstimator:
             # 从BGR转换为RGB (如果需要)
             image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
 
+            # 记录图像尺寸和关键点范围（调试信息）
+            img_height, img_width = image.shape[:2]
+            logger.debug(f"可视化图像尺寸: {img_width}x{img_height}")
+
+            # 记录关键点范围
+            if keypoints and len(keypoints) > 0:
+                all_kpts = []
+                for person_kpts in keypoints:
+                    for kpt in person_kpts:
+                        if kpt[2] > 0:  # 只考虑可见的关键点
+                            all_kpts.append(kpt[:2])
+
+                if all_kpts:
+                    all_kpts = np.array(all_kpts)
+                    x_min, y_min = np.min(all_kpts, axis=0)
+                    x_max, y_max = np.max(all_kpts, axis=0)
+                    logger.debug(
+                        f"可视化关键点范围: x({x_min:.1f}-{x_max:.1f}) y({y_min:.1f}-{y_max:.1f})")
+
             # 如果没有关键点，直接返回原图
             if not keypoints or len(keypoints) == 0:
                 return image.copy()
@@ -1405,10 +1185,21 @@ class PoseEstimator:
             # 准备可视化数据
             pose_results = PoseDataSample()
 
+            # 在可视化前复制一份关键点数据，确保坐标在图像范围内
+            keypoints_copy = []
+            for person_kpts in keypoints:
+                person_kpts_copy = []
+                for x, y, score in person_kpts:
+                    # 确保坐标在图像范围内
+                    x_valid = max(0, min(float(x), img_width - 1))
+                    y_valid = max(0, min(float(y), img_height - 1))
+                    person_kpts_copy.append([x_valid, y_valid, score])
+                keypoints_copy.append(person_kpts_copy)
+
             # 转换数据格式
             # 将keypoints从list转换为tensor
             # [person_num, keypoint_num, 3]
-            keypoints_array = np.array(keypoints)
+            keypoints_array = np.array(keypoints_copy)
 
             # 关键点坐标和分数
             # [person_num, keypoint_num, 2]
@@ -1433,6 +1224,16 @@ class PoseEstimator:
                 'scores': scores_tensor
             }
 
+            # 添加骨架连接和关键点名称信息
+            try:
+                pose_results.metainfo = {
+                    'skeleton_links': COCO_SKELETON,
+                    'keypoint_names': COCO_KEYPOINTS,
+                    'flip_indices': None
+                }
+            except Exception as e:
+                logger.warning(f"设置骨架和关键点元信息失败: {e}")
+
             # 初始化可视化器
             if not hasattr(self, 'visualizer') or self.visualizer is None:
                 # 模型没有初始化可视化器，使用通用可视化方法
@@ -1447,6 +1248,19 @@ class PoseEstimator:
 
             # 获取可视化结果
             vis_result = self.visualizer.get_image()
+
+            # 添加调试信息
+            # 在图像上添加坐标范围和关键点数量信息
+            font = cv2.FONT_HERSHEY_SIMPLEX
+            font_scale = 0.6
+            font_thickness = 1
+            font_color = (255, 255, 255)
+
+            # 在底部添加关键点信息
+            if keypoints and len(keypoints) > 0:
+                info_text = f"关键点数量: {len(keypoints)}, 每人关键点: {len(keypoints[0])}"
+                cv2.putText(vis_result, info_text, (10, img_height - 10),
+                            font, font_scale, font_color, font_thickness)
 
             # 如果需要，转换回BGR
             vis_result = cv2.cvtColor(vis_result, cv2.COLOR_RGB2BGR)
@@ -1488,44 +1302,113 @@ class PoseEstimator:
 
     def _visualize_poses_generic(self, image: np.ndarray, keypoints: List[List[List[float]]], scores: List[float] = None) -> np.ndarray:
         """通用的姿态可视化方法"""
-        vis_image = image.copy()
+        try:
+            vis_image = image.copy()
 
-        # 定义线条颜色
-        skeleton_color = (100, 100, 255)
+            # 获取图像尺寸
+            img_height, img_width = vis_image.shape[:2]
+            logger.debug(f"通用可视化图像尺寸: {img_width}x{img_height}")
 
-        # 绘制每个检测到的姿态
-        for i, kpts in enumerate(keypoints):
-            # 绘制骨架
-            if self.draw_skeleton:  # 根据设置决定是否绘制骨骼
-                for p1_idx, p2_idx in COCO_SKELETON:
-                    p1 = kpts[p1_idx]
-                    p2 = kpts[p2_idx]
+            # 记录关键点范围
+            if keypoints and len(keypoints) > 0:
+                all_kpts = []
+                for person_kpts in keypoints:
+                    for kpt in person_kpts:
+                        if kpt[2] > 0:  # 只考虑可见的关键点
+                            all_kpts.append(kpt[:2])
 
-                    # 确保两个关键点都可见
-                    if p1[2] > self.keypoint_threshold and p2[2] > self.keypoint_threshold:
-                        p1_pos = (int(p1[0]), int(p1[1]))
-                        p2_pos = (int(p2[0]), int(p2[1]))
-                        cv2.line(vis_image, p1_pos, p2_pos, skeleton_color, 2)
+                if all_kpts:
+                    all_kpts = np.array(all_kpts)
+                    x_min, y_min = np.min(all_kpts, axis=0)
+                    x_max, y_max = np.max(all_kpts, axis=0)
+                    logger.debug(
+                        f"通用可视化关键点范围: x({x_min:.1f}-{x_max:.1f}) y({y_min:.1f}-{y_max:.1f})")
 
-            # 绘制关键点
-            for j, kpt in enumerate(kpts):
-                x, y, conf = kpt
+            # 定义线条颜色
+            skeleton_color = (100, 100, 255)
 
-                # 只绘制置信度高于阈值的关键点
-                if conf > self.keypoint_threshold:
-                    # 获取关键点颜色
-                    color = KEYPOINT_COLORS[j]
-                    # 绘制关键点
-                    cv2.circle(vis_image, (int(x), int(y)), 5, color, -1)
+            # 绘制每个检测到的姿态
+            for i, kpts in enumerate(keypoints):
+                # 绘制骨架
+                if self.draw_skeleton:  # 根据设置决定是否绘制骨骼
+                    for p1_idx, p2_idx in COCO_SKELETON:
+                        if p1_idx < len(kpts) and p2_idx < len(kpts):
+                            p1 = kpts[p1_idx]
+                            p2 = kpts[p2_idx]
 
-            # 显示检测分数
-            if scores and i < len(scores):
-                score = scores[i]
-                cv2.putText(vis_image, f"score: {score:.2f}",
-                            (int(kpts[0][0]), int(kpts[0][1]) - 10),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
+                            # 确保两个关键点都可见且在图像范围内
+                            if p1[2] > self.keypoint_threshold and p2[2] > self.keypoint_threshold:
+                                # 确保坐标在图像范围内
+                                p1_x = max(0, min(int(p1[0]), img_width-1))
+                                p1_y = max(0, min(int(p1[1]), img_height-1))
+                                p2_x = max(0, min(int(p2[0]), img_width-1))
+                                p2_y = max(0, min(int(p2[1]), img_height-1))
 
-        return vis_image
+                                p1_pos = (p1_x, p1_y)
+                                p2_pos = (p2_x, p2_y)
+                                cv2.line(vis_image, p1_pos,
+                                         p2_pos, skeleton_color, 2)
+
+                # 绘制关键点
+                for j, kpt in enumerate(kpts):
+                    if j < len(COCO_KEYPOINTS):  # 确保不超出关键点列表范围
+                        x, y, conf = kpt
+
+                        # 只绘制置信度高于阈值的关键点
+                        if conf > self.keypoint_threshold:
+                            # 确保坐标在图像范围内
+                            x_valid = max(0, min(int(x), img_width-1))
+                            y_valid = max(0, min(int(y), img_height-1))
+
+                            # 获取关键点颜色
+                            color = KEYPOINT_COLORS[j % len(KEYPOINT_COLORS)]
+
+                            # 绘制关键点
+                            cv2.circle(
+                                vis_image, (x_valid, y_valid), 5, color, -1)
+
+                            # 可选：添加关键点标签
+                            label = COCO_KEYPOINTS[j]
+                            cv2.putText(vis_image, f"{j}", (x_valid+5, y_valid),
+                                        cv2.FONT_HERSHEY_SIMPLEX, 0.4, color, 1)
+
+                # 显示检测分数
+                if scores and i < len(scores):
+                    score = scores[i]
+                    try:
+                        nose_x, nose_y = int(kpts[0][0]), int(kpts[0][1])
+                        nose_x = max(0, min(nose_x, img_width-1))
+                        nose_y = max(0, min(nose_y, img_height-1))
+                        cv2.putText(vis_image, f"score: {score:.2f}",
+                                    (nose_x, nose_y - 10),
+                                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
+                    except Exception as e:
+                        logger.warning(f"显示分数失败: {e}")
+
+            # 添加调试信息
+            # 在图像上添加坐标范围和关键点数量信息
+            font = cv2.FONT_HERSHEY_SIMPLEX
+            font_scale = 0.6
+            font_thickness = 1
+            font_color = (255, 255, 255)
+
+            # 添加边界框
+            cv2.rectangle(vis_image, (0, 0), (img_width -
+                          1, img_height-1), (0, 255, 0), 1)
+
+            # 在底部添加关键点信息
+            if keypoints and len(keypoints) > 0:
+                info_text = f"人数: {len(keypoints)}, 每人关键点: {len(keypoints[0])}"
+                cv2.putText(vis_image, info_text, (10, img_height - 10),
+                            font, font_scale, font_color, font_thickness)
+
+            return vis_image
+        except Exception as e:
+            logger.error(f"通用姿态可视化失败: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
+            # 发生错误，返回原图
+            return image.copy()
 
     def _letterbox(self, img, new_shape=(640, 640), stride=32):
         """
@@ -1563,6 +1446,344 @@ class PoseEstimator:
 
         return img, ratio, (dw, dh)
 
+    def _detect_keypointrcnn_backup(self, image: np.ndarray) -> Tuple[List[List[List[float]]], List[float]]:
+        """使用KeypointRCNN备用模型检测关键点"""
+        try:
+            import torch
+            import torchvision.transforms.functional as F
+
+            # 记录开始时间
+            t_start = time.time()
+
+            # 获取高级参数
+            max_poses = self.advanced_params.get("max_poses", 20)
+            min_keypoints = self.advanced_params.get("min_keypoints", 5)
+
+            # 准备结果列表
+            keypoints_list = []
+            scores_list = []
+
+            # 确保图像是RGB格式
+            if image.shape[2] == 4:  # 如果有alpha通道
+                image = image[:, :, :3]
+
+            # 从BGR转换为RGB
+            image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+
+            # 转换为PyTorch张量
+            img_tensor = F.to_tensor(image_rgb)
+
+            # 确保在正确的设备上
+            img_tensor = img_tensor.to(self.device)
+
+            logger.debug(
+                f"KeypointRCNN输入图像形状: {img_tensor.shape}, 设备: {img_tensor.device}")
+
+            # 使用备用模型进行推理
+            with torch.no_grad():
+                try:
+                    # 新版本torchvision模型
+                    predictions = self.keypointrcnn_model([img_tensor])
+                    logger.debug(f"KeypointRCNN预测结果类型: {type(predictions)}")
+
+                    # 检查预测结果是否为列表且有内容
+                    if isinstance(predictions, list) and len(predictions) > 0:
+                        # 处理新版本torchvision模型的输出
+                        pred = predictions[0]
+
+                        if 'keypoints' in pred and len(pred['keypoints']) > 0:
+                            # 提取关键点和分数
+                            pred_keypoints = pred['keypoints'].cpu().numpy()
+                            pred_scores = pred['scores'].cpu().numpy()
+                            pred_boxes = pred['boxes'].cpu(
+                            ).numpy() if 'boxes' in pred else None
+
+                            # 过滤低置信度的检测结果
+                            mask = pred_scores >= self.conf_threshold
+                            filtered_keypoints = pred_keypoints[mask]
+                            filtered_scores = pred_scores[mask]
+
+                            # 处理每个检测到的人
+                            for i, kpts in enumerate(filtered_keypoints):
+                                # 将keypoint_scores转成confidence
+                                if kpts.shape[1] == 3:
+                                    conf = kpts[:, 2]
+                                else:
+                                    # 如果没有置信度，使用默认值
+                                    conf = np.ones(kpts.shape[0]) * 0.9
+
+                                # 创建关键点数组 [K, 3] - (x, y, conf)
+                                keypoints_array = np.zeros((kpts.shape[0], 3))
+                                keypoints_array[:, :2] = kpts[:, :2]
+                                keypoints_array[:, 2] = conf
+
+                                # 计算可见关键点数量
+                                visible_keypoints = sum(
+                                    1 for _, _, c in keypoints_array if c >= self.keypoint_threshold)
+
+                                # 过滤掉可见关键点数量少于阈值的姿态
+                                if visible_keypoints >= min_keypoints:
+                                    keypoints_list.append(
+                                        keypoints_array.tolist())
+                                    scores_list.append(
+                                        float(filtered_scores[i]))
+
+                                    # 如果达到最大姿态数量，停止添加
+                                    if len(keypoints_list) >= max_poses:
+                                        break
+                except Exception as model_error:
+                    logger.warning(f"使用标准模型推理失败: {model_error}，尝试其他格式")
+                    # 记录异常信息以便调试
+                    import traceback
+                    logger.debug(f"异常详情: {traceback.format_exc()}")
+
+                    # 尝试使用旧版本torchvision模型的推理方式
+                    try:
+                        # 检查模型是否有eval方法
+                        if hasattr(self.keypointrcnn_model, 'eval'):
+                            # 确保模型处于评估模式
+                            self.keypointrcnn_model.eval()
+
+                        # 转换为元组推理
+                        outputs = self.keypointrcnn_model(img_tensor)
+
+                        # 检查结果结构
+                        if isinstance(outputs, tuple) and len(outputs) >= 2:
+                            # 获取边界框和关键点
+                            boxes = outputs[0]
+                            keypoints = outputs[1]
+
+                            # 提取关键点和分数
+                            if len(keypoints) > 0:
+                                keypoints_np = keypoints.cpu().numpy()
+
+                                for i, kpts in enumerate(keypoints_np):
+                                    # 创建关键点数组 [K, 3] - (x, y, conf)
+                                    keypoints_array = np.zeros(
+                                        (kpts.shape[0], 3))
+                                    keypoints_array[:, :2] = kpts[:, :2]
+                                    # 使用默认置信度
+                                    keypoints_array[:, 2] = 0.9
+
+                                    keypoints_list.append(
+                                        keypoints_array.tolist())
+                                    scores_list.append(0.9)  # 默认分数
+
+                                    # 如果达到最大姿态数量，停止添加
+                                    if len(keypoints_list) >= max_poses:
+                                        break
+                    except Exception as alt_error:
+                        logger.error(f"所有推理方式都失败: {alt_error}")
+                        import traceback
+                        logger.error(f"异常详情: {traceback.format_exc()}")
+
+            logger.info(
+                f"KeypointRCNN备用模型检测找到{len(keypoints_list)}个姿态，耗时: {time.time() - t_start:.3f}秒")
+            return keypoints_list, scores_list
+
+        except Exception as e:
+            logger.error(f"KeypointRCNN备用模型检测失败: {str(e)}")
+            import traceback
+            logger.error(f"异常详情: {traceback.format_exc()}")
+            return [], []
+
+    def _detect_keypointrcnn_from_boxes(self, image: np.ndarray, boxes: List[List[float]]) -> Tuple[List[List[List[float]]], List[float]]:
+        """使用KeypointRCNN从给定的边界框中检测姿态"""
+        try:
+            # 获取图像尺寸
+            height, width = image.shape[:2]
+
+            # 准备结果列表
+            keypoints_list = []
+            scores_list = []
+
+            # 添加日志记录模型类型
+            try:
+                model_type = type(self.model).__name__
+                logger.debug(f"备用模型类型: {model_type}")
+            except Exception as e:
+                logger.warning(f"获取模型类型出错: {e}")
+
+            # 确定使用哪种方法处理
+            is_mmpose_model = not 'KeypointRCNN' in str(type(self.model))
+            logger.debug(f"是否为MMPose模型: {is_mmpose_model}")
+
+            # 对每个边界框单独处理
+            for box in boxes:
+                if len(box) < 4:
+                    continue
+
+                x1, y1, x2, y2 = [int(coord) for coord in box[:4]]
+
+                # 确保坐标在图像范围内
+                x1 = max(0, min(x1, width - 1))
+                y1 = max(0, min(y1, height - 1))
+                x2 = max(0, min(x2, width - 1))
+                y2 = max(0, min(y2, height - 1))
+
+                # 如果框太小，跳过
+                if x2 - x1 < 10 or y2 - y1 < 10:
+                    continue
+
+                logger.debug(
+                    f"处理边界框: x1={x1}, y1={y1}, x2={x2}, y2={y2}, 尺寸={x2-x1}x{y2-y1}")
+
+                # 裁剪出框内的图像
+                cropped_image = image[y1:y2, x1:x2].copy()
+                logger.debug(f"裁剪图像尺寸: {cropped_image.shape}")
+
+                # 转换为RGB格式
+                cropped_rgb = cv2.cvtColor(cropped_image, cv2.COLOR_BGR2RGB)
+
+                # 调整图像大小
+                try:
+                    # 确定适当的输入大小
+                    if is_mmpose_model:
+                        # 对于MMPose模型，使用256x192
+                        target_size = (192, 256)
+                    else:
+                        # 对于torchvision模型，使用原尺寸或缩放
+                        h, w = cropped_rgb.shape[:2]
+                        min_size = 800
+                        if hasattr(self.model, 'transform') and hasattr(self.model.transform, 'min_size'):
+                            min_size = self.model.transform.min_size[0]
+                        scale = min_size / max(h, w)
+                        new_h, new_w = int(h * scale), int(w * scale)
+                        new_h, new_w = max(1, new_h), max(1, new_w)
+                        target_size = (new_w, new_h)
+
+                    logger.debug(f"调整图像到目标尺寸: {target_size}")
+                    resized_img = cv2.resize(cropped_rgb, target_size)
+                    cropped_rgb = resized_img
+                except Exception as e:
+                    logger.warning(f"调整图像大小失败: {e}")
+
+                # 转换为PyTorch张量
+                cropped_tensor = torch.from_numpy(cropped_rgb.transpose(
+                    2, 0, 1)).float().div(255.0).unsqueeze(0)
+                cropped_tensor = cropped_tensor.to(self.device)
+                logger.debug(f"输入张量尺寸: {cropped_tensor.shape}")
+
+                # 根据模型类型选择推理方法
+                if is_mmpose_model:
+                    # MMPose模型处理
+                    try:
+                        # 创建数据样本
+                        from mmengine.structures import InstanceData
+                        from mmpose.structures import PoseDataSample
+
+                        curr_h, curr_w = cropped_rgb.shape[:2]
+                        data_sample = PoseDataSample()
+                        # 确保包含flip_indices元信息
+                        data_sample.set_metainfo({
+                            'img_shape': (curr_h, curr_w),
+                            'img_id': 0,
+                            'input_size': (curr_w, curr_h),
+                            'flip_indices': self.model.dataset_meta.get('flip_indices', None)
+                        })
+
+                        # 尝试使用test_step方法
+                        if hasattr(self.model, 'test_step'):
+                            data_batch = {'inputs': cropped_tensor,
+                                          'data_samples': [data_sample]}
+                            outputs = self.model.test_step(data_batch)
+                        else:
+                            # 使用forward方法
+                            outputs = self.model(
+                                cropped_tensor, mode='test', data_samples=[data_sample])
+
+                        # 处理输出
+                        if outputs and len(outputs) > 0:
+                            pose_result = outputs[0]
+                            if hasattr(pose_result, 'pred_instances') and len(pose_result.pred_instances) > 0:
+                                pred_instances = pose_result.pred_instances
+
+                                # 安全获取keypoints和scores
+                                keypoints = pred_instances.keypoints
+                                if isinstance(keypoints, torch.Tensor):
+                                    keypoints = keypoints.cpu().numpy()
+
+                                keypoint_scores = pred_instances.keypoint_scores
+                                if isinstance(keypoint_scores, torch.Tensor):
+                                    keypoint_scores = keypoint_scores.cpu().numpy()
+
+                                # 获取实例分数
+                                instance_score = 1.0
+                                if hasattr(pred_instances, 'scores'):
+                                    scores = pred_instances.scores
+                                    if isinstance(scores, torch.Tensor) and len(scores) > 0:
+                                        instance_score = scores[0].cpu().item()
+                                    elif len(scores) > 0:
+                                        instance_score = float(scores[0])
+
+                                # 处理每个姿态
+                                for i in range(len(keypoints)):
+                                    # 转换坐标回原始图像
+                                    scale_x = (x2 - x1) / \
+                                        curr_w if curr_w > 0 else 1
+                                    scale_y = (y2 - y1) / \
+                                        curr_h if curr_h > 0 else 1
+
+                                    kpts = keypoints[i].copy()
+                                    kpts[:, 0] = kpts[:, 0] * scale_x + x1
+                                    kpts[:, 1] = kpts[:, 1] * scale_y + y1
+
+                                    # 创建包含置信度的关键点
+                                    kpts_with_conf = np.zeros((len(kpts), 3))
+                                    kpts_with_conf[:, :2] = kpts
+                                    kpts_with_conf[:, 2] = keypoint_scores[i]
+
+                                    keypoints_list.append(
+                                        kpts_with_conf.tolist())
+                                    scores_list.append(float(instance_score))
+                    except Exception as e:
+                        logger.error(f"MMPose模型推理失败: {e}")
+                        import traceback
+                        logger.error(traceback.format_exc())
+                else:
+                    # Torchvision KeypointRCNN模型处理
+                    try:
+                        with torch.no_grad():
+                            predictions = self.model(cropped_tensor)
+
+                        # 处理输出
+                        if predictions and len(predictions) > 0 and 'keypoints' in predictions[0] and len(predictions[0]['keypoints']) > 0:
+                            # 获取关键点和分数
+                            keypoints = predictions[0]['keypoints'][0].cpu(
+                            ).numpy()
+                            score = 1.0
+                            if 'scores' in predictions[0] and len(predictions[0]['scores']) > 0:
+                                score = predictions[0]['scores'][0].cpu(
+                                ).item()
+
+                            # 转换坐标回原始图像
+                            if keypoints.shape[0] > 0:
+                                h, w = target_size[1], target_size[0]
+                                scale_x = (x2 - x1) / w if w > 0 else 1
+                                scale_y = (y2 - y1) / h if h > 0 else 1
+
+                                adjusted_keypoints = keypoints.copy()
+                                adjusted_keypoints[:,
+                                                   0] = adjusted_keypoints[:, 0] * scale_x + x1
+                                adjusted_keypoints[:,
+                                                   1] = adjusted_keypoints[:, 1] * scale_y + y1
+
+                                keypoints_list.append(
+                                    adjusted_keypoints.tolist())
+                                scores_list.append(float(score))
+                    except Exception as e:
+                        logger.error(f"Torchvision模型推理失败: {e}")
+                        import traceback
+                        logger.error(traceback.format_exc())
+
+            return keypoints_list, scores_list
+
+        except Exception as e:
+            logger.error(f"KeypointRCNN从边界框检测姿态失败: {str(e)}")
+            import traceback
+            logger.error(f"详细错误信息: {traceback.format_exc()}")
+            return [], []
+
 
 def get_shapes_from_poses(
     keypoints: List[List[List[float]]],
@@ -1584,6 +1805,16 @@ def get_shapes_from_poses(
     """
     shapes = []
 
+    # 日志输出关键点范围，方便调试
+    if keypoints and len(keypoints) > 0 and len(keypoints[0]) > 0:
+        all_points = np.array(
+            [point[:2] for person in keypoints for point in person if point[2] > 0])
+        if len(all_points) > 0:
+            x_min, y_min = np.min(all_points, axis=0)
+            x_max, y_max = np.max(all_points, axis=0)
+            logger.debug(
+                f"关键点范围: x({x_min:.1f}-{x_max:.1f}) y({y_min:.1f}-{y_max:.1f})")
+
     # 处理每个人体的姿态
     for i, kpts in enumerate(keypoints):
         score = scores[i] if scores and i < len(scores) else 1.0
@@ -1593,6 +1824,12 @@ def get_shapes_from_poses(
         for j, (x, y, conf) in enumerate(kpts):
             # 只添加置信度高于阈值的关键点
             if conf > 0:
+                # 确保坐标是有效值 (防止NaN或无穷大)
+                if not (np.isfinite(x) and np.isfinite(y)):
+                    logger.warning(
+                        f"跳过无效坐标: 关键点 {j} ({COCO_KEYPOINTS[j]}) - 坐标 ({x}, {y})")
+                    continue
+
                 # 获取关键点名称，不加前缀
                 kpt_name = COCO_KEYPOINTS[j]
 
@@ -1608,7 +1845,7 @@ def get_shapes_from_poses(
                 # 添加描述，包含可见性信息
                 description = f"{visibility}"
 
-                # 创建形状字典
+                # 创建形状字典 - 注意使用float类型以确保精确表示
                 shape = {
                     "label": f"{kpt_name}",  # 不添加kpt_前缀
                     "points": [[float(x), float(y)]],
@@ -1627,8 +1864,11 @@ def get_shapes_from_poses(
                 p1 = kpts[p1_idx]
                 p2 = kpts[p2_idx]
 
-                # 确保两个关键点都可见
-                if p1[2] > 0 and p2[2] > 0:
+                # 确保两个关键点都可见且坐标有效
+                if (p1[2] > 0 and p2[2] > 0 and
+                    np.isfinite(p1[0]) and np.isfinite(p1[1]) and
+                        np.isfinite(p2[0]) and np.isfinite(p2[1])):
+
                     # 获取两个关键点的名称
                     p1_name = COCO_KEYPOINTS[p1_idx]
                     p2_name = COCO_KEYPOINTS[p2_idx]
@@ -1729,6 +1969,18 @@ def estimate_poses(
         shapes: 形状列表
     """
     try:
+        # 日志记录图像信息和参数
+        img_height, img_width = image.shape[:2]
+        logger.info(
+            f"开始进行姿态估计, 模型: {model_name}, 使用已有人体框: {use_detection_results}, 图像尺寸: {img_width}x{img_height}")
+
+        # 检查并记录边界框信息
+        if existing_person_boxes and len(existing_person_boxes) > 0:
+            for i, box in enumerate(existing_person_boxes):
+                if len(box) >= 4:
+                    logger.debug(
+                        f"边界框 {i}: x1={box[0]:.1f}, y1={box[1]:.1f}, x2={box[2]:.1f}, y2={box[3]:.1f}, 宽={box[2]-box[0]:.1f}, 高={box[3]-box[1]:.1f}")
+
         # 初始化姿态估计器
         estimator = PoseEstimator(
             model_name=model_name,
@@ -1742,26 +1994,66 @@ def estimate_poses(
         keypoints = []
         scores = []
 
-        # 如果提供了人体框，尝试从框中检测姿态
-        if existing_person_boxes and len(existing_person_boxes) > 0 and (use_detection_results is None or use_detection_results):
+        # 如果提供了人体框并且用户选择使用已有框，从框中检测姿态
+        if existing_person_boxes and len(existing_person_boxes) > 0 and (use_detection_results is True):
             logger.info(f"使用已有的 {len(existing_person_boxes)} 个人体框进行姿态估计")
-            keypoints, scores = estimator.detect_poses_from_boxes(
-                image, existing_person_boxes)
 
-        # 如果没有结果，使用通用检测
-        if len(keypoints) == 0:
-            logger.info("未找到已有人体框或未启用使用已有框，使用标准姿态估计")
-            keypoints, scores = estimator.detect_poses(image)
+            # 规范化边界框 - 确保坐标是有效值且在图像范围内
+            valid_boxes = []
+            for box in existing_person_boxes:
+                if len(box) >= 4:
+                    x1 = max(0, min(float(box[0]), img_width - 1))
+                    y1 = max(0, min(float(box[1]), img_height - 1))
+                    x2 = max(0, min(float(box[2]), img_width - 1))
+                    y2 = max(0, min(float(box[3]), img_height - 1))
+
+                    # 确保边界框有效
+                    if x2 > x1 and y2 > y1:
+                        valid_boxes.append([x1, y1, x2, y2])
+
+            if valid_boxes:
+                # 根据模型类型选择不同的处理方法
+                if estimator.is_rtmpose:
+                    logger.info("使用RTMPose从已有人体框进行姿态估计")
+                    keypoints, scores = estimator._detect_rtmpose_from_boxes(
+                        image, valid_boxes)
+                else:
+                    keypoints, scores = estimator.detect_poses_from_boxes(
+                        image, valid_boxes)
+            else:
+                logger.warning("没有有效的边界框，将使用自动检测")
+        else:
+            # 如果没有选择使用已有框或没有提供人体框，使用自动检测
+            logger.info("未启用使用已有框或未提供人体框，使用自动检测")
+            if estimator.is_rtmpose:
+                # 如果是RTMPose模型，优先使用RTMDet进行人体检测
+                keypoints, scores = estimator._detect_rtmpose(image)
+            else:
+                keypoints, scores = estimator.detect_poses(image)
+
+        # 验证并记录关键点信息
+        if keypoints and len(keypoints) > 0:
+            logger.info(f"检测到 {len(keypoints)} 个姿态")
+            for i, person_kpts in enumerate(keypoints):
+                valid_kpts = sum(1 for kpt in person_kpts if len(
+                    kpt) > 2 and kpt[2] > 0)
+                logger.debug(
+                    f"姿态 {i}: 有效关键点数量 {valid_kpts}/{len(person_kpts)}")
+        else:
+            logger.warning("未检测到任何有效姿态")
 
         # 将姿态结果转换为形状列表
         group_id = start_group_id
-        if existing_person_boxes_ids and len(existing_person_boxes_ids) > 0:
+        if existing_person_boxes_ids and len(existing_person_boxes_ids) > 0 and use_detection_results is True:
             group_id = existing_person_boxes_ids[0] if existing_person_boxes_ids[0] is not None else start_group_id
 
         shapes = get_shapes_from_poses(
             keypoints, scores, group_id, draw_skeleton)
 
+        logger.info(f"姿态估计完成，共检测到 {len(keypoints)} 个姿态，生成 {len(shapes)} 个标注形状")
         return shapes
     except Exception as e:
         logger.error(f"姿态估计过程中出错: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
         return []
