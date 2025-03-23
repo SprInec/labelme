@@ -1493,25 +1493,40 @@ def _update_shape_with_sam(
 
         # 获取生成的掩码 - 修正属性名
         annotation = mask_response.annotations[0]
-        mask = annotation.mask  # 使用正确的属性名mask而不是segmentation_mask
+        mask = annotation.mask  # 使用正确的属性名mask
 
         if createMode == "ai_mask":
-            # 保存掩码到形状中
-            y_min, x_min = np.min(points, axis=0).astype(int)
-            y_max, x_max = np.max(points, axis=0).astype(int)
+            # 调试信息
+            logger.debug(f"Mask shape: {mask.shape}")
+            logger.debug(f"Points: {points}")
 
-            # 确保区域有效
-            h, w = mask.shape
-            x_min = max(0, x_min)
-            y_min = max(0, y_min)
-            x_max = min(w, x_max)
-            y_max = min(h, y_max)
+            # 确定掩码的边界框（非零区域）
+            nonzero_y, nonzero_x = np.nonzero(mask)
+            if len(nonzero_y) == 0 or len(nonzero_x) == 0:
+                logger.warning("Mask is empty")
+                return
 
+            # 获取边界框
+            y_min, y_max = np.min(nonzero_y), np.max(nonzero_y)
+            x_min, x_max = np.min(nonzero_x), np.max(nonzero_x)
+
+            # 调试信息
+            logger.debug(
+                f"Bounding box: x_min={x_min}, y_min={y_min}, x_max={x_max}, y_max={y_max}")
+
+            # 设置形状属性
             shape.shape_type = "mask"
-            shape.mask = mask
+
+            # 确保掩码与边界框匹配
+            # 从完整掩码中提取需要的子区域
+            # 注意：需要+1因为Python切片是左闭右开的
+            mask_region = mask[y_min:y_max+1, x_min:x_max+1]
+            shape.mask = mask_region
+
+            # 设置边界框坐标 - 确保与掩码区域完全匹配
             shape.points = [
-                QtCore.QPointF(x_min, y_min),
-                QtCore.QPointF(x_max, y_max),
+                QtCore.QPointF(x_min, y_min),  # 左上角
+                QtCore.QPointF(x_max, y_max),  # 右下角
             ]
             shape.point_labels = [1, 1]
 
@@ -1530,7 +1545,8 @@ def _update_shape_with_sam(
             from skimage.measure import approximate_polygon
             contour = approximate_polygon(contour, tolerance=2.0)
 
-            # 更新形状的点
+            # 更新形状的点 - 注意contour中的点是(row, col)格式，即(y, x)
+            # 需要转换为(x, y)格式
             shape.points = [QtCore.QPointF(p[1], p[0]) for p in contour]
             shape.point_labels = [1] * len(shape.points)
             shape.shape_type = "polygon"
