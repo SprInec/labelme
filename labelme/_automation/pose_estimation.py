@@ -173,12 +173,33 @@ class PoseEstimator:
             # 设置权重文件路径
             weights_path = self.params.get("weights_path")
             if not weights_path:
-                # 如果未指定，使用默认路径
-                weights_path = os.path.join(
-                    os.path.dirname(os.path.abspath(__file__)),
-                    "weights",
-                    "yolov7-w6-pose.pt"
-                )
+                # 尝试从_automation/yolov7/checkpoints目录获取模型
+                try:
+                    from labelme._automation.model_downloader import get_model_dir
+                    yolo_checkpoints = get_model_dir("yolov7")
+                    custom_weights_path = os.path.join(
+                        yolo_checkpoints, "yolov7-w6-pose.pt")
+                    if os.path.exists(custom_weights_path):
+                        weights_path = custom_weights_path
+                        logger.info(
+                            f"在_automation/yolov7/checkpoints目录中找到YOLOv7姿态估计模型: {weights_path}")
+                    else:
+                        # 使用默认路径
+                        weights_path = os.path.join(
+                            os.path.dirname(os.path.abspath(__file__)),
+                            "weights",
+                            "yolov7-w6-pose.pt"
+                        )
+                        logger.info(
+                            f"未找到自定义路径的YOLOv7姿态估计模型，使用默认路径: {weights_path}")
+                except Exception as e:
+                    logger.warning(f"尝试获取自定义模型路径时出错: {e}，使用默认路径")
+                    # 使用默认路径
+                    weights_path = os.path.join(
+                        os.path.dirname(os.path.abspath(__file__)),
+                        "weights",
+                        "yolov7-w6-pose.pt"
+                    )
 
             print(f"权重文件路径: {weights_path}")
 
@@ -300,28 +321,69 @@ class PoseEstimator:
 
             # 检查是否有本地权重文件，否则使用MMPose默认权重
             checkpoint_file = model_config["checkpoint"]
-            checkpoint_dir = os.path.join(os.path.expanduser(
-                "~"), ".cache", "torch", "hub", "checkpoints")
-            checkpoint_path = os.path.join(checkpoint_dir, checkpoint_file)
 
-            if not os.path.exists(checkpoint_path):
-                # 尝试从网络下载权重文件
-                try:
-                    from labelme._automation.model_downloader import download_rtmpose_model
-                    logger.info(f"模型权重不存在，尝试从网络下载: {self.model_name}")
-                    checkpoint_path = download_rtmpose_model(self.model_name)
-                    if checkpoint_path:
-                        logger.info(f"模型下载成功: {checkpoint_path}")
+            # 首先在_automation/mmpose/checkpoints目录查找
+            try:
+                from labelme._automation.model_downloader import get_model_dir
+                local_checkpoint_dir = get_model_dir("mmpose")
+                local_checkpoint_path = os.path.join(
+                    local_checkpoint_dir, f"{self.model_name}.pth")
+                if os.path.exists(local_checkpoint_path):
+                    logger.info(
+                        f"在本地目录找到RTMPose模型权重文件: {local_checkpoint_path}")
+                    checkpoint_file = local_checkpoint_path
+                else:
+                    # 检查原有的缓存目录
+                    checkpoint_dir = os.path.join(os.path.expanduser(
+                        "~"), ".cache", "torch", "hub", "checkpoints")
+                    checkpoint_path = os.path.join(
+                        checkpoint_dir, checkpoint_file)
+
+                    if os.path.exists(checkpoint_path):
+                        logger.info(f"在缓存目录找到RTMPose模型权重文件: {checkpoint_path}")
                         checkpoint_file = checkpoint_path
                     else:
-                        # 如果下载失败，使用MMPose默认权重
-                        logger.warning(f"模型下载失败，使用MMPose默认权重")
+                        # 尝试从网络下载权重文件
+                        try:
+                            from labelme._automation.model_downloader import download_rtmpose_model
+                            logger.info(f"模型权重不存在，尝试从网络下载: {self.model_name}")
+                            checkpoint_path = download_rtmpose_model(
+                                self.model_name)
+                            if checkpoint_path:
+                                logger.info(f"模型下载成功: {checkpoint_path}")
+                                checkpoint_file = checkpoint_path
+                            else:
+                                # 如果下载失败，使用MMPose默认权重
+                                logger.warning(f"模型下载失败，使用MMPose默认权重")
+                                checkpoint_file = None
+                        except Exception as e:
+                            logger.warning(f"下载模型失败: {e}，使用MMPose默认权重")
+                            checkpoint_file = None
+            except Exception as e:
+                logger.warning(f"查找模型路径时出错: {e}，尝试使用默认路径")
+                checkpoint_dir = os.path.join(os.path.expanduser(
+                    "~"), ".cache", "torch", "hub", "checkpoints")
+                checkpoint_path = os.path.join(checkpoint_dir, checkpoint_file)
+
+                if os.path.exists(checkpoint_path):
+                    checkpoint_file = checkpoint_path
+                else:
+                    # 尝试从网络下载权重文件
+                    try:
+                        from labelme._automation.model_downloader import download_rtmpose_model
+                        logger.info(f"模型权重不存在，尝试从网络下载: {self.model_name}")
+                        checkpoint_path = download_rtmpose_model(
+                            self.model_name)
+                        if checkpoint_path:
+                            logger.info(f"模型下载成功: {checkpoint_path}")
+                            checkpoint_file = checkpoint_path
+                        else:
+                            # 如果下载失败，使用MMPose默认权重
+                            logger.warning(f"模型下载失败，使用MMPose默认权重")
+                            checkpoint_file = None
+                    except Exception as e:
+                        logger.warning(f"下载模型失败: {e}，使用MMPose默认权重")
                         checkpoint_file = None
-                except Exception as e:
-                    logger.warning(f"下载模型失败: {e}，使用MMPose默认权重")
-                    checkpoint_file = None
-            else:
-                checkpoint_file = checkpoint_path
 
             # 初始化模型
             model = init_model(

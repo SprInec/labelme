@@ -14,3 +14,6 @@
 labelme/_automation/weight/models/
 labelme/weights/
 models/
+
+# 忽略所有checkpoints文件夹
+**/checkpoints/

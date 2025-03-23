@@ -93,6 +93,28 @@ def set_torch_home():
 set_torch_home()
 
 
+def get_automation_dir():
+    """获取_automation目录的路径"""
+    return os.path.dirname(os.path.abspath(__file__))
+
+
+def get_model_dir(model_type):
+    """
+    获取模型存储目录
+
+    Args:
+        model_type: 模型类型，如'yolov7', 'mmpose', 'mmdetection'
+
+    Returns:
+        str: 模型存储目录的路径
+    """
+    base_dir = get_automation_dir()
+    model_dir = os.path.join(base_dir, model_type)
+    checkpoint_dir = os.path.join(model_dir, "checkpoints")
+    os.makedirs(checkpoint_dir, exist_ok=True)
+    return checkpoint_dir
+
+
 def download_file(url, dest_path, chunk_size=8192, use_mirror=True):
     """
     下载文件并显示进度条，支持镜像源
@@ -146,13 +168,13 @@ def download_file(url, dest_path, chunk_size=8192, use_mirror=True):
         return False
 
 
-def download_yolov7_model(model_name="yolov7.pt", dest_dir="models"):
+def download_yolov7_model(model_name="yolov7.pt", dest_dir=None):
     """
     下载YOLOv7模型，优先使用镜像源
 
     Args:
         model_name: 模型名称，可选值: yolov7.pt, yolov7-tiny.pt, yolov7x.pt, yolov7-w6.pt, yolov7-e6.pt, yolov7-d6.pt, yolov7-e6e.pt
-        dest_dir: 目标目录
+        dest_dir: 目标目录，如果为None则使用_automation/yolov7/checkpoints
 
     Returns:
         str: 模型路径，如果下载失败则返回None
@@ -161,6 +183,10 @@ def download_yolov7_model(model_name="yolov7.pt", dest_dir="models"):
         logger.error(
             f"未知的模型名称: {model_name}，可用模型: {', '.join(YOLOV7_MODELS.keys())}")
         return None
+
+    # 优先使用指定的存储位置，若不指定则存放到_automation/yolov7/checkpoints
+    if dest_dir is None:
+        dest_dir = get_model_dir("yolov7")
 
     dest_path = os.path.join(dest_dir, model_name)
 
@@ -233,7 +259,7 @@ def download_rtmpose_model(model_name: str, target_dir: str = None) -> str:
 
     Args:
         model_name: 模型名称，例如：rtmpose_tiny, rtmpose_s, rtmpose_m, rtmpose_l
-        target_dir: 保存目录，默认为'weights/mmpose'
+        target_dir: 保存目录，默认为_automation/mmpose/checkpoints
 
     Returns:
         str: 模型文件路径
@@ -245,62 +271,51 @@ def download_rtmpose_model(model_name: str, target_dir: str = None) -> str:
 
     # 默认保存目录
     if target_dir is None:
-        target_dir = os.path.join('weights', 'mmpose')
+        target_dir = get_model_dir("mmpose")
 
-    # 创建保存目录
+    # 确保目录存在
     os.makedirs(target_dir, exist_ok=True)
 
-    # 检查是否已经有本地文件
-    model_filename = f"{model_name}.pth"
-    model_path = os.path.join(target_dir, model_filename)
+    # 模型文件路径
+    dest_path = os.path.join(target_dir, f"{model_name}.pth")
 
-    # 如果本地文件已存在并且大小正常（大于1MB），直接返回
-    if os.path.exists(model_path) and os.path.getsize(model_path) > 1024 * 1024:
-        logger.info(f"本地已有{model_name}模型权重: {model_path}")
-        return model_path
+    # 如果模型已存在，则直接返回路径
+    if os.path.exists(dest_path) and os.path.getsize(dest_path) > 1024 * 1024:  # 确保文件大小合理
+        logger.info(f"RTMPose模型已存在: {dest_path}")
+        return dest_path
 
-    # 准备下载URL列表
-    download_urls = []
+    # 开始下载模型
+    logger.info(f"开始下载RTMPose模型: {model_name}")
+    model_links = RTMPOSE_MODEL_LINKS[model_name]
 
-    # 优先使用镜像链接
-    if PYTORCH_MIRROR_SOURCES:
-        original_url = RTMPOSE_MODEL_LINKS[model_name]["original"]
-        for mirror in PYTORCH_MIRROR_SOURCES:
-            mirror_url = original_url.replace(
-                "https://download.openmmlab.com", mirror)
-            download_urls.append(mirror_url)
+    # 首先尝试原始链接
+    original_url = model_links["original"]
+    logger.info(f"尝试从原始链接下载: {original_url}")
+    if download_file(original_url, dest_path):
+        logger.info(f"模型下载成功: {dest_path}")
+        return dest_path
 
-    # 添加原始链接
-    download_urls.append(RTMPOSE_MODEL_LINKS[model_name]["original"])
+    # 原始链接失败，尝试备用链接
+    backup_links = model_links.get("backup", [])
+    for i, backup_url in enumerate(backup_links):
+        logger.info(f"尝试从备用链接{i+1}下载: {backup_url}")
 
-    # 添加备用链接
-    if "backup" in RTMPOSE_MODEL_LINKS[model_name]:
-        download_urls.extend(RTMPOSE_MODEL_LINKS[model_name]["backup"])
+        # 创建临时文件路径
+        temp_path = f"{dest_path}.downloading"
 
-    # 尝试逐一从URL下载
-    for i, url in enumerate(download_urls):
         try:
-            logger.info(f"尝试从 {url} 下载RTMPose模型 [{i+1}/{len(download_urls)}]")
+            if download_file(backup_url, temp_path):
+                # 下载成功，重命名文件
+                shutil.move(temp_path, dest_path)
+                logger.info(f"模型从备用链接下载成功: {dest_path}")
+                return dest_path
 
-            # 创建临时文件路径
-            temp_path = model_path + ".download"
-
-            # 执行下载
-            urllib.request.urlretrieve(url, temp_path)
-
-            # 检查下载的文件大小 (通常模型文件应该>1MB)
-            if os.path.getsize(temp_path) > 1024 * 1024:
-                # 重命名为最终文件名
-                shutil.move(temp_path, model_path)
-                logger.info(f"成功下载{model_name}模型权重到 {model_path}")
-                return model_path
-            else:
-                logger.warning(
-                    f"下载的文件太小 ({os.path.getsize(temp_path)} bytes)，可能不是有效模型，尝试其他链接")
+            # 删除下载失败的临时文件
+            if os.path.exists(temp_path):
                 os.remove(temp_path)
 
         except Exception as e:
-            logger.warning(f"从 {url} 下载失败: {str(e)}")
+            logger.warning(f"从 {backup_url} 下载失败: {str(e)}")
             # 如果临时文件存在，删除它
             if os.path.exists(temp_path):
                 os.remove(temp_path)
@@ -331,7 +346,7 @@ def download_rtmdet_model(model_name="rtmdet_s", dest_dir=None):
 
     Args:
         model_name: 模型名称，可选值: rtmdet_tiny, rtmdet_s, rtmdet_m, rtmdet_l
-        dest_dir: 目标目录，如果为None则使用默认的MMDet缓存目录
+        dest_dir: 目标目录，如果为None则使用_automation/mmdetection/checkpoints
 
     Returns:
         str: 模型路径，如果下载失败则返回None
@@ -341,10 +356,9 @@ def download_rtmdet_model(model_name="rtmdet_s", dest_dir=None):
             f"未知的模型名称: {model_name}，可用模型: {', '.join(RTMDET_MODELS.keys())}")
         return None
 
-    # 如果未指定目标目录，使用默认的缓存目录
+    # 如果未指定目标目录，使用默认的目录
     if dest_dir is None:
-        dest_dir = os.path.join(os.path.expanduser(
-            "~"), ".cache", "torch", "hub", "checkpoints")
+        dest_dir = get_model_dir("mmdetection")
 
     # 确保目标目录存在
     os.makedirs(dest_dir, exist_ok=True)
