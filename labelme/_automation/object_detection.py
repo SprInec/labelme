@@ -262,12 +262,16 @@ class ObjectDetector:
             try:
                 import mmdet
                 from mmdet.apis import init_detector, inference_detector
+                from mmengine.registry import init_default_scope
                 HAS_MMDET = True
             except ImportError:
                 HAS_MMDET = False
                 logger.warning(
                     "MMDetection未安装，无法使用RTMDet模型。请安装mmdet：pip install openmim && mim install mmdet>=3.0.0")
                 raise ImportError("MMDetection未安装，无法使用RTMDet模型")
+
+            # 初始化默认作用域为mmdet
+            init_default_scope('mmdet')
 
             # RTMDet模型配置和权重映射
             rtmdet_configs = {
@@ -298,27 +302,18 @@ class ObjectDetector:
 
             # 检查是否有本地配置文件，否则使用MMDetection默认配置
             config_file = model_config["config"]
+            
+            # 首先检查当前目录是否有配置文件
             if not os.path.exists(config_file):
-                # 尝试从mmdet获取配置文件
-                try:
-                    from mmengine.config import Config
-                    from mmdet.utils import register_all_modules
-                    register_all_modules()
-
-                    # 构建完整配置路径
-                    config_path = os.path.join(
-                        os.path.dirname(mmdet.__file__),
-                        "..", "configs", "rtmdet", config_file
-                    )
-                    if not os.path.exists(config_path):
-                        logger.warning(f"配置文件不存在: {config_path}")
-                        # 使用MMDetection默认配置
-                        config_file = f"mmdet::rtmdet/{config_file}"
-                    else:
-                        config_file = config_path
-                except Exception as e:
-                    logger.warning(f"获取MMDetection配置文件失败: {e}")
-                    config_file = f"mmdet::rtmdet/{config_file}"
+                # 检查mmdetection目录下是否有配置文件
+                mmdet_config_path = os.path.join(os.path.dirname(__file__), "mmdetection", "configs", "rtmdet", config_file)
+                if os.path.exists(mmdet_config_path):
+                    logger.info(f"使用本地mmdetection目录中的配置文件: {mmdet_config_path}")
+                    config_file = mmdet_config_path
+                else:
+                    # 使用MMDetection默认配置
+                    logger.info(f"使用MMDetection默认配置: rtmdet/{config_file}")
+                    config_file = f"rtmdet/{config_file}"
 
             # 检查是否有本地权重文件，否则使用MMDetection默认权重
             checkpoint_file = model_config["checkpoint"]
@@ -501,6 +496,10 @@ class ObjectDetector:
     def _detect_rtmdet(self, image: np.ndarray) -> Tuple[List[List[float]], List[int], List[float]]:
         """使用RTMDet模型进行检测"""
         from mmdet.apis import inference_detector
+        from mmengine.registry import init_default_scope
+
+        # 确保正确的默认作用域
+        init_default_scope('mmdet')
 
         # 记录开始时间
         t_start = time.time()
@@ -522,11 +521,21 @@ class ObjectDetector:
             pred_scores = pred_instances.scores.cpu().numpy()
             pred_labels = pred_instances.labels.cpu().numpy()
 
+            # 获取高级参数
+            max_detections = self.advanced_params.get("max_detections", 100)
+
             # 过滤低置信度的检测结果
             mask = pred_scores >= self.conf_threshold
             boxes = pred_boxes[mask]
             scores = pred_scores[mask]
             labels = pred_labels[mask]
+
+            # 如果检测结果太多，只保留置信度最高的max_detections个
+            if len(scores) > max_detections:
+                indices = np.argsort(-scores)[:max_detections]
+                boxes = boxes[indices]
+                scores = scores[indices]
+                labels = labels[indices]
 
             # 处理过滤后的结果
             for box, label, score in zip(boxes, labels, scores):

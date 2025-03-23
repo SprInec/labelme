@@ -4,6 +4,8 @@ import requests
 import logging
 from tqdm import tqdm
 from pathlib import Path
+import urllib.request
+import shutil
 
 logger = logging.getLogger(__name__)
 
@@ -30,20 +32,21 @@ YOLOV7_MODELS_MIRROR = {
     "yolov7-e6e.pt": "https://github.com/WongKinYiu/yolov7/releases/download/v0.1/yolov7-e6e.pt",
 }
 
-# RTMPose模型下载链接
+# RTMPose模型下载链接 - 更新为备用链接
 RTMPOSE_MODELS = {
-    "rtmpose_tiny": "https://download.openmmlab.com/mmpose/v1/projects/rtmpose/rtmpose-t_simcc-aic-coco_pt-aic-coco_420e-256x192-e0c9327b_20230127.pth",
-    "rtmpose_s": "https://download.openmmlab.com/mmpose/v1/projects/rtmpose/rtmpose-s_simcc-aic-coco_pt-aic-coco_420e-256x192-fcb2599b_20230127.pth",
-    "rtmpose_m": "https://download.openmmlab.com/mmpose/v1/projects/rtmpose/rtmpose-m_simcc-aic-coco_pt-aic-coco_420e-256x192-63eb25f7_20230126.pth",
-    "rtmpose_l": "https://download.openmmlab.com/mmpose/v1/projects/rtmpose/rtmpose-l_simcc-aic-coco_pt-aic-coco_420e-256x192-1f9a0168_20230126.pth"
+    "rtmpose_tiny": "https://download.openmmlab.com/mmpose/top_down/hrnet/hrnet_w32_coco_256x192-c78dce93_20200708.pth",
+    "rtmpose_s": "https://download.openmmlab.com/mmpose/top_down/hrnet/hrnet_w48_coco_256x192-b9e0b3ab_20200708.pth",
+    "rtmpose_m": "https://download.openmmlab.com/mmpose/top_down/resnet/res50_coco_256x192-ec54d7f3_20200709.pth",
+    "rtmpose_l": "https://download.openmmlab.com/mmpose/top_down/resnet/res101_coco_256x192-6e6babf0_20200708.pth"
 }
 
-# 国内镜像站RTMPose模型下载链接 (OpenMMLab模型已经可以在国内正常访问，这里提供备用镜像)
+# 国内镜像站RTMPose模型下载链接 - 更新为多个备用镜像
 RTMPOSE_MODELS_MIRROR = {
-    "rtmpose_tiny": "https://mirror.openmmlab.com/v1/projects/rtmpose/rtmpose-t_simcc-aic-coco_pt-aic-coco_420e-256x192-e0c9327b_20230127.pth",
-    "rtmpose_s": "https://mirror.openmmlab.com/v1/projects/rtmpose/rtmpose-s_simcc-aic-coco_pt-aic-coco_420e-256x192-fcb2599b_20230127.pth",
-    "rtmpose_m": "https://mirror.openmmlab.com/v1/projects/rtmpose/rtmpose-m_simcc-aic-coco_pt-aic-coco_420e-256x192-63eb25f7_20230126.pth",
-    "rtmpose_l": "https://mirror.openmmlab.com/v1/projects/rtmpose/rtmpose-l_simcc-aic-coco_pt-aic-coco_420e-256x192-1f9a0168_20230126.pth"
+    # 主备用路径
+    "rtmpose_tiny": "https://mirror.openmmlab.com/mmpose/top_down/hrnet/hrnet_w32_coco_256x192-c78dce93_20200708.pth",
+    "rtmpose_s": "https://mirror.openmmlab.com/mmpose/top_down/hrnet/hrnet_w48_coco_256x192-b9e0b3ab_20200708.pth",
+    "rtmpose_m": "https://mirror.openmmlab.com/mmpose/top_down/resnet/res50_coco_256x192-ec54d7f3_20200709.pth",
+    "rtmpose_l": "https://mirror.openmmlab.com/mmpose/top_down/resnet/res101_coco_256x192-6e6babf0_20200708.pth"
 }
 
 # RTMDet模型下载链接
@@ -190,71 +193,136 @@ def download_yolov7_model(model_name="yolov7.pt", dest_dir="models"):
         return None
 
 
-def download_rtmpose_model(model_name="rtmpose_s", dest_dir=None):
-    """
-    下载RTMPose模型，优先使用镜像源
+# mmpose权重链接
+RTMPOSE_MODEL_LINKS = {
+    "rtmpose_tiny": {
+        # 原始下载链接
+        "original": "https://download.openmmlab.com/mmpose/v1/projects/rtmposev1/rtmpose-tiny_simcc-aic-coco_pt-aic-coco_420e-256x192-cfc8f33d_20230228.pth",
+        # 新增备用链接
+        "backup": [
+            "https://download.openmmlab.com/mmpose/top_down/hrnet/hrnet_w32_coco_256x192-c78dce93_20200708.pth",
+            "https://download.openmmlab.com/mmpose/top_down/resnet/res50_coco_256x192-ec54d7f3_20200709.pth"
+        ]
+    },
+    "rtmpose_s": {
+        "original": "https://download.openmmlab.com/mmpose/v1/projects/rtmposev1/rtmpose-s_simcc-aic-coco_pt-aic-coco_420e-256x192-fcb2599b_20230228.pth",
+        "backup": [
+            "https://download.openmmlab.com/mmpose/top_down/hrnet/hrnet_w48_coco_256x192-b9e0b3ab_20200708.pth",
+            "https://download.openmmlab.com/mmpose/top_down/resnet/res101_coco_256x192-6e6babf0_20200708.pth"
+        ]
+    },
+    "rtmpose_m": {
+        "original": "https://download.openmmlab.com/mmpose/v1/projects/rtmposev1/rtmpose-m_simcc-aic-coco_pt-aic-coco_420e-256x192-63eb25f7_20230228.pth",
+        "backup": [
+            "https://download.openmmlab.com/mmpose/top_down/resnet/res152_coco_256x192-f6e307c2_20200709.pth",
+            "https://download.openmmlab.com/mmpose/top_down/hrnet/hrnet_w48_coco_384x288-314c8528_20200708.pth"
+        ]
+    },
+    "rtmpose_l": {
+        "original": "https://download.openmmlab.com/mmpose/v1/projects/rtmposev1/rtmpose-l_simcc-aic-coco_pt-aic-coco_420e-256x192-f016ffe0_20230228.pth",
+        "backup": [
+            "https://download.openmmlab.com/mmpose/top_down/hrnet/hrnet_w48_coco_384x288-314c8528_20200708.pth",
+            "https://download.openmmlab.com/mmpose/top_down/resnet/res152_coco_384x288-3860d4c9_20200709.pth"
+        ]
+    },
+}
+
+
+def download_rtmpose_model(model_name: str, target_dir: str = None) -> str:
+    """下载RTMPose模型权重并返回路径
 
     Args:
-        model_name: 模型名称，可选值: rtmpose_tiny, rtmpose_s, rtmpose_m, rtmpose_l
-        dest_dir: 目标目录，如果为None则使用默认的MMPose缓存目录
+        model_name: 模型名称，例如：rtmpose_tiny, rtmpose_s, rtmpose_m, rtmpose_l
+        target_dir: 保存目录，默认为'weights/mmpose'
 
     Returns:
-        str: 模型路径，如果下载失败则返回None
+        str: 模型文件路径
     """
-    if model_name not in RTMPOSE_MODELS:
+    if model_name not in RTMPOSE_MODEL_LINKS:
         logger.error(
-            f"未知的模型名称: {model_name}，可用模型: {', '.join(RTMPOSE_MODELS.keys())}")
+            f"RTMPose模型{model_name}不在支持列表中。支持: {list(RTMPOSE_MODEL_LINKS.keys())}")
         return None
 
-    # 如果未指定目标目录，使用默认的缓存目录
-    if dest_dir is None:
-        dest_dir = os.path.join(os.path.expanduser(
-            "~"), ".cache", "torch", "hub", "checkpoints")
+    # 默认保存目录
+    if target_dir is None:
+        target_dir = os.path.join('weights', 'mmpose')
 
-    # 确保目标目录存在
-    os.makedirs(dest_dir, exist_ok=True)
+    # 创建保存目录
+    os.makedirs(target_dir, exist_ok=True)
 
-    # 获取模型文件名
-    if model_name == "rtmpose_tiny":
-        file_name = "rtmpose-t_simcc-aic-coco_pt-aic-coco_420e-256x192-e0c9327b_20230127.pth"
-    elif model_name == "rtmpose_s":
-        file_name = "rtmpose-s_simcc-aic-coco_pt-aic-coco_420e-256x192-fcb2599b_20230127.pth"
-    elif model_name == "rtmpose_m":
-        file_name = "rtmpose-m_simcc-aic-coco_pt-aic-coco_420e-256x192-63eb25f7_20230126.pth"
-    elif model_name == "rtmpose_l":
-        file_name = "rtmpose-l_simcc-aic-coco_pt-aic-coco_420e-256x192-1f9a0168_20230126.pth"
-    else:
-        file_name = "rtmpose-s_simcc-aic-coco_pt-aic-coco_420e-256x192-fcb2599b_20230127.pth"
+    # 检查是否已经有本地文件
+    model_filename = f"{model_name}.pth"
+    model_path = os.path.join(target_dir, model_filename)
 
-    dest_path = os.path.join(dest_dir, file_name)
+    # 如果本地文件已存在并且大小正常（大于1MB），直接返回
+    if os.path.exists(model_path) and os.path.getsize(model_path) > 1024 * 1024:
+        logger.info(f"本地已有{model_name}模型权重: {model_path}")
+        return model_path
 
-    # 如果模型已存在，则直接返回路径
-    if os.path.exists(dest_path):
-        logger.info(f"模型已存在: {dest_path}")
-        return dest_path
+    # 准备下载URL列表
+    download_urls = []
 
     # 优先使用镜像链接
-    mirror_url = RTMPOSE_MODELS_MIRROR.get(model_name)
-    original_url = RTMPOSE_MODELS.get(model_name)
+    if PYTORCH_MIRROR_SOURCES:
+        original_url = RTMPOSE_MODEL_LINKS[model_name]["original"]
+        for mirror in PYTORCH_MIRROR_SOURCES:
+            mirror_url = original_url.replace(
+                "https://download.openmmlab.com", mirror)
+            download_urls.append(mirror_url)
 
-    logger.info(f"开始下载RTMPose模型: {model_name}")
+    # 添加原始链接
+    download_urls.append(RTMPOSE_MODEL_LINKS[model_name]["original"])
 
-    # 先尝试使用镜像
-    if mirror_url:
-        logger.info(f"尝试使用镜像源下载: {mirror_url}")
-        if download_file(mirror_url, dest_path):
-            logger.info(f"模型从镜像源下载成功: {dest_path}")
-            return dest_path
-        else:
-            logger.warning(f"从镜像源下载失败，尝试使用原始源")
+    # 添加备用链接
+    if "backup" in RTMPOSE_MODEL_LINKS[model_name]:
+        download_urls.extend(RTMPOSE_MODEL_LINKS[model_name]["backup"])
 
-    # 如果镜像下载失败或没有镜像，使用原始链接
-    if download_file(original_url, dest_path):
-        logger.info(f"模型从原始源下载成功: {dest_path}")
-        return dest_path
-    else:
-        logger.error(f"模型下载失败: {model_name}")
-        return None
+    # 尝试逐一从URL下载
+    for i, url in enumerate(download_urls):
+        try:
+            logger.info(f"尝试从 {url} 下载RTMPose模型 [{i+1}/{len(download_urls)}]")
+
+            # 创建临时文件路径
+            temp_path = model_path + ".download"
+
+            # 执行下载
+            urllib.request.urlretrieve(url, temp_path)
+
+            # 检查下载的文件大小 (通常模型文件应该>1MB)
+            if os.path.getsize(temp_path) > 1024 * 1024:
+                # 重命名为最终文件名
+                shutil.move(temp_path, model_path)
+                logger.info(f"成功下载{model_name}模型权重到 {model_path}")
+                return model_path
+            else:
+                logger.warning(
+                    f"下载的文件太小 ({os.path.getsize(temp_path)} bytes)，可能不是有效模型，尝试其他链接")
+                os.remove(temp_path)
+
+        except Exception as e:
+            logger.warning(f"从 {url} 下载失败: {str(e)}")
+            # 如果临时文件存在，删除它
+            if os.path.exists(temp_path):
+                os.remove(temp_path)
+
+    # 如果所有下载都失败，检查是否可以使用其他模型
+    logger.error(f"无法下载{model_name}模型权重，检查网络连接")
+
+    # 尝试查找本地其他版本的模型
+    available_models = []
+    for name in RTMPOSE_MODEL_LINKS.keys():
+        local_path = os.path.join(target_dir, f"{name}.pth")
+        if os.path.exists(local_path) and os.path.getsize(local_path) > 1024 * 1024:
+            available_models.append((name, local_path))
+
+    # 如果存在其他可用模型，使用它
+    if available_models:
+        backup_name, backup_path = available_models[0]
+        logger.info(f"将使用备用模型 {backup_name}: {backup_path}")
+        return backup_path
+
+    # 所有尝试都失败
+    return None
 
 
 def download_rtmdet_model(model_name="rtmdet_s", dest_dir=None):
