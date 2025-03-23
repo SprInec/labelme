@@ -31,10 +31,10 @@ RTMPOSE_MODEL_CONFIGS = {
 
 # RTMPose模型权重文件
 RTMPOSE_MODEL_CHECKPOINTS = {
-    "rtmpose-t": 'labelme/_automation/mmpose/checkpoints/rtmpose-t_simcc-aic-coco_pt-aic-coco_420e-256x192-e0c9327b_20230127.pth',
-    "rtmpose-s": 'labelme/_automation/mmpose/checkpoints/rtmpose-s_simcc-aic-coco_pt-aic-coco_420e-256x192-fcb2599b_20230127.pth',
-    "rtmpose-m": 'labelme/_automation/mmpose/checkpoints/rtmpose-m_simcc-aic-coco_pt-aic-coco_420e-256x192-63eb25f7_20230126.pth',
-    "rtmpose-l": 'labelme/_automation/mmpose/checkpoints/rtmpose-l_simcc-aic-coco_pt-aic-coco_420e-256x192-1f9a0168_20230126.pth'
+    "rtmpose-t": 'labelme/_automation/mmpose/checkpoints/rtmpose-s.pth',
+    "rtmpose-s": 'labelme/_automation/mmpose/checkpoints/rtmpose-s.pth',
+    "rtmpose-m": 'labelme/_automation/mmpose/checkpoints/rtmpose-m.pth',
+    "rtmpose-l": 'labelme/_automation/mmpose/checkpoints/rtmpose-l.pth'
 }
 
 # COCO数据集的关键点定义
@@ -249,18 +249,10 @@ class PoseEstimator:
                     "config": "td-hm_hrnet-w32_8xb64-210e_coco-256x192.py",
                     "checkpoint": "hrnet_w32_coco_256x192-c78dce93_20200708.pth"
                 },
-                "hrnet_w32_udp": {
-                    "config": "td-hm_hrnet-w32_udp-8xb64-210e_coco-256x192.py",
-                    "checkpoint": "hrnet_w32_coco_256x192_udp-aba0be42_20220624.pth"
-                },
                 "hrnet_w48": {
                     "config": "td-hm_hrnet-w48_8xb32-210e_coco-256x192.py",
                     "checkpoint": "hrnet_w48_coco_256x192-b9e0b3ab_20200708.pth"
                 },
-                "hrnet_w48_udp": {
-                    "config": "td-hm_hrnet-w48_udp-8xb32-210e_coco-256x192.py",
-                    "checkpoint": "hrnet_w48_coco_256x192_udp-7f9d1e8a_20220624.pth"
-                }
             }
 
             # RTMDet人体检测配置
@@ -583,7 +575,7 @@ class PoseEstimator:
             rtmpose_configs = {
                 "rtmpose_tiny": {
                     "config": "rtmpose-t_8xb256-420e_coco-256x192.py",
-                    "checkpoint": "rtmpose-t_simcc-aic-coco_pt-aic-coco_420e-256x192-e0c9327b_20230127.pth"
+                    "checkpoint": "rtmpose-tiny_simcc-coco_pt-aic-coco_420e-256x192-e613ba3f_20230127.pth"
                 },
                 "rtmpose_s": {
                     "config": "rtmpose-s_8xb256-420e_coco-256x192.py",
@@ -1294,12 +1286,22 @@ class PoseEstimator:
                     if hasattr(keypoints, 'cpu') and hasattr(keypoints, 'numpy'):
                         keypoints = keypoints.cpu().numpy()
 
+                    # 确保keypoints是三维数组 [N, K, C]
+                    if len(keypoints.shape) == 3:
+                        # 如果是 [N, K, C] 格式，取第一个人
+                        keypoints = keypoints[0]
+
                     # 检查得分属性
                     if hasattr(result.pred_instances, 'keypoint_scores'):
                         scores = result.pred_instances.keypoint_scores
                         # 转换得分为NumPy数组
                         if hasattr(scores, 'cpu') and hasattr(scores, 'numpy'):
                             scores = scores.cpu().numpy()
+
+                        # 确保scores是二维数组 [N, K]
+                        if len(scores.shape) == 2:
+                            # 如果是 [N, K] 格式，取第一个人
+                            scores = scores[0]
                     else:
                         # 如果没有关键点得分，创建默认得分(全1)
                         logger.warning(f"结果{i}没有keypoint_scores属性，使用默认值")
@@ -1316,9 +1318,21 @@ class PoseEstimator:
                         keypoints = keypoints_with_v
 
                     # 应用置信度阈值筛选
-                    visible = scores >= threshold
+                    # 确保scores和keypoints的第一维度相同
+                    if len(scores) != len(keypoints):
+                        logger.warning(
+                            f"得分数量({len(scores)})与关键点数量({len(keypoints)})不匹配，调整大小")
+                        # 调整大小使其匹配
+                        if len(scores) > len(keypoints):
+                            scores = scores[:len(keypoints)]
+                        else:
+                            # 扩展scores
+                            scores = np.pad(scores, (0, len(keypoints) - len(scores)),
+                                            mode='constant', constant_values=0)
+
+                    # 直接使用scores来设置关键点可见性
                     for k in range(len(keypoints)):
-                        if not visible[k]:
+                        if k < len(scores) and scores[k] < threshold:
                             keypoints[k, 2] = 0  # 将低于阈值的关键点可见性设为0
 
                     keypoints_list.append(keypoints)
@@ -2528,11 +2542,64 @@ def get_shapes_from_poses(
     """
     shapes = []
 
+    # 对输入进行安全检查
+    if not keypoints or len(keypoints) == 0:
+        logger.warning("无有效关键点，返回空标注列表")
+        return shapes
+
+    # 确保关键点是列表类型
+    if isinstance(keypoints, np.ndarray):
+        keypoints = keypoints.tolist()
+
+    # 预处理和验证关键点格式
+    processed_keypoints = []
+    for person_kpts in keypoints:
+        # 如果是numpy数组，转换为列表
+        if isinstance(person_kpts, np.ndarray):
+            person_kpts = person_kpts.tolist()
+
+        # 确保每个关键点都是合法的 [x, y, conf] 格式
+        valid_kpts = []
+        for kpt in person_kpts:
+            # 确保关键点有三个值
+            if len(kpt) < 3:
+                # 如果只有x,y坐标，默认添加置信度1
+                if len(kpt) == 2:
+                    kpt = [kpt[0], kpt[1], 1.0]
+                else:
+                    # 跳过无效关键点
+                    continue
+
+            # 检查坐标值是否合法
+            if not all(np.isfinite(k) for k in kpt[:2]):
+                # 包含NaN或无穷大的坐标，设置置信度为0
+                kpt[2] = 0.0
+
+            valid_kpts.append(kpt)
+
+        # 确保关键点数量正确（COCO模型应有17个关键点）
+        if len(valid_kpts) < len(COCO_KEYPOINTS):
+            # 填充缺失的关键点
+            logger.warning(
+                f"关键点数量不足({len(valid_kpts)}/{len(COCO_KEYPOINTS)})，填充缺失的关键点")
+            while len(valid_kpts) < len(COCO_KEYPOINTS):
+                valid_kpts.append([0, 0, 0])  # 添加不可见的关键点
+
+        processed_keypoints.append(valid_kpts)
+
+    # 更新关键点列表
+    keypoints = processed_keypoints
+
     # 日志输出关键点范围，方便调试
     if keypoints and len(keypoints) > 0 and len(keypoints[0]) > 0:
-        all_points = np.array(
-            [point[:2] for person in keypoints for point in person if point[2] > 0])
+        all_points = []
+        for person in keypoints:
+            for point in person:
+                if point[2] > 0 and np.isfinite(point[0]) and np.isfinite(point[1]):
+                    all_points.append(point[:2])
+
         if len(all_points) > 0:
+            all_points = np.array(all_points)
             x_min, y_min = np.min(all_points, axis=0)
             x_max, y_max = np.max(all_points, axis=0)
             logger.debug(
@@ -2584,27 +2651,51 @@ def get_shapes_from_poses(
             logger.debug(f"创建骨架线段，共{len(COCO_SKELETON)}条")
             # 创建骨架线段
             for p1_idx, p2_idx in COCO_SKELETON:
+                # 确保索引合法
+                if (p1_idx >= len(kpts) or p2_idx >= len(kpts)):
+                    logger.warning(
+                        f"骨架线段索引超出范围: {p1_idx}, {p2_idx}, 跳过")
+                    continue
+
                 p1 = kpts[p1_idx]
                 p2 = kpts[p2_idx]
 
+                # 检查关键点列表长度
+                if len(p1) < 3 or len(p2) < 3:
+                    logger.warning(f"关键点格式不正确: p1={p1}, p2={p2}, 跳过")
+                    continue
+
+                # 保护可能被修改的关键点值
+                p1_check = [p1[0], p1[1], p1[2]]
+                p2_check = [p2[0], p2[1], p2[2]]
+
                 # 确保两个关键点都可见且坐标有效
-                if (p1[2] > 0 and p2[2] > 0 and
-                    np.isfinite(p1[0]) and np.isfinite(p1[1]) and
-                        np.isfinite(p2[0]) and np.isfinite(p2[1])):
+                if (p1_check[2] > 0 and p2_check[2] > 0 and
+                    np.isfinite(p1_check[0]) and np.isfinite(p1_check[1]) and
+                        np.isfinite(p2_check[0]) and np.isfinite(p2_check[1])):
 
                     # 获取两个关键点的名称
-                    p1_name = COCO_KEYPOINTS[p1_idx]
-                    p2_name = COCO_KEYPOINTS[p2_idx]
+                    if p1_idx < len(COCO_KEYPOINTS) and p2_idx < len(COCO_KEYPOINTS):
+                        p1_name = COCO_KEYPOINTS[p1_idx]
+                        p2_name = COCO_KEYPOINTS[p2_idx]
+                    else:
+                        # 如果索引超出范围，使用索引作为名称
+                        p1_name = f"kpt_{p1_idx}"
+                        p2_name = f"kpt_{p2_idx}"
 
                     # 创建线段形状
-                    shape = {
-                        "label": f"limb_{p1_name}_{p2_name}",
-                        "points": [[float(p1[0]), float(p1[1])], [float(p2[0]), float(p2[1])]],
-                        "group_id": group_id,
-                        "shape_type": "line",
-                        "flags": {}
-                    }
-                    shapes.append(shape)
+                    try:
+                        shape = {
+                            "label": f"limb_{p1_name}_{p2_name}",
+                            "points": [[float(p1_check[0]), float(p1_check[1])], [float(p2_check[0]), float(p2_check[1])]],
+                            "group_id": group_id,
+                            "shape_type": "line",
+                            "flags": {}
+                        }
+                        shapes.append(shape)
+                    except Exception as e:
+                        logger.warning(
+                            f"创建骨架线段失败: {e}, p1={p1_check}, p2={p2_check}")
 
     return shapes
 
