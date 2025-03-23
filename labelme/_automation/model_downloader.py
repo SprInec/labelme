@@ -261,6 +261,31 @@ RTMPOSE_MODEL_LINKS = {
             "https://download.openmmlab.com/mmpose/top_down/resnet/res152_coco_384x288-3860d4c9_20200709.pth"
         ]
     },
+    # 添加别名，与pose_estimation.py中的RTMPOSE_MODEL_CHECKPOINTS命名方式保持一致
+    "rtmpose-t": {
+        "original": "https://download.openmmlab.com/mmpose/v1/projects/rtmposev1/rtmpose-tiny_simcc-aic-coco_pt-aic-coco_420e-256x192-cfc8f33d_20230228.pth",
+        "backup": [
+            "https://download.openmmlab.com/mmpose/top_down/hrnet/hrnet_w32_coco_256x192-c78dce93_20200708.pth"
+        ]
+    },
+    "rtmpose-s": {
+        "original": "https://download.openmmlab.com/mmpose/v1/projects/rtmposev1/rtmpose-s_simcc-aic-coco_pt-aic-coco_420e-256x192-fcb2599b_20230228.pth",
+        "backup": [
+            "https://download.openmmlab.com/mmpose/top_down/hrnet/hrnet_w48_coco_256x192-b9e0b3ab_20200708.pth"
+        ]
+    },
+    "rtmpose-m": {
+        "original": "https://download.openmmlab.com/mmpose/v1/projects/rtmposev1/rtmpose-m_simcc-aic-coco_pt-aic-coco_420e-256x192-63eb25f7_20230228.pth",
+        "backup": [
+            "https://download.openmmlab.com/mmpose/top_down/resnet/res152_coco_256x192-f6e307c2_20200709.pth"
+        ]
+    },
+    "rtmpose-l": {
+        "original": "https://download.openmmlab.com/mmpose/v1/projects/rtmposev1/rtmpose-l_simcc-aic-coco_pt-aic-coco_420e-256x192-f016ffe0_20230228.pth",
+        "backup": [
+            "https://download.openmmlab.com/mmpose/top_down/hrnet/hrnet_w48_coco_384x288-314c8528_20200708.pth"
+        ]
+    },
     # 添加HRNet模型
     "hrnet_w32": {
         "original": "https://download.openmmlab.com/mmpose/top_down/hrnet/hrnet_w32_coco_256x192-c78dce93_20200708.pth",
@@ -294,12 +319,21 @@ def download_rtmpose_model(model_name: str, target_dir: str = None) -> str:
 
     Args:
         model_name: 模型名称，例如：rtmpose_tiny, rtmpose_s, rtmpose_m, rtmpose_l
+                    或 rtmpose-t, rtmpose-s, rtmpose-m, rtmpose-l
         target_dir: 保存目录，默认为_automation/mmpose/checkpoints
 
     Returns:
         str: 模型文件路径
     """
-    if model_name not in RTMPOSE_MODEL_LINKS:
+    # 标准化模型名称，统一使用下划线形式
+    normalized_name = model_name.replace("-", "_")
+
+    # 处理rtmpose-t与rtmpose_tiny的映射
+    if normalized_name == "rtmpose_t":
+        normalized_name = "rtmpose_tiny"
+
+    # 检查标准化后的名称是否在支持列表中
+    if normalized_name not in RTMPOSE_MODEL_LINKS:
         logger.error(
             f"RTMPose模型{model_name}不在支持列表中。支持: {list(RTMPOSE_MODEL_LINKS.keys())}")
         return None
@@ -311,8 +345,22 @@ def download_rtmpose_model(model_name: str, target_dir: str = None) -> str:
     # 确保目录存在
     os.makedirs(target_dir, exist_ok=True)
 
+    # 获取对应的具体文件名，根据pose_estimation.py中的RTMPOSE_MODEL_CHECKPOINTS
+    if normalized_name == "rtmpose_tiny":
+        file_name = "rtmpose-t_simcc-aic-coco_pt-aic-coco_420e-256x192-e0c9327b_20230127.pth"
+    elif normalized_name == "rtmpose_s":
+        file_name = "rtmpose-s_simcc-aic-coco_pt-aic-coco_420e-256x192-fcb2599b_20230127.pth"
+    elif normalized_name == "rtmpose_m":
+        file_name = "rtmpose-m_simcc-aic-coco_pt-aic-coco_420e-256x192-63eb25f7_20230126.pth"
+    elif normalized_name == "rtmpose_l":
+        file_name = "rtmpose-l_simcc-aic-coco_pt-aic-coco_420e-256x192-1f9a0168_20230126.pth"
+    elif normalized_name.startswith("hrnet"):
+        file_name = f"{normalized_name.replace('_', '-')}.pth"
+    else:
+        file_name = f"{normalized_name}.pth"  # 默认使用模型名称作为文件名
+
     # 模型文件路径
-    dest_path = os.path.join(target_dir, f"{model_name}.pth")
+    dest_path = os.path.join(target_dir, file_name)
 
     # 如果模型已存在，则直接返回路径
     if os.path.exists(dest_path) and os.path.getsize(dest_path) > 1024 * 1024:  # 确保文件大小合理
@@ -320,8 +368,8 @@ def download_rtmpose_model(model_name: str, target_dir: str = None) -> str:
         return dest_path
 
     # 开始下载模型
-    logger.info(f"开始下载RTMPose模型: {model_name}")
-    model_links = RTMPOSE_MODEL_LINKS[model_name]
+    logger.info(f"开始下载RTMPose模型: {model_name} 到 {dest_path}")
+    model_links = RTMPOSE_MODEL_LINKS[normalized_name]
 
     # 首先尝试原始链接
     original_url = model_links["original"]
@@ -408,7 +456,7 @@ def download_rtmdet_model(model_name="rtmdet_s", dest_dir=None):
     elif model_name == "rtmdet_l":
         file_name = "rtmdet_l_8xb32-300e_coco_20220719_112030-5a0be7c4.pth"
     else:
-        file_name = "rtmdet_s_8xb32-300e_coco_20220905_161602-387a891e.pth"
+        file_name = f"{model_name}.pth"  # 默认使用模型名称作为文件名
 
     dest_path = os.path.join(dest_dir, file_name)
 
@@ -421,7 +469,7 @@ def download_rtmdet_model(model_name="rtmdet_s", dest_dir=None):
     mirror_url = RTMDET_MODELS_MIRROR.get(model_name)
     original_url = RTMDET_MODELS.get(model_name)
 
-    logger.info(f"开始下载RTMDet模型: {model_name}")
+    logger.info(f"开始下载RTMDet模型: {model_name} 到 {dest_path}")
 
     # 先尝试使用镜像
     if mirror_url:
@@ -439,6 +487,10 @@ def download_rtmdet_model(model_name="rtmdet_s", dest_dir=None):
     else:
         logger.error(f"模型下载失败: {model_name}")
         return None
+
+
+# 为了兼容性，添加download_mmdet_model作为download_rtmdet_model的别名
+download_mmdet_model = download_rtmdet_model
 
 
 def download_torchvision_model(model_name):

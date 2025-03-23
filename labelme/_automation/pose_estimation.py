@@ -10,6 +10,8 @@ from PyQt5 import QtCore
 
 # 导入配置加载器
 from labelme._automation.config_loader import ConfigLoader
+# 导入模型下载器
+from labelme._automation.model_downloader import download_rtmpose_model
 
 # 尝试导入PyTorch依赖，如果不可用则提供错误信息
 try:
@@ -18,6 +20,22 @@ try:
 except ImportError:
     HAS_TORCH = False
     logger.warning("姿态估计依赖未安装，请安装torch")
+
+# RTMPose模型配置文件
+RTMPOSE_MODEL_CONFIGS = {
+    "rtmpose-t": 'labelme/_automation/mmpose/configs/body_2d_keypoint/rtmpose/coco/rtmpose-t_8xb256-420e_coco-256x192.py',
+    "rtmpose-s": 'labelme/_automation/mmpose/configs/body_2d_keypoint/rtmpose/coco/rtmpose-s_8xb256-420e_coco-256x192.py',
+    "rtmpose-m": 'labelme/_automation/mmpose/configs/body_2d_keypoint/rtmpose/coco/rtmpose-m_8xb256-420e_coco-256x192.py',
+    "rtmpose-l": 'labelme/_automation/mmpose/configs/body_2d_keypoint/rtmpose/coco/rtmpose-l_8xb256-420e_coco-256x192.py'
+}
+
+# RTMPose模型权重文件
+RTMPOSE_MODEL_CHECKPOINTS = {
+    "rtmpose-t": 'labelme/_automation/mmpose/checkpoints/rtmpose-t_simcc-aic-coco_pt-aic-coco_420e-256x192-e0c9327b_20230127.pth',
+    "rtmpose-s": 'labelme/_automation/mmpose/checkpoints/rtmpose-s_simcc-aic-coco_pt-aic-coco_420e-256x192-fcb2599b_20230127.pth',
+    "rtmpose-m": 'labelme/_automation/mmpose/checkpoints/rtmpose-m_simcc-aic-coco_pt-aic-coco_420e-256x192-63eb25f7_20230126.pth',
+    "rtmpose-l": 'labelme/_automation/mmpose/checkpoints/rtmpose-l_simcc-aic-coco_pt-aic-coco_420e-256x192-1f9a0168_20230126.pth'
+}
 
 # COCO数据集的关键点定义
 COCO_KEYPOINTS = [
@@ -99,51 +117,99 @@ class PoseEstimator:
         self.draw_skeleton = draw_skeleton if draw_skeleton is not None else pose_config.get(
             "draw_skeleton", True)
 
-        # 检查是否是RTMPose模型
-        self.is_rtmpose = self.model_name.startswith("rtmpose")
-        # 检查是否是HRNet模型
-        self.is_hrnet = self.model_name.startswith("hrnet")
-        # 检查是否是KeypointRCNN模型
-        self.is_keypointrcnn = self.model_name == "keypointrcnn_resnet50_fpn"
+        # 确定模型类型
+        self.model_type = None
+        if self.model_name:
+            if self.model_name.startswith("rtmpose"):
+                self.model_type = "rtmpose"
+            elif self.model_name.startswith("hrnet"):
+                self.model_type = "hrnet"
+            elif self.model_name.startswith("yolov7"):
+                self.model_type = "yolov7_pose"
+            elif self.model_name.startswith("keypointrcnn"):
+                self.model_type = "keypointrcnn"
+            else:
+                # 默认为KeypointRCNN
+                self.model_type = "keypointrcnn"
 
-        # 如果不是RTMPose模型、HRNet模型且不是KeypointRCNN模型，检查是否可以导入YOLOv7依赖
-        if not self.is_rtmpose and not self.is_hrnet and not self.is_keypointrcnn:
-            try:
-                from labelme._automation.yolov7.models.experimental import attempt_load
-                from labelme._automation.yolov7.utils.general import check_img_size, non_max_suppression_kpt
-                from labelme._automation.yolov7.utils.torch_utils import select_device
-                HAS_YOLOV7 = True
-            except ImportError:
-                HAS_YOLOV7 = False
-                logger.warning("YOLOv7依赖未安装，自动切换到KeypointRCNN模型")
-                self.model_name = "keypointrcnn_resnet50_fpn"
-                self.is_keypointrcnn = True
-
-        # 检查CUDA可用性
-        if torch.cuda.is_available() and self.device == 'cuda':
-            self.device = 'cuda'
-        else:
-            self.device = 'cpu'
         logger.info(f"使用设备: {self.device}")
 
+        # 初始化属性
+        self.model = None
+        self.rtmpose_model = None
+        self.det_model = None
+        self.keypointrcnn_model = None
+        self.is_rtmpose = False
+        self.is_hrnet = False
+        self.is_keypointrcnn = False
+        self.is_yolov7_pose = False
+        self.imgsz = 640
+        self.stride = 32
+        self.visualizer = None
+
         # 加载模型
-        self.model = self._load_model()
+        self._load_model()
 
     def _load_model(self):
-        """加载姿态估计模型"""
+        """加载姿态检测模型"""
         try:
-            # 判断是否是RTMPose模型
-            if self.is_rtmpose:
-                return self._load_rtmpose_model()
-            elif self.is_hrnet:
-                return self._load_hrnet_model()
-            elif self.is_keypointrcnn:
-                return self._load_keypointrcnn_model()
+            # 检查CUDA可用性
+            if torch.cuda.is_available() and self.device == 'cuda':
+                self.device = 'cuda'
             else:
-                return self._load_yolov7_pose_model()
+                self.device = 'cpu'
+
+            # 根据模型类型进行加载
+            if self.model_type == 'rtmpose':
+                if self._init_rtmpose():
+                    self.is_rtmpose = True
+                else:
+                    logger.warning("加载RTMPose模型失败，尝试使用KeypointRCNN")
+                    self.model_type = 'keypointrcnn'
+                    self._load_keypointrcnn_model()
+                    self.is_keypointrcnn = True
+
+            elif self.model_type == 'hrnet':
+                self.model = self._load_hrnet_model()
+                self.is_hrnet = True
+
+            elif self.model_type == 'yolov7_pose':
+                try:
+                    from labelme._automation.yolov7.models.experimental import attempt_load
+                    from labelme._automation.yolov7.utils.general import check_img_size, non_max_suppression_kpt
+                    from labelme._automation.yolov7.utils.torch_utils import select_device
+                    self.model = self._load_yolov7_pose_model()
+                    self.is_yolov7_pose = True
+                except ImportError:
+                    logger.warning("YOLOv7依赖未安装，自动切换到KeypointRCNN模型")
+                    self.model_type = 'keypointrcnn'
+                    self._load_keypointrcnn_model()
+                    self.is_keypointrcnn = True
+
+            elif self.model_type == 'keypointrcnn':
+                self._load_keypointrcnn_model()
+                self.is_keypointrcnn = True
+
+            else:
+                # 默认使用KeypointRCNN
+                logger.warning(f"未知模型类型: {self.model_type}，使用KeypointRCNN")
+                self.model_type = 'keypointrcnn'
+                self._load_keypointrcnn_model()
+                self.is_keypointrcnn = True
+
         except Exception as e:
-            logger.error(f"加载姿态估计模型失败: {e}")
-            raise
+            logger.error(f"加载模型发生错误: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
+            # 如果加载失败，使用KeypointRCNN作为备用
+            logger.warning("加载模型失败，尝试使用KeypointRCNN")
+            try:
+                self.model_type = 'keypointrcnn'
+                self._load_keypointrcnn_model()
+                self.is_keypointrcnn = True
+            except Exception as e2:
+                logger.error(f"加载KeypointRCNN备用模型也失败: {e2}")
+                raise ValueError("无法加载任何姿态估计模型")
 
     def _load_hrnet_model(self):
         """加载HRNet姿态估计模型"""
@@ -275,7 +341,7 @@ class PoseEstimator:
 
             # 首先在_automation/mmpose/checkpoints目录查找
             try:
-                from labelme._automation.model_downloader import get_model_dir, download_rtmpose_model
+                from labelme._automation.model_downloader import get_model_dir
                 local_checkpoint_dir = get_model_dir("mmpose")
                 local_checkpoint_path = os.path.join(
                     local_checkpoint_dir, f"{self.model_name}.pth")
@@ -296,14 +362,21 @@ class PoseEstimator:
                     else:
                         # 尝试从网络下载权重文件
                         logger.info(f"模型权重不存在，尝试从网络下载: {self.model_name}")
-                        checkpoint_path = download_rtmpose_model(
-                            self.model_name)
-                        if checkpoint_path:
-                            logger.info(f"模型下载成功: {checkpoint_path}")
-                            checkpoint_file = checkpoint_path
-                        else:
-                            # 如果下载失败，使用MMPose默认权重
-                            logger.warning(f"模型下载失败，使用MMPose默认权重")
+                        try:
+                            # 使用已导入的download_rtmpose_model函数
+                            # 即使这是HRNet模型，我们仍然使用download_rtmpose_model函数，
+                            # 因为model_downloader.py中这个函数也支持下载HRNet模型
+                            checkpoint_path = download_rtmpose_model(
+                                self.model_name)
+                            if checkpoint_path:
+                                logger.info(f"模型下载成功: {checkpoint_path}")
+                                checkpoint_file = checkpoint_path
+                            else:
+                                # 如果下载失败，使用MMPose默认权重
+                                logger.warning(f"模型下载失败，使用MMPose默认权重")
+                                checkpoint_file = None
+                        except Exception as e:
+                            logger.warning(f"下载模型失败: {e}，使用MMPose默认权重")
                             checkpoint_file = None
             except Exception as e:
                 logger.warning(f"查找模型路径时出错: {e}，尝试使用默认路径")
@@ -314,8 +387,7 @@ class PoseEstimator:
                 if os.path.exists(checkpoint_path):
                     checkpoint_file = checkpoint_path
                 else:
-                    # 如果下载失败，使用MMPose默认权重
-                    logger.warning(f"找不到模型权重，使用MMPose默认权重")
+                    logger.warning(f"下载模型失败: {e}，使用MMPose默认权重")
                     checkpoint_file = None
 
             # 初始化模型
@@ -337,53 +409,27 @@ class PoseEstimator:
             raise
 
     def _load_keypointrcnn_model(self):
-        """加载KeypointRCNN姿态估计模型"""
+        """加载KeypointRCNN模型"""
         try:
             import torchvision
-            import torch
-            import torchvision.models.detection as detection_models
+            logger.info("加载KeypointRCNN模型...")
 
-            # 确保TORCH_HOME已设置为_automation/torch目录
-            try:
-                from labelme._automation.model_downloader import set_torch_home
-                set_torch_home()
-            except Exception as e:
-                logger.warning(f"设置TORCH_HOME失败: {e}")
+            # 加载模型
+            model = torchvision.models.detection.keypointrcnn_resnet50_fpn(
+                pretrained=True,
+                num_keypoints=17,
+                min_size=256,
+                max_size=512
+            )
 
-            # 尝试预下载模型（如果需要）
-            try:
-                from labelme._automation.model_downloader import download_torchvision_model
-                download_torchvision_model("keypointrcnn_resnet50_fpn")
-            except Exception as e:
-                logger.warning(f"预下载模型失败: {e}，将在创建模型时自动下载")
-
-            # 尝试使用新接口加载预训练的KeypointRCNN模型
-            try:
-                model = detection_models.keypointrcnn_resnet50_fpn(
-                    weights="DEFAULT",
-                    progress=True,
-                    num_keypoints=17,
-                    box_score_thresh=self.conf_threshold
-                )
-            except TypeError as e:
-                logger.warning(
-                    f"使用weights参数加载模型失败: {e}，尝试使用旧版接口 (pretrained=True)")
-                # 尝试使用旧接口
-                model = detection_models.keypointrcnn_resnet50_fpn(
-                    pretrained=True,
-                    progress=True,
-                    num_keypoints=17,
-                    box_score_thresh=self.conf_threshold
-                )
-
-            # 设置为评估模式
+            # 将模型移动到正确的设备并设置为评估模式
+            model = model.to(self.device)
             model.eval()
 
-            # 如果使用CUDA且可用
-            if self.device == 'cuda' and torch.cuda.is_available():
-                model = model.to('cuda')
-
-            logger.info(f"KeypointRCNN模型加载成功")
+            # 保存模型实例
+            self.keypointrcnn_model = model
+            self.model = model
+            logger.info("KeypointRCNN模型加载完成")
             return model
         except Exception as e:
             logger.error(f"加载KeypointRCNN模型失败: {e}")
@@ -643,24 +689,46 @@ class PoseEstimator:
                     # 检查原有的缓存目录
                     checkpoint_dir = os.path.join(os.path.expanduser(
                         "~"), ".cache", "torch", "hub", "checkpoints")
-                    checkpoint_path = os.path.join(
-                        checkpoint_dir, checkpoint_file)
 
-                    if os.path.exists(checkpoint_path):
-                        logger.info(f"在缓存目录找到RTMPose模型权重文件: {checkpoint_path}")
-                        checkpoint_file = checkpoint_path
+                    # 检查checkpoint_file是否有效，避免拼接None
+                    if checkpoint_file:
+                        checkpoint_path = os.path.join(
+                            checkpoint_dir, os.path.basename(checkpoint_file))
+
+                        if os.path.exists(checkpoint_path):
+                            logger.info(
+                                f"在缓存目录找到RTMPose模型权重文件: {checkpoint_path}")
+                            checkpoint_file = checkpoint_path
+                        else:
+                            # 尝试从网络下载权重文件
+                            try:
+                                from labelme._automation.model_downloader import download_rtmpose_model
+                                logger.info(
+                                    f"模型权重不存在，尝试从网络下载: {self.model_name}")
+                                checkpoint_path = download_rtmpose_model(
+                                    self.model_name)
+                                if checkpoint_path:
+                                    logger.info(f"模型下载成功: {checkpoint_path}")
+                                    checkpoint_file = checkpoint_path
+                                else:
+                                    # 如果下载失败，使用MMPose默认权重
+                                    logger.warning(f"模型下载失败，使用MMPose默认权重")
+                                    checkpoint_file = None
+                            except Exception as e:
+                                logger.warning(f"下载模型失败: {e}，使用MMPose默认权重")
+                                checkpoint_file = None
                     else:
-                        # 尝试从网络下载权重文件
+                        # 如果checkpoint_file为None，直接尝试下载
                         try:
                             from labelme._automation.model_downloader import download_rtmpose_model
-                            logger.info(f"模型权重不存在，尝试从网络下载: {self.model_name}")
+                            logger.info(
+                                f"没有找到预设权重文件，尝试从网络下载: {self.model_name}")
                             checkpoint_path = download_rtmpose_model(
                                 self.model_name)
                             if checkpoint_path:
                                 logger.info(f"模型下载成功: {checkpoint_path}")
                                 checkpoint_file = checkpoint_path
                             else:
-                                # 如果下载失败，使用MMPose默认权重
                                 logger.warning(f"模型下载失败，使用MMPose默认权重")
                                 checkpoint_file = None
                         except Exception as e:
@@ -693,79 +761,75 @@ class PoseEstimator:
                         checkpoint_file = None
 
             # 初始化模型
-            model = init_model(
-                config_file,
-                checkpoint_file,
-                device=self.device
-            )
+            try:
+                # 确保config_file和checkpoint_file是字符串
+                if not isinstance(config_file, str):
+                    logger.warning(f"配置文件类型错误: {type(config_file)}，将转换为字符串")
+                    config_file = str(config_file)
 
-            # 存储可视化器
-            self.visualizer = VISUALIZERS.build(model.cfg.visualizer)
-            self.visualizer.set_dataset_meta(model.dataset_meta)
+                if checkpoint_file is not None and not isinstance(checkpoint_file, str):
+                    logger.warning(
+                        f"检查点文件类型错误: {type(checkpoint_file)}，将转换为字符串")
+                    checkpoint_file = str(checkpoint_file)
 
-            # 确保有KeypointRCNN备用模型
-            self._init_keypointrcnn_backup()
+                # 初始化模型
+                model = init_model(
+                    config_file,
+                    checkpoint_file,
+                    device=self.device
+                )
 
-            logger.info(f"RTMPose模型加载成功: {self.model_name}")
-            return model
+                # 验证模型对象
+                if model is None:
+                    logger.error("init_model返回None，初始化失败")
+                    return False
+
+                if isinstance(model, (np.ndarray, list, tuple)):
+                    logger.error(f"模型类型错误: {type(model)}，无法用于姿态估计")
+                    return False
+
+                # 测试是否可以访问模型属性
+                try:
+                    if hasattr(model, 'cfg'):
+                        logger.debug(f"模型配置: {type(model.cfg)}")
+                    else:
+                        logger.warning("模型没有cfg属性")
+                except Exception as attr_error:
+                    logger.warning(f"无法访问模型属性: {attr_error}")
+
+                # 保存模型实例
+                self.rtmpose_model = model
+                self.model = model
+
+                # 初始化可视化器
+                try:
+                    if hasattr(model, 'cfg') and hasattr(model, 'dataset_meta'):
+                        from mmpose.visualization import VISUALIZERS
+                        self.visualizer = VISUALIZERS.build(
+                            model.cfg.visualizer)
+                        self.visualizer.set_dataset_meta(model.dataset_meta)
+                except Exception as vis_error:
+                    logger.warning(f"初始化可视化器失败: {vis_error}")
+
+                logger.info(f"RTMPose模型初始化成功: {self.model_name}")
+                logger.info(f"配置文件: {config_file}")
+                logger.info(f"权重文件: {checkpoint_file}")
+                self.is_rtmpose = True
+                return True
+            except Exception as e:
+                logger.error(f"初始化模型失败: {e}")
+                import traceback
+                logger.error(traceback.format_exc())
+                self.rtmpose_model = None
+                self.is_rtmpose = False
+                return False
         except Exception as e:
             logger.error(f"加载RTMPose模型失败: {e}")
-            raise
-
-    def _init_keypointrcnn_backup(self):
-        """初始化KeypointRCNN备用模型"""
-        try:
-            import torchvision
-            import torch
-            import torchvision.models.detection as detection_models
-
-            # 确保TORCH_HOME已设置为_automation/torch目录
-            try:
-                from labelme._automation.model_downloader import set_torch_home
-                set_torch_home()
-            except Exception as e:
-                logger.warning(f"设置TORCH_HOME失败: {e}")
-
-            # 尝试预下载模型（如果需要）
-            try:
-                from labelme._automation.model_downloader import download_torchvision_model
-                download_torchvision_model("keypointrcnn_resnet50_fpn")
-            except Exception as e:
-                logger.warning(f"预下载模型失败: {e}，将在创建模型时自动下载")
-
-            # 尝试使用新接口加载预训练的KeypointRCNN模型
-            try:
-                keypointrcnn_model = detection_models.keypointrcnn_resnet50_fpn(
-                    weights="DEFAULT",
-                    progress=True,
-                    num_keypoints=17,
-                    box_score_thresh=self.conf_threshold
-                )
-            except TypeError as e:
-                logger.warning(
-                    f"使用weights参数加载模型失败: {e}，尝试使用旧版接口 (pretrained=True)")
-                # 尝试使用旧接口
-                keypointrcnn_model = detection_models.keypointrcnn_resnet50_fpn(
-                    pretrained=True,
-                    progress=True,
-                    num_keypoints=17,
-                    box_score_thresh=self.conf_threshold
-                )
-
-            # 设置为评估模式
-            keypointrcnn_model.eval()
-
-            # 如果使用CUDA且可用
-            if self.device == 'cuda' and torch.cuda.is_available():
-                keypointrcnn_model = keypointrcnn_model.to('cuda')
-
-            logger.info(f"KeypointRCNN备用模型加载成功")
-            self.keypointrcnn_model = keypointrcnn_model
-            return keypointrcnn_model
-        except Exception as e:
-            logger.error(f"加载KeypointRCNN备用模型失败: {e}")
-            self.keypointrcnn_model = None
-            return None
+            import traceback
+            logger.error(traceback.format_exc())
+            self.is_rtmpose = False
+            self.rtmpose_model = None
+            return False
 
     def _detect_rtmpose(self, image: np.ndarray) -> Tuple[List[List[List[float]]], List[float]]:
         """
@@ -785,7 +849,7 @@ class PoseEstimator:
                 from mmdet.apis import inference_detector
             except ImportError as e:
                 logger.error(f"导入mmpose或mmdet库失败: {e}")
-                return self._detect_keypointrcnn_backup(image)
+                return [], []  # 不再使用备用方法
 
             # 确保图像是RGB格式
             if image.shape[-1] != 3:
@@ -802,8 +866,8 @@ class PoseEstimator:
 
             # 首先使用MMDet进行目标检测
             if not hasattr(self, 'det_model') or self.det_model is None:
-                logger.warning("未找到检测模型，尝试使用备用方法")
-                return self._detect_keypointrcnn_backup(image)
+                logger.warning("未找到检测模型，返回空结果")
+                return [], []  # 不再使用备用方法
 
             try:
                 det_results = inference_detector(self.det_model, image)
@@ -830,19 +894,19 @@ class PoseEstimator:
                         human_scores >= self.conf_threshold)[0]
                     if len(valid_indices) == 0:
                         logger.warning(
-                            f"未检测到置信度大于{self.conf_threshold}的人体，尝试使用备用方法")
-                        return self._detect_keypointrcnn_backup(image)
+                            f"未检测到置信度大于{self.conf_threshold}的人体，返回空结果")
+                        return [], []  # 不再使用备用方法
 
                     valid_bboxes = human_bboxes[valid_indices]
                     valid_scores = human_scores[valid_indices]
                 else:
-                    logger.warning("检测结果中未找到边界框信息，尝试使用备用方法")
-                    return self._detect_keypointrcnn_backup(image)
+                    logger.warning("检测结果中未找到边界框信息，返回空结果")
+                    return [], []  # 不再使用备用方法
             except Exception as e:
                 logger.error(f"目标检测失败: {e}")
                 import traceback
                 logger.error(traceback.format_exc())
-                return self._detect_keypointrcnn_backup(image)
+                return [], []  # 不再使用备用方法
 
             # 使用检测到的边界框进行姿态估计
             # 将boxes处理为list以提高性能
@@ -857,13 +921,13 @@ class PoseEstimator:
                 logger.info(f"RTMPose检测到 {len(keypoints)} 个姿态")
                 return keypoints, scores
             else:
-                logger.warning("RTMPose未检测到有效姿态，尝试使用备用方法")
-                return self._detect_keypointrcnn_backup(image)
+                logger.warning("RTMPose未检测到有效姿态，返回空结果")
+                return [], []  # 不再使用备用方法
         except Exception as e:
             logger.error(f"RTMPose检测失败: {e}")
             import traceback
             logger.error(traceback.format_exc())
-            return self._detect_keypointrcnn_backup(image)
+            return [], []  # 不再使用备用方法
 
     def _detect_yolov7_pose(self, image: np.ndarray) -> Tuple[List[List[List[float]]], List[float]]:
         """使用YOLOv7姿态估计模型进行检测"""
@@ -929,10 +993,10 @@ class PoseEstimator:
         try:
             # 确保模型已初始化
             if not hasattr(self, 'keypointrcnn_model') or self.keypointrcnn_model is None:
-                self._init_keypointrcnn_backup()
-                if self.keypointrcnn_model is None:
-                    logger.error("无法初始化KeypointRCNN模型")
-                    return [], []
+                # 不再使用备用模型初始化
+                # self._init_keypointrcnn_backup()
+                logger.error("KeypointRCNN模型未初始化")
+                return [], []
 
             # 确保图像是RGB格式
             if image.shape[2] == 4:  # 如果有alpha通道
@@ -983,36 +1047,49 @@ class PoseEstimator:
             return [], []
 
     def detect_poses_from_boxes(self, image: np.ndarray, boxes: List[List[float]]) -> Tuple[List[List[List[float]]], List[float]]:
-        """从已有的人体检测框中检测姿态
+        """从已有的人体框中检测姿态关键点
 
         Args:
             image: 输入图像
-            boxes: 人体检测框列表 (x_min, y_min, x_max, y_max)
+            boxes: 边界框列表，格式为[[x1, y1, x2, y2], ...]
 
         Returns:
-            keypoints: 关键点列表 [N, K, 3] - (x, y, conf)
-            scores: 人体检测的置信度列表 [N]
+            keypoints: 关键点列表，格式为[[[x, y, v], ...], ...]
+            scores: 人体检测的置信度列表
         """
         try:
-            # 根据模型类型选择不同的检测方法
-            if self.is_rtmpose:
-                return self._detect_rtmpose_from_boxes(image, boxes)
-            elif self.is_hrnet:
-                return self._detect_hrnet_from_boxes(image, boxes)
-            elif self.is_keypointrcnn:
-                return self._detect_keypointrcnn_from_boxes(image, boxes)
+            keypoints, scores = [], []
+
+            if len(boxes) == 0:
+                logger.warning("未检测到人体边界框，跳过姿态检测")
+                return [], []
+
+            if self.model_type == 'keypointrcnn':
+                keypoints, scores = self._detect_keypointrcnn_from_boxes(
+                    image, boxes)
+            elif self.model_type == 'rtmpose':
+                keypoints, scores = self._detect_rtmpose_from_boxes(
+                    image, boxes, self.keypoint_threshold)
+            elif self.model_type == 'hrnet':
+                keypoints, scores = self._detect_hrnet_from_boxes(
+                    image, boxes, self.keypoint_threshold)
             else:
-                return self._detect_yolov7_pose_from_boxes(image, boxes)
+                logger.error(f"不支持的姿态检测模型类型: {self.model_type}")
+                return [], []
+
+            # 仅返回原始模型的检测结果，不再使用备用模型
+            if len(keypoints) > 0:
+                logger.info(f"成功检测到 {len(keypoints)} 个人体姿态")
+                return keypoints, scores
+            else:
+                logger.warning("没有检测到有效的人体姿态")
+                return [], []
+
         except Exception as e:
-            logger.error(f"从检测框检测姿态失败: {e}")
+            logger.error(f"姿态检测失败: {e}")
             import traceback
             logger.error(traceback.format_exc())
-            # 尝试使用备用方法
-            try:
-                return self._detect_keypointrcnn_from_boxes(image, boxes)
-            except Exception as backup_e:
-                logger.error(f"备用姿态检测方法也失败: {backup_e}")
-                return [], []
+            return [], []
 
     def _detect_yolov7_pose_from_boxes(self, image: np.ndarray, boxes: List[List[float]]) -> Tuple[List[List[List[float]]], List[float]]:
         """使用YOLOv7-pose从给定的边界框中检测姿态"""
@@ -1102,264 +1179,164 @@ class PoseEstimator:
             logger.error(traceback.format_exc())
             return [], []
 
-    def _detect_rtmpose_from_boxes(self, image: np.ndarray, boxes: List[List[float]]) -> Tuple[List[List[List[float]]], List[float]]:
-        """
-        使用RTMPose从已有的人体框中检测关键点
+    def _detect_rtmpose_from_boxes(self, image, boxes, threshold=0.5):
+        """使用RTMPose检测人体姿态关键点
 
         Args:
             image: 输入图像
-            boxes: 边界框列表 [[x1, y1, x2, y2], ...]
+            boxes: 人体边界框，格式为[[x1,y1,x2,y2], ...]
+            threshold: 关键点置信度阈值
 
         Returns:
-            keypoints: 关键点列表 [N, K, 3] - (x, y, conf)
-            scores: 人体检测的置信度列表 [N]
+            keypoints_list: 关键点列表，格式为[[[x,y,v], ...], ...]
+            scores_list: 关键点置信度列表，格式为[[s1, s2, ...], ...]
         """
         try:
-            # 导入必要的库
-            try:
-                from mmpose.apis import inference_topdown
-            except ImportError as e:
-                logger.error(f"导入mmpose库失败: {e}")
-                return self._detect_keypointrcnn_from_boxes(image, boxes)
-
-            # 确保图像是RGB格式
-            if image.shape[-1] != 3:
-                logger.warning(f"输入图像通道数为{image.shape[-1]}，转换为RGB")
-                if len(image.shape) == 2:  # 灰度图像
-                    image = cv2.cvtColor(image, cv2.COLOR_GRAY2RGB)
-                else:
-                    # 尝试转换为RGB
-                    image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-
-            # 记录原始图像尺寸
-            img_height, img_width = image.shape[:2]
-            logger.debug(f"原始图像尺寸: {img_width}x{img_height}")
-
-            # 获取模型配置中的输入尺寸
-            model_input_size = None
-            try:
-                if hasattr(self.model, 'cfg') and self.model.cfg:
-                    if 'data_preprocessor' in self.model.cfg and 'input_size' in self.model.cfg.data_preprocessor:
-                        model_input_size = self.model.cfg.data_preprocessor.input_size
-                if not model_input_size and hasattr(self.model, 'data_preprocessor'):
-                    if hasattr(self.model.data_preprocessor, 'input_size'):
-                        model_input_size = self.model.data_preprocessor.input_size
-            except Exception as e:
-                logger.warning(f"获取模型输入尺寸失败: {e}")
-
-            if not model_input_size:
-                logger.warning("未找到模型输入尺寸，使用默认值(192, 256)")
-                model_input_size = (192, 256)  # 默认尺寸 (h, w)
-
-            logger.debug(f"模型输入尺寸: {model_input_size}")
-
-            # 将边界框转换为numpy数组
-            bbox_xyxy = np.array(boxes)
-
-            # 确保边界框格式正确
-            if bbox_xyxy.shape[1] != 4:
-                logger.error(
-                    f"边界框格式错误，预期为[x1, y1, x2, y2]，实际为{bbox_xyxy.shape[1]}维")
+            if self.rtmpose_model is None:
+                logger.warning("RTMPose模型未初始化，将返回空结果")
                 return [], []
 
-            # 记录处理前边界框范围
-            x_min, y_min = np.min(bbox_xyxy[:, :2], axis=0)
-            x_max, y_max = np.max(bbox_xyxy[:, 2:4], axis=0)
-            logger.debug(
-                f"处理前边界框范围: x({x_min:.1f}-{x_max:.1f}) y({y_min:.1f}-{y_max:.1f})")
-
-            # 使用inference_topdown进行预测
-            results = []
-            try:
-                results = inference_topdown(
-                    self.model, image, bbox_xyxy, bbox_format='xyxy')
-                logger.debug(f"成功调用inference_topdown，获得{len(results)}个预测结果")
-            except Exception as e:
-                logger.error(f"inference_topdown调用失败: {e}")
-                import traceback
-                logger.error(traceback.format_exc())
-                # 尝试使用备用方法
-                logger.info("尝试使用KeypointRCNN备用方法")
-                return self._detect_keypointrcnn_from_boxes(image, boxes)
-
-            # 处理预测结果
-            keypoints = []
-            scores = []
-
-            # 确保结果不为空
-            if not results or len(results) == 0:
-                logger.warning("没有得到预测结果")
-                # 尝试使用备用方法
-                logger.info("尝试使用KeypointRCNN备用方法")
-                return self._detect_keypointrcnn_from_boxes(image, boxes)
-
-            logger.debug(f"预测结果类型: {type(results[0])}")
-
-            # 处理不同类型的结果
-            for i, result in enumerate(results):
-                try:
-                    # 获取关键点和置信度
-                    kpts = None
-                    kpt_scores = None
-                    bbox_score = 1.0
-
-                    # 处理PoseDataSample类型的结果
-                    if hasattr(result, 'pred_instances'):
-                        logger.debug(f"处理PoseDataSample类型的结果: {i}")
-                        pred_instances = result.pred_instances
-
-                        if hasattr(pred_instances, 'keypoints'):
-                            kpts_tensor = pred_instances.keypoints
-                            # 如果是tensor，转换为numpy
-                            if not isinstance(kpts_tensor, np.ndarray):
-                                kpts = kpts_tensor.cpu().numpy()
-                            else:
-                                kpts = kpts_tensor
-
-                            # 获取置信度
-                            if hasattr(pred_instances, 'keypoint_scores'):
-                                scores_tensor = pred_instances.keypoint_scores
-                                if not isinstance(scores_tensor, np.ndarray):
-                                    kpt_scores = scores_tensor.cpu().numpy()
-                                else:
-                                    kpt_scores = scores_tensor
-
-                            # 获取边界框置信度
-                            if hasattr(pred_instances, 'bboxes_scores'):
-                                bbox_score = float(pred_instances.bboxes_scores.item() if hasattr(
-                                    pred_instances.bboxes_scores, 'item') else pred_instances.bboxes_scores)
-
-                    # 如果不是PoseDataSample或获取失败，尝试直接处理结果
-                    if kpts is None:
-                        logger.debug(f"直接处理结果: {i}")
-                        # 尝试提取关键点数据
-                        if isinstance(result, np.ndarray) and result.ndim == 3:
-                            # 假设结果是[k, 3]形状的ndarray，表示[x, y, score]
-                            kpts = result
-                        else:
-                            # 尝试从字典或其他对象中提取
-                            if hasattr(result, 'keypoints'):
-                                kpts = result.keypoints
-                            elif isinstance(result, dict) and 'keypoints' in result:
-                                kpts = result['keypoints']
-
-                    if kpts is None:
-                        logger.warning(f"从结果{i}中无法提取关键点数据")
-                        continue
-
-                    # 处理关键点数据
-                    if len(kpts.shape) == 3 and kpts.shape[0] == 1:
-                        # [1, K, 3] -> [K, 3]
-                        kpts = kpts[0]
-
-                    # 确保关键点格式为 [K, 3]
-                    if len(kpts.shape) != 2 or kpts.shape[1] != 3:
-                        logger.warning(f"关键点格式错误，预期为[K, 3]，实际为{kpts.shape}")
-                        continue
-
-                    # 获取当前人体框
-                    if i < len(bbox_xyxy):
-                        bbox = bbox_xyxy[i]
-                        # 计算框的宽度和高度
-                        box_width = bbox[2] - bbox[0]
-                        box_height = bbox[3] - bbox[1]
-
-                        # 日志记录边界框信息
-                        logger.debug(f"边界框 {i}: x1={bbox[0]:.1f}, y1={bbox[1]:.1f}, x2={bbox[2]:.1f}, y2={bbox[3]:.1f}, "
-                                     f"宽={box_width:.1f}, 高={box_height:.1f}")
-
-                        # 获取模型输入尺寸
-                        model_height, model_width = model_input_size
-
-                        # 记录关键点范围(处理前)
-                        valid_kpts = kpts[kpts[:, 2] > 0]
-                        if len(valid_kpts) > 0:
-                            x_min, y_min = np.min(valid_kpts[:, :2], axis=0)
-                            x_max, y_max = np.max(valid_kpts[:, :2], axis=0)
-                            logger.debug(
-                                f"原始关键点范围: x({x_min:.1f}-{x_max:.1f}) y({y_min:.1f}-{y_max:.1f})")
-
-                        # 关键点坐标转换：从模型输入尺寸映射回原始图像坐标
-                        # 对每个关键点进行转换
-                        transformed_kpts = kpts.copy()
-                        # kpts[:, 0]是x坐标(列)，范围是[0, model_width]
-                        # kpts[:, 1]是y坐标(行)，范围是[0, model_height]
-
-                        # 首先，将关键点坐标从[0-1]标准化范围转换为像素范围
-                        if np.max(kpts[:, 0]) <= 1.0 and np.max(kpts[:, 1]) <= 1.0:
-                            logger.debug("检测到关键点坐标为标准化值[0-1]，转换为像素坐标")
-                            transformed_kpts[:, 0] *= model_width
-                            transformed_kpts[:, 1] *= model_height
-
-                        # 计算从模型输入空间到边界框空间的缩放因子
-                        scale_x = box_width / model_width
-                        scale_y = box_height / model_height
-
-                        # 应用缩放和偏移
-                        transformed_kpts[:, 0] = transformed_kpts[:,
-                                                                  0] * scale_x + bbox[0]
-                        transformed_kpts[:, 1] = transformed_kpts[:,
-                                                                  1] * scale_y + bbox[1]
-
-                        # 确保关键点在图像范围内
-                        transformed_kpts[:, 0] = np.clip(
-                            transformed_kpts[:, 0], 0, img_width - 1)
-                        transformed_kpts[:, 1] = np.clip(
-                            transformed_kpts[:, 1], 0, img_height - 1)
-
-                        # 记录关键点范围(处理后)
-                        valid_kpts = transformed_kpts[transformed_kpts[:, 2] > 0]
-                        if len(valid_kpts) > 0:
-                            x_min, y_min = np.min(valid_kpts[:, :2], axis=0)
-                            x_max, y_max = np.max(valid_kpts[:, :2], axis=0)
-                            logger.debug(
-                                f"转换后关键点范围: x({x_min:.1f}-{x_max:.1f}) y({y_min:.1f}-{y_max:.1f})")
-
-                        # 应用可见性和置信度阈值
-                        final_keypoints = []
-                        for j, (x, y, conf) in enumerate(transformed_kpts):
-                            # 使用kpt_scores如果可用，否则使用原始置信度
-                            score = kpt_scores[j] if kpt_scores is not None and j < len(
-                                kpt_scores) else conf
-
-                            # 应用阈值
-                            if score >= self.keypoint_threshold:
-                                final_keypoints.append(
-                                    [float(x), float(y), float(score)])
-                            else:
-                                # 置信度不足的点设为不可见
-                                final_keypoints.append(
-                                    [float(x), float(y), 0.0])
-
-                        # 添加关键点和置信度
-                        keypoints.append(final_keypoints)
-                        scores.append(float(bbox_score))
-
-                        # 日志记录
-                        valid_count = sum(
-                            1 for kp in final_keypoints if kp[2] > 0)
-                        logger.debug(
-                            f"处理完成人体{i}，有效关键点：{valid_count}/{len(final_keypoints)}")
-                    else:
-                        logger.warning(f"结果索引{i}超出边界框数量{len(bbox_xyxy)}")
-                except Exception as e:
-                    logger.error(f"处理结果{i}时出错: {e}")
-                    import traceback
-                    logger.error(traceback.format_exc())
-                    continue
-
-            # 返回结果
-            if len(keypoints) > 0:
-                logger.info(f"RTMPose从框检测到 {len(keypoints)} 个姿态")
-                return keypoints, scores
+            # RTMPose需要RGB格式
+            if len(image.shape) == 3 and image.shape[2] == 3:
+                if image.dtype != np.uint8:
+                    image = (image * 255).astype(np.uint8)
             else:
-                logger.warning("RTMPose未检测到有效姿态，尝试使用备用方法")
-                return self._detect_keypointrcnn_from_boxes(image, boxes)
+                logger.warning(f"输入图像格式不支持: {image.shape}, {image.dtype}")
+                return [], []
+
+            img_h, img_w = image.shape[:2]
+            logger.debug(f"原始图像尺寸: {img_w}x{img_h}")
+
+            # 获取模型输入尺寸
+            try:
+                # 检查rtmpose_model是否为数组
+                if isinstance(self.rtmpose_model, np.ndarray):
+                    logger.warning("RTMPose模型是NumPy数组，使用默认输入尺寸")
+                    w = h = 256
+                elif isinstance(self.rtmpose_model, (list, tuple)):
+                    logger.warning("RTMPose模型是列表或元组，使用默认输入尺寸")
+                    w = h = 256
+                else:
+                    # 正常的模型对象
+                    if hasattr(self.rtmpose_model, 'cfg') and hasattr(self.rtmpose_model.cfg, 'model'):
+                        cfg_model = self.rtmpose_model.cfg.model
+                        if hasattr(cfg_model, 'backbone') and hasattr(cfg_model.backbone, 'input_size'):
+                            w = h = self.rtmpose_model.cfg.model.backbone.input_size
+                        else:
+                            w = h = 256  # 默认输入尺寸
+                    else:
+                        w = h = 256  # 默认输入尺寸
+            except Exception as e:
+                logger.warning(f"获取模型输入尺寸失败: {e}，使用默认值")
+                w = h = 256  # 默认输入尺寸
+
+            logger.debug(f"模型输入尺寸: {w}x{h}")
+
+            # 转换边界框格式为numpy数组
+            if len(boxes) == 0:
+                logger.warning("没有检测到边界框，将返回空结果")
+                return [], []
+
+            np_boxes = np.array(boxes)
+            logger.debug(f"边界框数量: {len(boxes)}, 格式: {np_boxes.shape}")
+
+            # 构建预测实例
+            predictions = []
+
+            # 对每个边界框使用topdown方法预测关键点
+            try:
+                from mmpose.apis import inference_topdown
+
+                # 检查模型类型
+                if isinstance(self.rtmpose_model, (np.ndarray, list, tuple)):
+                    logger.warning("RTMPose模型类型不正确，无法使用inference_topdown")
+                    return [], []
+
+                # 确保图像是RGB格式
+                if len(image.shape) == 2:  # 灰度图像
+                    image = cv2.cvtColor(image, cv2.COLOR_GRAY2RGB)
+                elif image.shape[2] == 4:  # 带透明通道
+                    image = image[:, :, :3]
+                elif image.shape[2] == 3 and image.dtype == np.float32:
+                    # 如果是浮点图像且值范围在[0,1]，转换为uint8
+                    if np.max(image) <= 1.0:
+                        image = (image * 255).astype(np.uint8)
+
+                # 调用姿态估计推理函数
+                results = inference_topdown(
+                    self.rtmpose_model, image, np_boxes)
+                logger.debug(f"获取到{len(results)}个姿态预测结果")
+            except Exception as e:
+                logger.error(f"调用inference_topdown失败: {e}")
+                import traceback
+                logger.debug(traceback.format_exc())
+                return [], []
+
+            keypoints_list = []
+            scores_list = []
+
+            # 处理结果
+            try:
+                for i, result in enumerate(results):
+                    # 检查结果对象类型
+                    if not hasattr(result, 'pred_instances'):
+                        logger.warning(f"结果{i}没有pred_instances属性，跳过")
+                        continue
+
+                    if not hasattr(result.pred_instances, 'keypoints'):
+                        logger.warning(f"结果{i}没有keypoints属性，跳过")
+                        continue
+
+                    # 获取关键点和得分
+                    keypoints = result.pred_instances.keypoints
+
+                    # 转换PyTorch张量为NumPy数组
+                    if hasattr(keypoints, 'cpu') and hasattr(keypoints, 'numpy'):
+                        keypoints = keypoints.cpu().numpy()
+
+                    # 检查得分属性
+                    if hasattr(result.pred_instances, 'keypoint_scores'):
+                        scores = result.pred_instances.keypoint_scores
+                        # 转换得分为NumPy数组
+                        if hasattr(scores, 'cpu') and hasattr(scores, 'numpy'):
+                            scores = scores.cpu().numpy()
+                    else:
+                        # 如果没有关键点得分，创建默认得分(全1)
+                        logger.warning(f"结果{i}没有keypoint_scores属性，使用默认值")
+                        scores = np.ones(keypoints.shape[0], dtype=np.float32)
+
+                    # MMPose返回的关键点格式为[K, 2]，需要转换为[K, 3]
+                    if len(keypoints.shape) == 2 and keypoints.shape[1] == 2:
+                        logger.debug(f"检测到关键点格式为[K, 2]，转换为[K, 3]格式")
+                        # 创建可见性列为全1的[K, 3]格式关键点
+                        keypoints_with_v = np.zeros(
+                            (keypoints.shape[0], 3), dtype=np.float32)
+                        keypoints_with_v[:, 0:2] = keypoints
+                        keypoints_with_v[:, 2] = 1.0  # 设置可见性为1
+                        keypoints = keypoints_with_v
+
+                    # 应用置信度阈值筛选
+                    visible = scores >= threshold
+                    for k in range(len(keypoints)):
+                        if not visible[k]:
+                            keypoints[k, 2] = 0  # 将低于阈值的关键点可见性设为0
+
+                    keypoints_list.append(keypoints)
+                    scores_list.append(scores)
+            except Exception as e:
+                logger.error(f"处理推理结果失败: {e}")
+                import traceback
+                logger.debug(traceback.format_exc())
+                return [], []  # 返回空结果
+
+            logger.debug(f"成功检测到{len(keypoints_list)}个姿态关键点")
+            return keypoints_list, scores_list
+
         except Exception as e:
-            logger.error(f"RTMPose从边界框检测失败: {e}")
+            logger.error(f"RTMPose姿态检测失败: {e}")
             import traceback
-            logger.error(traceback.format_exc())
-            return self._detect_keypointrcnn_from_boxes(image, boxes)
+            logger.debug(traceback.format_exc())
+            return [], []  # 不再使用备用模型
 
     def visualize_poses(self, image: np.ndarray, keypoints: List[List[List[float]]], scores: List[float] = None) -> np.ndarray:
         """
@@ -2154,7 +2131,10 @@ class PoseEstimator:
                 for j in range(len(instance_keypoints[0])):
                     x, y = instance_keypoints[0][j]
                     conf = float(instance_keypoint_scores[0][j])
-                    kpts.append([float(x), float(y), conf])
+
+                    # 应用置信度阈值
+                    visible_conf = conf if conf >= self.keypoint_threshold else 0.0
+                    kpts.append([float(x), float(y), visible_conf])
 
                 keypoints_data.append(kpts)
 
@@ -2274,13 +2254,14 @@ class PoseEstimator:
             # 如果可视化失败，则回退到通用可视化方法
             return self._visualize_poses_generic(image, keypoints, scores)
 
-    def _detect_hrnet_from_boxes(self, image: np.ndarray, boxes: List[List[float]]) -> Tuple[List[List[List[float]]], List[float]]:
+    def _detect_hrnet_from_boxes(self, image: np.ndarray, boxes: List[List[float]], threshold: float = 0.5) -> Tuple[List[List[List[float]]], List[float]]:
         """
         使用HRNet模型从边界框中检测人体姿态
 
         Args:
             image: 输入图像
             boxes: 边界框列表 [N, 4] - (x1, y1, x2, y2)
+            threshold: 关键点置信度阈值
 
         Returns:
             keypoints: 关键点列表 [N, K, 3] - (x, y, conf)
@@ -2317,7 +2298,10 @@ class PoseEstimator:
                 for j in range(len(instance_keypoints[0])):
                     x, y = instance_keypoints[0][j]
                     conf = float(instance_keypoint_scores[0][j])
-                    kpts.append([float(x), float(y), conf])
+
+                    # 应用置信度阈值
+                    visible_conf = conf if conf >= threshold else 0.0
+                    kpts.append([float(x), float(y), visible_conf])
 
                 keypoints_data.append(kpts)
 
@@ -2331,6 +2315,197 @@ class PoseEstimator:
             import traceback
             logger.error(traceback.format_exc())
             return [], []
+
+    def _init_rtmpose(self):
+        """初始化RTMPose模型"""
+        logger.info("开始初始化RTMPose模型...")
+        # 检查MMPose是否可用
+        try:
+            import mmcv
+            import mmpose
+            from mmpose.apis import init_model
+            logger.info(f"成功导入MMPose库: {mmpose.__version__}")
+        except ImportError as e:
+            logger.error(f"导入MMPose库失败: {e}")
+            return False
+
+        try:
+            # 获取模型配置文件
+            config_file = None
+
+            # 先查找内置配置文件
+            for model_name, cfg_path in RTMPOSE_MODEL_CONFIGS.items():
+                if model_name.lower() == self.model_name.lower():
+                    # 如果找到匹配的配置，使用内置配置路径
+                    config_file = cfg_path
+                    logger.info(f"使用内置RTMPose配置: {config_file}")
+                    break
+
+            if not config_file:
+                # 如果未找到内置配置，从文件系统查找
+                from labelme._automation.model_downloader import get_model_dir
+                mmpose_dir = get_model_dir("mmpose")
+                config_path = os.path.join(mmpose_dir, f"{self.model_name}.py")
+                if os.path.exists(config_path):
+                    config_file = config_path
+                    logger.info(f"使用本地RTMPose配置文件: {config_file}")
+
+            if not config_file:
+                # 如果仍未找到，根据模型名称猜测配置文件
+                if 'rtmpose-s' in self.model_name.lower():
+                    config_file = 'labelme/_automation/mmpose/configs/body_2d_keypoint/rtmpose/coco/rtmpose-s_8xb256-420e_coco-256x192.py'
+                elif 'rtmpose-m' in self.model_name.lower():
+                    config_file = 'labelme/_automation/mmpose/configs/body_2d_keypoint/rtmpose/coco/rtmpose-m_8xb256-420e_coco-256x192.py'
+                elif 'rtmpose-l' in self.model_name.lower():
+                    config_file = 'labelme/_automation/mmpose/configs/body_2d_keypoint/rtmpose/coco/rtmpose-l_8xb256-420e_coco-256x192.py'
+                elif 'rtmpose-t' in self.model_name.lower():
+                    config_file = 'labelme/_automation/mmpose/configs/body_2d_keypoint/rtmpose/coco/rtmpose-t_8xb256-420e_coco-256x192.py'
+                else:
+                    # 默认使用s模型
+                    config_file = 'labelme/_automation/mmpose/configs/body_2d_keypoint/rtmpose/coco/rtmpose-s_8xb256-420e_coco-256x192.py'
+                logger.info(f"根据模型名称猜测RTMPose配置: {config_file}")
+
+            # 获取checkpoint文件
+            checkpoint_file = None
+            for model_name, ckpt_path in RTMPOSE_MODEL_CHECKPOINTS.items():
+                if model_name.lower() == self.model_name.lower():
+                    checkpoint_file = ckpt_path
+                    logger.info(f"使用内置RTMPose权重路径: {checkpoint_file}")
+                    break
+
+            # 首先在_automation/mmpose/checkpoints目录查找
+            try:
+                from labelme._automation.model_downloader import get_model_dir
+                local_checkpoint_dir = get_model_dir("mmpose")
+                local_checkpoint_path = os.path.join(
+                    local_checkpoint_dir, f"{self.model_name}.pth")
+                if os.path.exists(local_checkpoint_path):
+                    logger.info(
+                        f"在本地目录找到RTMPose模型权重文件: {local_checkpoint_path}")
+                    checkpoint_file = local_checkpoint_path
+                else:
+                    # 检查原有的缓存目录
+                    checkpoint_dir = os.path.join(os.path.expanduser(
+                        "~"), ".cache", "torch", "hub", "checkpoints")
+
+                    # 检查checkpoint_file是否有效，避免拼接None
+                    if checkpoint_file:
+                        checkpoint_path = os.path.join(
+                            checkpoint_dir, os.path.basename(checkpoint_file))
+
+                        if os.path.exists(checkpoint_path):
+                            logger.info(
+                                f"在缓存目录找到RTMPose模型权重文件: {checkpoint_path}")
+                            checkpoint_file = checkpoint_path
+                        else:
+                            # 尝试从网络下载权重文件
+                            try:
+                                from labelme._automation.model_downloader import download_rtmpose_model
+                                logger.info(
+                                    f"模型权重不存在，尝试从网络下载: {self.model_name}")
+                                checkpoint_path = download_rtmpose_model(
+                                    self.model_name)
+                                if checkpoint_path:
+                                    logger.info(f"模型下载成功: {checkpoint_path}")
+                                    checkpoint_file = checkpoint_path
+                                else:
+                                    # 如果下载失败，使用MMPose默认权重
+                                    logger.warning(f"模型下载失败，使用MMPose默认权重")
+                                    checkpoint_file = None
+                            except Exception as e:
+                                logger.warning(f"下载模型失败: {e}，使用MMPose默认权重")
+                                checkpoint_file = None
+                    else:
+                        # 如果checkpoint_file为None，直接尝试下载
+                        try:
+                            from labelme._automation.model_downloader import download_rtmpose_model
+                            logger.info(
+                                f"没有找到预设权重文件，尝试从网络下载: {self.model_name}")
+                            checkpoint_path = download_rtmpose_model(
+                                self.model_name)
+                            if checkpoint_path:
+                                logger.info(f"模型下载成功: {checkpoint_path}")
+                                checkpoint_file = checkpoint_path
+                            else:
+                                logger.warning(f"模型下载失败，使用MMPose默认权重")
+                                checkpoint_file = None
+                        except Exception as e:
+                            logger.warning(f"下载模型失败: {e}，使用MMPose默认权重")
+                            checkpoint_file = None
+            except Exception as e:
+                logger.warning(f"查找模型路径时出错: {e}，将使用MMPose默认权重")
+                checkpoint_file = None
+
+            # 初始化模型
+            try:
+                # 确保config_file和checkpoint_file是字符串
+                if not isinstance(config_file, str):
+                    logger.warning(f"配置文件类型错误: {type(config_file)}，将转换为字符串")
+                    config_file = str(config_file)
+
+                if checkpoint_file is not None and not isinstance(checkpoint_file, str):
+                    logger.warning(
+                        f"检查点文件类型错误: {type(checkpoint_file)}，将转换为字符串")
+                    checkpoint_file = str(checkpoint_file)
+
+                # 初始化模型
+                model = init_model(
+                    config_file,
+                    checkpoint_file,
+                    device=self.device
+                )
+
+                # 验证模型对象
+                if model is None:
+                    logger.error("init_model返回None，初始化失败")
+                    return False
+
+                if isinstance(model, (np.ndarray, list, tuple)):
+                    logger.error(f"模型类型错误: {type(model)}，无法用于姿态估计")
+                    return False
+
+                # 测试是否可以访问模型属性
+                try:
+                    if hasattr(model, 'cfg'):
+                        logger.debug(f"模型配置: {type(model.cfg)}")
+                    else:
+                        logger.warning("模型没有cfg属性")
+                except Exception as attr_error:
+                    logger.warning(f"无法访问模型属性: {attr_error}")
+
+                # 保存模型实例
+                self.rtmpose_model = model
+                self.model = model
+
+                # 初始化可视化器
+                try:
+                    if hasattr(model, 'cfg') and hasattr(model, 'dataset_meta'):
+                        from mmpose.visualization import VISUALIZERS
+                        self.visualizer = VISUALIZERS.build(
+                            model.cfg.visualizer)
+                        self.visualizer.set_dataset_meta(model.dataset_meta)
+                except Exception as vis_error:
+                    logger.warning(f"初始化可视化器失败: {vis_error}")
+
+                logger.info(f"RTMPose模型初始化成功: {self.model_name}")
+                logger.info(f"配置文件: {config_file}")
+                logger.info(f"权重文件: {checkpoint_file}")
+                self.is_rtmpose = True
+                return True
+            except Exception as e:
+                logger.error(f"初始化模型失败: {e}")
+                import traceback
+                logger.error(traceback.format_exc())
+                self.rtmpose_model = None
+                self.is_rtmpose = False
+                return False
+        except Exception as e:
+            logger.error(f"初始化RTMPose模型失败: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
+            self.is_rtmpose = False
+            self.rtmpose_model = None
+            return False
 
 
 def get_shapes_from_poses(
