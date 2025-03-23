@@ -140,6 +140,59 @@ class PoseEstimator:
             logger.error(f"加载姿态估计模型失败: {e}")
             raise
 
+    def _load_keypointrcnn_model(self):
+        """加载KeypointRCNN姿态估计模型"""
+        try:
+            import torchvision
+            import torch
+            import torchvision.models.detection as detection_models
+
+            # 确保TORCH_HOME已设置为_automation/torch目录
+            try:
+                from labelme._automation.model_downloader import set_torch_home
+                set_torch_home()
+            except Exception as e:
+                logger.warning(f"设置TORCH_HOME失败: {e}")
+
+            # 尝试预下载模型（如果需要）
+            try:
+                from labelme._automation.model_downloader import download_torchvision_model
+                download_torchvision_model("keypointrcnn_resnet50_fpn")
+            except Exception as e:
+                logger.warning(f"预下载模型失败: {e}，将在创建模型时自动下载")
+
+            # 尝试使用新接口加载预训练的KeypointRCNN模型
+            try:
+                model = detection_models.keypointrcnn_resnet50_fpn(
+                    weights="DEFAULT",
+                    progress=True,
+                    num_keypoints=17,
+                    box_score_thresh=self.conf_threshold
+                )
+            except TypeError as e:
+                logger.warning(
+                    f"使用weights参数加载模型失败: {e}，尝试使用旧版接口 (pretrained=True)")
+                # 尝试使用旧接口
+                model = detection_models.keypointrcnn_resnet50_fpn(
+                    pretrained=True,
+                    progress=True,
+                    num_keypoints=17,
+                    box_score_thresh=self.conf_threshold
+                )
+
+            # 设置为评估模式
+            model.eval()
+
+            # 如果使用CUDA且可用
+            if self.device == 'cuda' and torch.cuda.is_available():
+                model = model.to('cuda')
+
+            logger.info(f"KeypointRCNN模型加载成功")
+            return model
+        except Exception as e:
+            logger.error(f"加载KeypointRCNN模型失败: {e}")
+            raise
+
     def _load_yolov7_pose_model(self):
         """加载YOLOv7姿态估计模型"""
         try:
@@ -678,6 +731,13 @@ class PoseEstimator:
     def _detect_keypointrcnn(self, image: np.ndarray) -> Tuple[List[List[List[float]]], List[float]]:
         """使用KeypointRCNN进行检测"""
         try:
+            # 确保模型已初始化
+            if not hasattr(self, 'keypointrcnn_model') or self.keypointrcnn_model is None:
+                self._init_keypointrcnn_backup()
+                if self.keypointrcnn_model is None:
+                    logger.error("无法初始化KeypointRCNN模型")
+                    return [], []
+
             # 确保图像是RGB格式
             if image.shape[2] == 4:  # 如果有alpha通道
                 image = image[:, :, :3]
@@ -713,18 +773,10 @@ class PoseEstimator:
                 keypoints = keypoints[mask]
 
                 # 调整关键点坐标到原图位置
-                adjusted_keypoints = keypoints.copy()
-                adjusted_keypoints[:, 0] += boxes[:, 0][:, None]
-                adjusted_keypoints[:, 1] += boxes[:, 1][:, None]
-
-                # 如果检测分数高于阈值
-                if scores >= self.conf_threshold:
-                    # 过滤低置信度的关键点
-                    mask = adjusted_keypoints[:, 2] < self.keypoint_threshold
-                    adjusted_keypoints[mask, 2] = 0
-
-                    keypoints_list.append(adjusted_keypoints.tolist())
-                    scores_list.append(float(scores[mask][0]))
+                for i, person_kpts in enumerate(keypoints):
+                    # 添加处理单个人关键点的代码
+                    keypoints_list.append(person_kpts.tolist())
+                    scores_list.append(float(scores[i]))
 
             return keypoints_list, scores_list
 
@@ -1588,7 +1640,17 @@ class PoseEstimator:
             return [], []
 
     def _detect_keypointrcnn_from_boxes(self, image: np.ndarray, boxes: List[List[float]]) -> Tuple[List[List[List[float]]], List[float]]:
-        """使用KeypointRCNN从给定的边界框中检测姿态"""
+        """
+        使用KeypointRCNN从给定边界框中检测姿态
+
+        Args:
+            image: 输入图像
+            boxes: 边界框列表 [N, 4] - (x1, y1, x2, y2)
+
+        Returns:
+            keypoints: 关键点列表 [N, K, 3] - (x, y, conf)
+            scores: 人体检测的置信度列表 [N]
+        """
         try:
             # 获取图像尺寸
             height, width = image.shape[:2]
@@ -1783,6 +1845,36 @@ class PoseEstimator:
             import traceback
             logger.error(f"详细错误信息: {traceback.format_exc()}")
             return [], []
+
+    def detect_poses(self, image: np.ndarray) -> Tuple[List[List[List[float]]], List[float]]:
+        """
+        检测图像中的所有人体姿态
+
+        Args:
+            image: 输入图像
+
+        Returns:
+            keypoints: 关键点列表 [N, K, 3] - (x, y, conf)
+            scores: 人体检测的置信度列表 [N]
+        """
+        try:
+            # 根据模型类型选择相应的检测方法
+            if self.is_rtmpose:
+                return self._detect_rtmpose(image)
+            elif self.is_keypointrcnn:
+                return self._detect_keypointrcnn(image)
+            else:
+                return self._detect_yolov7_pose(image)
+        except Exception as e:
+            logger.error(f"姿态检测失败: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
+            # 尝试使用备用方法
+            try:
+                return self._detect_keypointrcnn_backup(image)
+            except Exception as backup_e:
+                logger.error(f"备用姿态检测方法也失败: {backup_e}")
+                return [], []
 
 
 def get_shapes_from_poses(
