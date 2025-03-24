@@ -80,10 +80,12 @@ class MainWindow(QtWidgets.QMainWindow):
             if output_file is None:
                 output_file = output
 
-        # see labelme/config/default_config.yaml for valid configuration
-        if config is None:
-            config = get_config()
-        self._config = config
+        # 设置当前主题属性
+        app = QtWidgets.QApplication.instance()
+        app.setProperty("currentTheme", "light")  # 默认使用亮色主题
+
+        # 加载配置
+        self._config = config or {}
 
         # 确保自动保存默认开启，同时保存图像数据默认关闭
         self._config["auto_save"] = True
@@ -3553,7 +3555,10 @@ class MainWindow(QtWidgets.QMainWindow):
         # 保存当前主题设置
         self.currentTheme = "light"
 
+        # 设置应用程序的主题属性
         app = QtWidgets.QApplication.instance()
+        app.setProperty("currentTheme", "light")
+
         app.setStyle("Fusion")
         app.setPalette(labelme.styles.get_light_palette())
         app.setStyleSheet(labelme.styles.LIGHT_STYLE)
@@ -3581,6 +3586,9 @@ class MainWindow(QtWidgets.QMainWindow):
         # 更新dock窗口标题栏
         self.updateDockTitles()
 
+        # 更新所有使用icons8图标的动作
+        self._update_icons8_actions()
+
         # 更新配置
         self._config["theme"] = "light"
         try:
@@ -3589,37 +3597,15 @@ class MainWindow(QtWidgets.QMainWindow):
         except Exception as e:
             logger.exception("保存主题配置失败: %s", e)
 
-        # 更新文件列表的主题
-        if hasattr(self, 'fileListWidget'):
-            # 为文件列表设置亮色主题样式
-            self.fileListWidget.setStyleSheet("""
-                QListWidget {
-                    background-color: #fafafa;
-                    alternate-background-color: #f5f5f5;
-                    border: 1px solid #e0e0e0;
-                    border-radius: 8px;
-                    padding: 5px;
-                }
-                QListWidget::item {
-                    padding: 8px;
-                    border-radius: 4px;
-                    margin: 2px 1px;
-                }
-                QListWidget::item:hover {
-                    background-color: #e6f3ff;
-                }
-                QListWidget::item:selected {
-                    background-color: #0078d7;
-                    color: white;
-                }
-            """)
-
     def setDarkTheme(self, update_actions=True):
         """设置为暗黑主题"""
         # 保存当前主题设置
         self.currentTheme = "dark"
 
+        # 设置应用程序的主题属性
         app = QtWidgets.QApplication.instance()
+        app.setProperty("currentTheme", "dark")
+
         app.setStyle("Fusion")
         app.setPalette(labelme.styles.get_dark_palette())
         app.setStyleSheet(labelme.styles.DARK_STYLE)
@@ -3647,6 +3633,9 @@ class MainWindow(QtWidgets.QMainWindow):
         # 更新dock窗口标题栏
         self.updateDockTitles()
 
+        # 更新所有使用icons8图标的动作
+        self._update_icons8_actions()
+
         # 更新配置
         self._config["theme"] = "dark"
         try:
@@ -3655,38 +3644,15 @@ class MainWindow(QtWidgets.QMainWindow):
         except Exception as e:
             logger.exception("保存主题配置失败: %s", e)
 
-        # 更新文件列表和标记组件的主题
-        if hasattr(self, 'fileListWidget'):
-            # 为文件列表设置暗色主题样式
-            self.fileListWidget.setStyleSheet("""
-                QListWidget {
-                    background-color: #252526;
-                    alternate-background-color: #2d2d30;
-                    border: 1px solid #3e3e42;
-                    border-radius: 8px;
-                    padding: 5px;
-                    color: #cccccc;
-                }
-                QListWidget::item {
-                    padding: 8px;
-                    border-radius: 4px;
-                    margin: 2px 1px;
-                }
-                QListWidget::item:hover {
-                    background-color: #3e3e42;
-                }
-                QListWidget::item:selected {
-                    background-color: #007acc;
-                    color: #ffffff;
-                }
-            """)
-
     def setDefaultTheme(self, update_actions=True):
         """恢复原始主题"""
         # 保存当前主题设置
         self.currentTheme = "default"
 
+        # 设置应用程序的主题属性
         app = QtWidgets.QApplication.instance()
+        app.setProperty("currentTheme", "default")
+
         app.setStyle("")  # 使用默认样式
         app.setPalette(QtWidgets.QApplication.style().standardPalette())
         app.setStyleSheet("")  # 清除所有样式表
@@ -3710,6 +3676,9 @@ class MainWindow(QtWidgets.QMainWindow):
             if hasattr(self.labelDialog, 'cloudContainer') and self.labelDialog.cloudContainer:
                 for label_item in self.labelDialog.cloudContainer.label_items:
                     label_item.setDarkTheme(False)
+                    
+        # 更新图标
+        self._update_icons8_actions()
 
         # 更新dock窗口标题栏
         self.updateDockTitles()
@@ -4193,3 +4162,22 @@ class MainWindow(QtWidgets.QMainWindow):
         canvas.modeChanged.connect(self.updateModeLabel)
         canvas.toggleVisibilityRequest.connect(self.toggleShapesVisibility)
         canvas.editLabelRequest.connect(self._edit_label)  # 连接双击编辑标签信号
+
+    def _update_icons8_actions(self):
+        """更新所有使用icons8图标的动作"""
+        if not hasattr(self, 'actions'):
+            return
+
+        # 遍历所有动作
+        for action_name, action in self.actions.__dict__.items():
+            if isinstance(action, QtWidgets.QAction):
+                # 获取原始图标名称
+                original_icon = action.property("originalIcon")
+                if original_icon and isinstance(original_icon, str) and original_icon.startswith("icons8-"):
+                    # 重新设置图标
+                    from labelme.utils.qt import newIcon
+                    action.setIcon(newIcon(original_icon))
+
+        # 刷新工具栏，确保图标更新显示
+        for toolbar in self.findChildren(QtWidgets.QToolBar):
+            toolbar.update()

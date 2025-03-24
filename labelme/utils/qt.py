@@ -10,8 +10,32 @@ here = osp.dirname(osp.abspath(__file__))
 
 
 def newIcon(icon):
+    """根据当前主题加载对应的图标
+
+    Args:
+        icon: 图标文件名（不含扩展名）
+
+    Returns:
+        QIcon: 加载的图标
+    """
     icons_dir = osp.join(here, "../icons")
-    return QtGui.QIcon(osp.join(":/", icons_dir, "%s.png" % icon))
+
+    # 检查是否是icons8开头的图标
+    if icon.startswith("icons8-"):
+        # 获取当前应用程序实例
+        app = QtWidgets.QApplication.instance()
+        if app:
+            # 获取当前主题
+            current_theme = app.property("currentTheme")
+
+            # 如果是暗色主题，使用w-icons8开头的图标
+            if current_theme == "dark":
+                icon = "w-" + icon
+            elif current_theme == "default":
+                icon = icon
+
+    icon_path = osp.join(":/", icons_dir, "%s.png" % icon)
+    return QtGui.QIcon(icon_path)
 
 
 def newButton(text, icon=None, slot=None):
@@ -39,6 +63,8 @@ def newAction(
     if icon is not None:
         a.setIconText(text.replace(" ", "\n"))
         a.setIcon(newIcon(icon))
+        # 保存原始图标名称为属性，便于之后更新图标
+        a.setProperty("originalIcon", icon)
     if shortcut is not None:
         if isinstance(shortcut, (list, tuple)):
             a.setShortcuts(shortcut)
