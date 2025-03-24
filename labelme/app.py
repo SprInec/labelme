@@ -859,7 +859,31 @@ class MainWindow(QtWidgets.QMainWindow):
             darkTheme=darkTheme,    # 添加暗黑主题动作
             defaultTheme=defaultTheme,  # 添加原始主题动作
             themeActions=(lightTheme, darkTheme, defaultTheme),  # 添加主题动作组
-            tool=(),
+            tool=(
+                open_,
+                opendir,
+                changeOutputDir,  # 添加输出路径按钮
+                openPrevImg,
+                openNextImg,
+                save,
+                deleteFile,
+                None,
+                createMode,
+                createRectangleMode,
+                createPointMode,
+                createLineStripMode,
+                editMode,
+                duplicate,
+                delete,
+                undo,
+                brightnessContrast,
+                None,
+                runObjectDetection,  # 添加运行目标检测按钮
+                runPoseEstimation,   # 添加运行人体姿态估计按钮
+                None,
+                fitWindow,
+                zoom,
+            ),
             # XXX: need to add some actions here to activate the shortcut
             editMenu=(
                 edit,
@@ -911,6 +935,10 @@ class MainWindow(QtWidgets.QMainWindow):
                 runPoseEstimation,   # 添加运行人体姿态估计
             ),
             onShapesPresent=(saveAs, hideAll, showAll, toggleAll),
+            # 添加目标检测和姿态估计动作
+            runObjectDetection=runObjectDetection,
+            runPoseEstimation=runPoseEstimation,
+            submitAiPrompt=submitAiPrompt,
         )
 
         self.canvas.vertexSelected.connect(self.actions.removePoint.setEnabled)
@@ -3676,7 +3704,7 @@ class MainWindow(QtWidgets.QMainWindow):
             if hasattr(self.labelDialog, 'cloudContainer') and self.labelDialog.cloudContainer:
                 for label_item in self.labelDialog.cloudContainer.label_items:
                     label_item.setDarkTheme(False)
-                    
+
         # 更新图标
         self._update_icons8_actions()
 
