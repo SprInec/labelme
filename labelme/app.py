@@ -3987,6 +3987,25 @@ class MainWindow(QtWidgets.QMainWindow):
                 # 合并用户配置到默认配置
                 self._update_dict(default_config, user_config)
 
+        # 加载用户自定义快捷键配置
+        user_config_file = os.path.join(os.path.expanduser("~"), ".labelmerc")
+        if os.path.isfile(user_config_file):
+            try:
+                with open(user_config_file, 'r', encoding='utf-8') as f:
+                    user_config = yaml.safe_load(f) or {}
+
+                    # 如果存在自定义快捷键配置，则更新当前配置
+                    if 'shortcuts' in user_config:
+                        print(f"从用户配置文件加载自定义快捷键配置: {user_config_file}")
+                        # 确保将快捷键配置保存到self._config中
+                        default_config['shortcuts'] = user_config['shortcuts']
+                        # 由于self._config此时还未设置，我们要等应用程序初始化完成后再应用快捷键
+                        # 通过在事件循环中延迟执行来确保在UI完全加载后应用快捷键
+                        QtCore.QTimer.singleShot(
+                            500, lambda: self.applyCustomShortcuts(user_config['shortcuts']))
+            except Exception as e:
+                print(f"加载用户自定义快捷键配置失败: {e}")
+
         # 加载完配置后初始化标签菜单
         if self._config.get('label_order'):
             self._update_label_menu_from_config()
@@ -3997,6 +4016,88 @@ class MainWindow(QtWidgets.QMainWindow):
                 self._config["label_cloud_layout"])
 
         return default_config
+
+    def applyCustomShortcuts(self, shortcuts_config):
+        """应用自定义快捷键配置到UI中的actions对象"""
+        if not hasattr(self, 'actions'):
+            return
+
+        try:
+            # 更新当前配置
+            self._config['shortcuts'] = shortcuts_config
+
+            # 将配置保存到用户配置文件
+            user_config_file = os.path.join(
+                os.path.expanduser("~"), ".labelmerc")
+            try:
+                with open(user_config_file, 'r', encoding='utf-8') as f:
+                    user_config = yaml.safe_load(f) or {}
+
+                # 更新快捷键配置
+                user_config['shortcuts'] = shortcuts_config
+
+                # 保存回文件
+                with open(user_config_file, 'w', encoding='utf-8') as f:
+                    yaml.dump(user_config, f,
+                              default_flow_style=False, allow_unicode=True)
+
+                print(f"快捷键配置已保存到: {user_config_file}")
+            except Exception as e:
+                print(f"保存快捷键配置失败: {e}")
+
+            # 更新快捷键
+            for key, shortcut in shortcuts_config.items():
+                # 创建快捷键序列
+                if shortcut is None:
+                    shortcut_seq = QtGui.QKeySequence()
+                elif isinstance(shortcut, list):
+                    # 如果是列表，只使用第一个快捷键
+                    if shortcut and len(shortcut) > 0:
+                        shortcut_seq = QtGui.QKeySequence(str(shortcut[0]))
+                    else:
+                        shortcut_seq = QtGui.QKeySequence()
+                else:
+                    shortcut_seq = QtGui.QKeySequence(str(shortcut))
+
+                # 根据键名获取相应的action
+                action_mapping = {
+                    "close": getattr(self.actions, "close", None),
+                    "open": getattr(self.actions, "open", None),
+                    "save": getattr(self.actions, "save", None),
+                    "save_as": getattr(self.actions, "saveAs", None),
+                    "quit": getattr(self.actions, "quit", None),
+                    "delete_file": getattr(self.actions, "deleteFile", None),
+                    "open_next": getattr(self.actions, "openNextImg", None),
+                    "open_prev": getattr(self.actions, "openPrevImg", None),
+                    "zoom_in": getattr(self.actions, "zoomIn", None),
+                    "zoom_out": getattr(self.actions, "zoomOut", None),
+                    "zoom_to_original": getattr(self.actions, "zoomOrg", None),
+                    "fit_window": getattr(self.actions, "fitWindow", None),
+                    "fit_width": getattr(self.actions, "fitWidth", None),
+                    "create_polygon": getattr(self.actions, "createMode", None),
+                    "create_rectangle": getattr(self.actions, "createRectangleMode", None),
+                    "create_circle": getattr(self.actions, "createCircleMode", None),
+                    "create_line": getattr(self.actions, "createLineMode", None),
+                    "create_point": getattr(self.actions, "createPointMode", None),
+                    "create_linestrip": getattr(self.actions, "createLineStripMode", None),
+                    "edit_polygon": getattr(self.actions, "editMode", None),
+                    "delete_polygon": getattr(self.actions, "delete", None),
+                    "duplicate_polygon": getattr(self.actions, "duplicate", None),
+                    "copy_polygon": getattr(self.actions, "copy", None),
+                    "paste_polygon": getattr(self.actions, "paste", None),
+                    "undo": getattr(self.actions, "undo", None),
+                    "undo_last_point": getattr(self.actions, "undoLastPoint", None),
+                    "edit_label": getattr(self.actions, "edit", None),
+                    "toggle_keep_prev_mode": getattr(self.actions, "toggleKeepPrevMode", None),
+                    "remove_selected_point": getattr(self.actions, "removePoint", None),
+                }
+
+                # 如果找到了对应的动作，则设置快捷键
+                if key in action_mapping and action_mapping[key]:
+                    action_mapping[key].setShortcut(shortcut_seq)
+
+        except Exception as e:
+            print(f"应用自定义快捷键配置失败: {e}")
 
     def toggleLabelCloudLayout(self, enabled=None):
         """切换标签云布局

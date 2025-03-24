@@ -11,8 +11,17 @@ class ShortcutsDialog(QtWidgets.QDialog):
     def __init__(self, parent=None):
         super(ShortcutsDialog, self).__init__(parent)
         self.parent = parent
-        self.config = get_config()
-        self.shortcuts = self.config.get("shortcuts", {})
+
+        # 优先使用父窗口的配置（如果可用）
+        if parent and hasattr(parent, '_config') and 'shortcuts' in parent._config:
+            # 使用父窗口的最新配置
+            self.config = parent._config
+            self.shortcuts = self.config.get("shortcuts", {})
+        else:
+            # 如果父窗口配置不可用，则读取配置文件
+            self.config = get_config()
+            self.shortcuts = self.config.get("shortcuts", {})
+
         self.modified_shortcuts = self.shortcuts.copy()
 
         self.setWindowTitle(self.tr("快捷键设置"))
@@ -93,7 +102,7 @@ class ShortcutsDialog(QtWidgets.QDialog):
         # 创建标题和说明
         title_label = QtWidgets.QLabel(self.tr("快捷键设置"))
         title_label.setStyleSheet(
-            "font-size: 26px; font-weight: bold; margin-bottom: 10px;")
+            "font-size: 30px; font-weight: bold; margin-bottom: 10px;")
 
         desc_label = QtWidgets.QLabel(self.tr("您可以在下表中查看和自定义软件的快捷键："))
         desc_label.setStyleSheet(
@@ -340,38 +349,54 @@ class ShortcutsDialog(QtWidgets.QDialog):
 
         dialog = ShortcutEditDialog(self, display_name, current_shortcut)
         if dialog.exec_() == QtWidgets.QDialog.Accepted:
-            new_shortcut = dialog.keySequenceEdit.keySequence().toString()
-            if not new_shortcut:
-                new_shortcut = None
+            # 获取新的快捷键，保持原始格式（列表或普通）
+            new_shortcut = dialog.current_shortcut
 
             # 检查快捷键冲突
             conflict_found = False
-            for k, v in self.modified_shortcuts.items():
-                if k != key and v == new_shortcut and new_shortcut is not None:
-                    conflict_key = k
-                    # 查找显示名称
-                    conflict_display_name = conflict_key
-                    for row in range(self.table.rowCount()):
-                        if self.table.item(row, 0).data(Qt.UserRole) == conflict_key:
-                            conflict_display_name = self.table.item(
-                                row, 0).text()
+            if new_shortcut is not None:
+                # 确定要检查的快捷键值
+                check_shortcut = new_shortcut
+                if isinstance(new_shortcut, list):
+                    # 如果是列表，只检查第一个元素
+                    check_shortcut = new_shortcut[0] if new_shortcut else None
+
+                for k, v in self.modified_shortcuts.items():
+                    # 跳过当前正在编辑的项
+                    if k == key:
+                        continue
+
+                    # 确定要比较的值
+                    compare_value = v
+                    if isinstance(v, list):
+                        # 如果是列表，只比较第一个元素
+                        compare_value = v[0] if v else None
+
+                    if compare_value == check_shortcut and check_shortcut is not None:
+                        conflict_key = k
+                        # 查找显示名称
+                        conflict_display_name = conflict_key
+                        for row in range(self.table.rowCount()):
+                            if self.table.item(row, 0).data(Qt.UserRole) == conflict_key:
+                                conflict_display_name = self.table.item(
+                                    row, 0).text()
+                                break
+
+                        reply = QtWidgets.QMessageBox.question(
+                            self,
+                            self.tr("快捷键冲突"),
+                            self.tr("快捷键 '{0}' 已被 '{1}' 使用。\n\n是否仍要分配此快捷键？").format(
+                                check_shortcut, conflict_display_name),
+                            QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No,
+                            QtWidgets.QMessageBox.No
+                        )
+
+                        if reply == QtWidgets.QMessageBox.No:
+                            conflict_found = True
                             break
-
-                    reply = QtWidgets.QMessageBox.question(
-                        self,
-                        self.tr("快捷键冲突"),
-                        self.tr("快捷键 '{0}' 已被 '{1}' 使用。\n\n是否仍要分配此快捷键？").format(
-                            new_shortcut, conflict_display_name),
-                        QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No,
-                        QtWidgets.QMessageBox.No
-                    )
-
-                    if reply == QtWidgets.QMessageBox.No:
-                        conflict_found = True
-                        break
-                    else:
-                        # 如果用户确认，则移除之前的快捷键分配
-                        self.modified_shortcuts[conflict_key] = None
+                        else:
+                            # 如果用户确认，则移除之前的快捷键分配
+                            self.modified_shortcuts[conflict_key] = None
 
             if not conflict_found:
                 # 更新修改后的快捷键
@@ -419,18 +444,30 @@ class ShortcutsDialog(QtWidgets.QDialog):
         # 更新配置
         self.config["shortcuts"] = self.modified_shortcuts
 
-        # 保存配置
-        save_config(self.config)
+        # 如果父窗口存在且有applyCustomShortcuts方法，优先调用它
+        # 它会负责保存配置到文件并应用快捷键
+        if self.parent and hasattr(self.parent, 'applyCustomShortcuts'):
+            self.parent.applyCustomShortcuts(self.modified_shortcuts)
 
-        # 尝试立即应用快捷键设置
-        self.applyShortcuts()
+            # 提示用户
+            QtWidgets.QMessageBox.information(
+                self,
+                self.tr("提示"),
+                self.tr("快捷键设置已保存并应用。")
+            )
+        else:
+            # 如果无法通过父窗口保存，则尝试直接保存配置
+            save_config(self.config)
 
-        # 提示用户
-        QtWidgets.QMessageBox.information(
-            self,
-            self.tr("提示"),
-            self.tr("快捷键设置已保存并应用，部分更改可能需要重启应用后生效。")
-        )
+            # 尝试立即应用快捷键设置
+            self.applyShortcuts()
+
+            # 提示用户
+            QtWidgets.QMessageBox.information(
+                self,
+                self.tr("提示"),
+                self.tr("快捷键设置已保存并应用，部分更改可能需要重启应用后生效。")
+            )
 
         super(ShortcutsDialog, self).accept()
 
@@ -522,6 +559,8 @@ class ShortcutEditDialog(QtWidgets.QDialog):
         super(ShortcutEditDialog, self).__init__(parent)
         self.display_name = display_name
         self.current_shortcut = current_shortcut
+        # 记录原始快捷键是否为列表格式
+        self.is_list_format = isinstance(current_shortcut, list)
 
         self.setWindowTitle(self.tr("编辑快捷键"))
         self.setFixedSize(500, 500)
@@ -586,8 +625,14 @@ class ShortcutEditDialog(QtWidgets.QDialog):
         # 快捷键编辑控件
         self.keySequenceEdit = QtWidgets.QKeySequenceEdit()
         if current_shortcut:
-            self.keySequenceEdit.setKeySequence(
-                QtGui.QKeySequence(current_shortcut))
+            if isinstance(current_shortcut, list):
+                # 如果是列表，只使用第一个元素
+                if current_shortcut and len(current_shortcut) > 0:
+                    self.keySequenceEdit.setKeySequence(
+                        QtGui.QKeySequence(str(current_shortcut[0])))
+            else:
+                self.keySequenceEdit.setKeySequence(
+                    QtGui.QKeySequence(str(current_shortcut)))
         self.keySequenceEdit.setFocus()
 
         # 提示信息
@@ -630,3 +675,24 @@ class ShortcutEditDialog(QtWidgets.QDialog):
             self.reject()
         else:
             super(ShortcutEditDialog, self).keyPressEvent(event)
+
+    def accept(self):
+        """确认修改"""
+        # 检查用户是否清除了快捷键
+        if not self.keySequenceEdit.keySequence().toString():
+            self.current_shortcut = None
+        else:
+            # 获取新的快捷键
+            new_shortcut = self.keySequenceEdit.keySequence().toString()
+
+            # 如果原始快捷键是列表格式，保持该格式
+            if self.is_list_format and self.current_shortcut:
+                if len(self.current_shortcut) > 0:
+                    # 替换第一个元素，保留其余元素
+                    self.current_shortcut[0] = new_shortcut
+                else:
+                    self.current_shortcut = [new_shortcut]
+            else:
+                self.current_shortcut = new_shortcut
+
+        super(ShortcutEditDialog, self).accept()
