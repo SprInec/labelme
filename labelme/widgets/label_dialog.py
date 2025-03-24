@@ -7,6 +7,7 @@ from PyQt5 import QtWidgets
 
 import labelme.utils
 
+
 class LabelQLineEdit(QtWidgets.QLineEdit):
     def setListWidget(self, list_widget):
         self.list_widget = list_widget
@@ -238,13 +239,27 @@ class LabelDialog(QtWidgets.QDialog):
         self.layout_toggle_button.setFixedSize(36, 36)
         self.layout_toggle_button.setToolTip(self.tr("切换标签布局模式"))
         self.layout_toggle_button.clicked.connect(self.onLayoutToggleClicked)
-        # 设置图标
+
+        # 获取当前主题
+        is_dark_theme = False
+        if self.app and hasattr(self.app, 'currentTheme'):
+            is_dark_theme = self.app.currentTheme == "dark"
+
+        # 设置图标，根据当前主题选择对应的图标
         if self._use_cloud_layout:
-            self.layout_toggle_button.setIcon(
-                labelme.utils.newIcon("icons8-grid-view-48"))
+            if is_dark_theme:
+                self.layout_toggle_button.setIcon(
+                    labelme.utils.newIcon("w-icons8-grid-view-48"))
+            else:
+                self.layout_toggle_button.setIcon(
+                    labelme.utils.newIcon("icons8-grid-view-48"))
         else:
-            self.layout_toggle_button.setIcon(
-                labelme.utils.newIcon("icons8-list-view-48"))
+            if is_dark_theme:
+                self.layout_toggle_button.setIcon(
+                    labelme.utils.newIcon("w-icons8-list-view-48"))
+            else:
+                self.layout_toggle_button.setIcon(
+                    labelme.utils.newIcon("icons8-list-view-48"))
         color_layout.addWidget(self.layout_toggle_button,
                                0, QtCore.Qt.AlignVCenter)
 
@@ -814,6 +829,16 @@ class LabelDialog(QtWidgets.QDialog):
             new_layout_mode = self.app._config.get('label_cloud_layout', False)
             if new_layout_mode != self._use_cloud_layout:
                 self.toggleCloudLayout(new_layout_mode)
+
+            # 检查当前主题并应用相应样式
+            current_theme = self.app._config.get('theme', 'light')
+            is_dark_theme = current_theme == 'dark'
+            self.setThemeStyleSheet(is_dark=is_dark_theme)
+
+            # 如果使用标签云布局，为每个标签项设置主题
+            if hasattr(self, 'cloudContainer') and self.cloudContainer:
+                for label_item in self.cloudContainer.label_items:
+                    label_item.setDarkTheme(is_dark_theme)
 
         # if text is None, the previous label in self.edit is kept
         if text is None:
