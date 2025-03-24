@@ -786,12 +786,22 @@ class MainWindow(QtWidgets.QMainWindow):
         )
         showLabelDesc.setEnabled(False)  # 初始禁用
 
+        # 子选项 - 显示骨骼
+        showSkeleton = self.createDockLikeAction(
+            self.tr("　显示骨骼"),  # 前面加空格表示层级
+            self.toggleShowSkeleton,
+            False  # 默认不选中
+        )
+        showSkeleton.setEnabled(False)  # 初始禁用
+
         # 保存到实例变量中便于访问
         self.showLabelNames = showLabelNames
         self.showLabelText = showLabelText
         self.showLabelGID = showLabelGID
         self.showLabelDesc = showLabelDesc
-        self.labelNameOptions = [showLabelText, showLabelGID, showLabelDesc]
+        self.showSkeleton = showSkeleton
+        self.labelNameOptions = [showLabelText,
+                                 showLabelGID, showLabelDesc, showSkeleton]
 
         # Label list context menu.
         labelMenu = QtWidgets.QMenu()
@@ -961,6 +971,7 @@ class MainWindow(QtWidgets.QMainWindow):
                 showLabelText,   # 显示标签文本
                 showLabelGID,    # 显示GID
                 showLabelDesc,   # 显示描述
+                showSkeleton,    # 显示骨骼
             ),
         )
 
@@ -3743,6 +3754,12 @@ class MainWindow(QtWidgets.QMainWindow):
         """切换是否在标签中显示描述"""
         self._showLabelDesc = checked
         Shape.show_label_desc = checked
+        self.canvas.update()
+
+    def toggleShowSkeleton(self, checked):
+        """切换是否显示骨骼"""
+        self._showSkeleton = checked
+        self.canvas.setShowSkeleton(checked)
         self.canvas.update()
 
     def createDockLikeAction(self, title, slot, checked=False):

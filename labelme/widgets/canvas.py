@@ -121,6 +121,21 @@ class Canvas(QtWidgets.QWidget):
             bytes, osam.types.ImageEmbedding
         ] = collections.OrderedDict()
 
+        # 添加骨骼绘制相关属性
+        self.show_skeleton = False  # 是否显示骨骼
+        self.skeleton_connections = [
+            (15, 13), (13, 11), (16, 14), (14, 12), (11, 12), (5, 11), (6, 12),
+            (5, 6), (5, 7), (6, 8), (7, 9), (8,
+                                             10), (1, 2), (0, 1), (0, 2), (1, 3),
+            (2, 4), (3, 5), (4, 6)
+        ]
+        self.keypoint_names = [
+            "nose", "left_eye", "right_eye", "left_ear", "right_ear",
+            "left_shoulder", "right_shoulder", "left_elbow", "right_elbow",
+            "left_wrist", "right_wrist", "left_hip", "right_hip",
+            "left_knee", "right_knee", "left_ankle", "right_ankle"
+        ]
+
         # 初始化时发送一次模式信号
         QtCore.QTimer.singleShot(0, lambda: self.modeChanged.emit("编辑模式"))
 
@@ -946,25 +961,20 @@ class Canvas(QtWidgets.QWidget):
                 return True
             return False
 
-        # 其他形状使用原有的边界检测逻辑
-        o1 = pos + self.offsets[0]
-        if self.outOfPixmap(o1):
-            pos -= QtCore.QPointF(min(0, o1.x()), min(0, o1.y()))
-        o2 = pos + self.offsets[1]
-        if self.outOfPixmap(o2):
-            pos += QtCore.QPointF(
-                min(0, self.pixmap.width() - o2.x()),
-                min(0, self.pixmap.height() - o2.y()),
-            )
-        # XXX: The next line tracks the new position of the cursor
-        # relative to the shape, but also results in making it
-        # a bit "shaky" when nearing the border and allows it to
-        # go outside of the shape's area for some reason.
-        # self.calculateOffsets(self.selectedShapes, pos)
+        # 其他形状使用改进的边界检测逻辑
         dp = pos - self.prevPoint
         if dp:
+            # 计算移动后的边界
             for shape in shapes:
                 shape.moveBy(dp)
+                rect = shape.boundingRect()
+                # 检查是否超出边界
+                if rect.left() < 0 or rect.right() > self.pixmap.width() or \
+                   rect.top() < 0 or rect.bottom() > self.pixmap.height():
+                    # 如果超出边界，回退移动
+                    shape.moveBy(-dp)
+                    return False
+
             self.prevPoint = pos
             return True
         return False
@@ -1061,6 +1071,10 @@ class Canvas(QtWidgets.QWidget):
         if self.selectedShapesCopy:
             for s in self.selectedShapesCopy:
                 s.paint(p)
+
+        # 绘制骨骼
+        if self.show_skeleton:
+            self.draw_skeleton(p)
 
         if not self.current:
             p.end()
@@ -1477,6 +1491,78 @@ class Canvas(QtWidgets.QWidget):
 
         # 对于其他形状类型，检查边界矩形是否与选择框相交
         return selection_box.intersects(shape_rect)
+
+    def draw_skeleton(self, painter):
+        """绘制骨骼连接"""
+        # 获取所有点形状
+        point_shapes = [
+            shape for shape in self.shapes if shape.shape_type == "point"]
+        if not point_shapes:
+            return
+
+        # 按标签名称分组点
+        keypoints = {}
+        point_colors = {}  # 存储每个关键点的颜色
+        for shape in point_shapes:
+            if shape.label in self.keypoint_names:
+                # 获取点的原始坐标
+                point = shape.points[0]
+                keypoints[shape.label] = point
+                # 使用点的填充颜色作为骨骼颜色
+                point_colors[shape.label] = shape.fill_color
+
+        # 绘制骨骼连接
+        painter.save()
+
+        # 设置抗锯齿
+        painter.setRenderHint(QtGui.QPainter.Antialiasing)
+
+        # 使用固定线宽，不受缩放影响
+        line_width = 2.0
+
+        # 创建一个Shape实例用于缩放坐标
+        shape = Shape()
+
+        for start_idx, end_idx in self.skeleton_connections:
+            start_name = self.keypoint_names[start_idx]
+            end_name = self.keypoint_names[end_idx]
+            if start_name in keypoints and end_name in keypoints:
+                start_point = keypoints[start_name]
+                end_point = keypoints[end_name]
+
+                # 使用Shape实例的_scale_point方法处理坐标的缩放和偏移
+                scaled_start = shape._scale_point(start_point)
+                scaled_end = shape._scale_point(end_point)
+
+                # 使用终点（后一个点）的颜色作为骨骼颜色
+                color = point_colors[end_name]
+
+                # 创建渐变效果
+                gradient = QtGui.QLinearGradient(scaled_start, scaled_end)
+                # 起点颜色（稍微透明）
+                start_color = QtGui.QColor(color)
+                start_color.setAlpha(180)  # 70% 不透明度
+                # 终点颜色（完全不透明）
+                end_color = QtGui.QColor(color)
+                end_color.setAlpha(255)  # 100% 不透明度
+                gradient.setColorAt(0, start_color)
+                gradient.setColorAt(1, end_color)
+
+                # 设置画笔
+                pen = QtGui.QPen(gradient, line_width)  # 线宽不再受缩放影响
+                pen.setCapStyle(QtCore.Qt.RoundCap)  # 圆形线帽
+                pen.setJoinStyle(QtCore.Qt.RoundJoin)  # 圆形连接
+                painter.setPen(pen)
+
+                # 绘制主线条
+                painter.drawLine(scaled_start, scaled_end)
+
+        painter.restore()
+
+    def setShowSkeleton(self, value):
+        """设置是否显示骨骼"""
+        self.show_skeleton = value
+        self.update()
 
 # 定义SAM分割所需的函数
 
