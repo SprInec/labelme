@@ -1500,18 +1500,24 @@ class Canvas(QtWidgets.QWidget):
         if not point_shapes:
             return
 
-        # 按标签名称分组点
-        keypoints = {}
-        point_colors = {}  # 存储每个关键点的颜色
+        # 按group_id分组点
+        grouped_points = {}
         for shape in point_shapes:
             if shape.label in self.keypoint_names:
-                # 获取点的原始坐标
-                point = shape.points[0]
-                keypoints[shape.label] = point
-                # 使用点的填充颜色作为骨骼颜色
-                point_colors[shape.label] = shape.fill_color
+                # 使用group_id作为分组依据，如果没有group_id则使用默认组"default"
+                group_id = shape.group_id if shape.group_id is not None else "default"
 
-        # 绘制骨骼连接
+                if group_id not in grouped_points:
+                    grouped_points[group_id] = {}
+
+                # 获取点的原始坐标和颜色
+                point = shape.points[0]
+                grouped_points[group_id][shape.label] = {
+                    "point": point,
+                    "color": shape.fill_color
+                }
+
+        # 为每个组绘制骨骼连接
         painter.save()
 
         # 设置抗锯齿
@@ -1523,34 +1529,40 @@ class Canvas(QtWidgets.QWidget):
         # 创建一个Shape实例用于缩放坐标
         shape = Shape()
 
-        for start_idx, end_idx in self.skeleton_connections:
-            start_name = self.keypoint_names[start_idx]
-            end_name = self.keypoint_names[end_idx]
-            if start_name in keypoints and end_name in keypoints:
-                start_point = keypoints[start_name]
-                end_point = keypoints[end_name]
+        # 为每个组绘制骨骼
+        for group_id, keypoints in grouped_points.items():
+            for start_idx, end_idx in self.skeleton_connections:
+                start_name = self.keypoint_names[start_idx]
+                end_name = self.keypoint_names[end_idx]
 
-                # 使用Shape实例的_scale_point方法处理坐标的缩放和偏移
-                scaled_start = shape._scale_point(start_point)
-                scaled_end = shape._scale_point(end_point)
+                if start_name in keypoints and end_name in keypoints:
+                    start_data = keypoints[start_name]
+                    end_data = keypoints[end_name]
 
-                # 使用终点（后一个点）的颜色作为骨骼颜色
-                start_color = QtGui.QColor(point_colors[start_name])
-                end_color = QtGui.QColor(point_colors[end_name])
+                    start_point = start_data["point"]
+                    end_point = end_data["point"]
 
-                # 创建渐变效果
-                gradient = QtGui.QLinearGradient(scaled_start, scaled_end)
-                gradient.setColorAt(0, start_color)
-                gradient.setColorAt(1, end_color)
+                    # 使用Shape实例的_scale_point方法处理坐标的缩放和偏移
+                    scaled_start = shape._scale_point(start_point)
+                    scaled_end = shape._scale_point(end_point)
 
-                # 设置画笔
-                pen = QtGui.QPen(gradient, line_width)  # 线宽不再受缩放影响
-                pen.setCapStyle(QtCore.Qt.RoundCap)  # 圆形线帽
-                pen.setJoinStyle(QtCore.Qt.RoundJoin)  # 圆形连接
-                painter.setPen(pen)
+                    # 使用点的颜色绘制骨骼，实现渐变效果
+                    start_color = QtGui.QColor(start_data["color"])
+                    end_color = QtGui.QColor(end_data["color"])
 
-                # 绘制主线条
-                painter.drawLine(scaled_start, scaled_end)
+                    # 创建渐变效果
+                    gradient = QtGui.QLinearGradient(scaled_start, scaled_end)
+                    gradient.setColorAt(0, start_color)
+                    gradient.setColorAt(1, end_color)
+
+                    # 设置画笔
+                    pen = QtGui.QPen(gradient, line_width)  # 线宽不再受缩放影响
+                    pen.setCapStyle(QtCore.Qt.RoundCap)  # 圆形线帽
+                    pen.setJoinStyle(QtCore.Qt.RoundJoin)  # 圆形连接
+                    painter.setPen(pen)
+
+                    # 绘制主线条
+                    painter.drawLine(scaled_start, scaled_end)
 
         painter.restore()
 
