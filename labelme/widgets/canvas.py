@@ -1518,7 +1518,7 @@ class Canvas(QtWidgets.QWidget):
         painter.setRenderHint(QtGui.QPainter.Antialiasing)
 
         # 使用固定线宽，不受缩放影响
-        line_width = 2.0
+        line_width = 5.0  # 增加线宽
 
         # 创建一个Shape实例用于缩放坐标
         shape = Shape()
@@ -1535,16 +1535,11 @@ class Canvas(QtWidgets.QWidget):
                 scaled_end = shape._scale_point(end_point)
 
                 # 使用终点（后一个点）的颜色作为骨骼颜色
-                color = point_colors[end_name]
+                start_color = QtGui.QColor(point_colors[start_name])
+                end_color = QtGui.QColor(point_colors[end_name])
 
                 # 创建渐变效果
                 gradient = QtGui.QLinearGradient(scaled_start, scaled_end)
-                # 起点颜色（稍微透明）
-                start_color = QtGui.QColor(color)
-                start_color.setAlpha(180)  # 70% 不透明度
-                # 终点颜色（完全不透明）
-                end_color = QtGui.QColor(color)
-                end_color.setAlpha(255)  # 100% 不透明度
                 gradient.setColorAt(0, start_color)
                 gradient.setColorAt(1, end_color)
 
