@@ -2710,6 +2710,11 @@ class MainWindow(QtWidgets.QMainWindow):
         )
         logger.info("Output directory changed to: {}".format(self.output_dir))
 
+        # 重新加载当前目录的图像，以更新标注状态
+        if self.lastOpenDir and osp.exists(self.lastOpenDir):
+            # 重新加载目录，并指定加载第一个图像
+            self.importDirImages(self.lastOpenDir, load=True, load_first=True)
+
         # 保存当前文件名，以便在重新加载后恢复选择
         current_filename = self.filename
 
@@ -2924,7 +2929,8 @@ class MainWindow(QtWidgets.QMainWindow):
                 | QtWidgets.QFileDialog.DontResolveSymlinks,
             )
         )
-        self.importDirImages(targetDirPath)
+        # 打开新目录时，始终加载第一个图像
+        self.importDirImages(targetDirPath, load_first=True)
 
     @property
     def imageList(self):
@@ -2972,7 +2978,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
         self.openNextImg()
 
-    def importDirImages(self, dirpath, pattern=None, load=True):
+    def importDirImages(self, dirpath, pattern=None, load=True, load_first=False):
         self.actions.openNextImg.setEnabled(True)
         self.actions.openPrevImg.setEnabled(True)
 
@@ -3012,16 +3018,27 @@ class MainWindow(QtWidgets.QMainWindow):
         # 更新dock标题
         self.updateDockTitles()
 
-        # 如果有上次记录的图片索引，并且是有效的索引，则优先加载该图片
-        if load and self._config.get("last_image_index") is not None:
+        if not load:
+            return
+
+        # 如果指定了加载第一个图像，或者当前没有可用的图像列表
+        if load_first or not self.imageList:
+            # 如果有图像，则加载第一个
+            if self.imageList:
+                self.fileListWidget.setCurrentRow(0)
+                self.fileListWidget.repaint()
+                self.loadFile(self.imageList[0])
+                return
+        # 如果没有指定加载第一个图像，则尝试加载上次记录的索引
+        elif self._config.get("last_image_index") is not None:
             last_idx = self._config["last_image_index"]
-            if last_idx >= 0 and last_idx < len(self.imageList):
+            if 0 <= last_idx < len(self.imageList):
                 self.fileListWidget.setCurrentRow(last_idx)
                 self.fileListWidget.repaint()
                 self.loadFile(self.imageList[last_idx])
                 return
 
-        # 否则加载下一张图片
+        # 如果上述条件都不满足，则加载下一张图像
         self.openNextImg(load=load)
 
     def scanAllImages(self, folderPath):

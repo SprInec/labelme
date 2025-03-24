@@ -7,10 +7,6 @@ from PyQt5 import QtWidgets
 
 import labelme.utils
 
-# TODO(unknown):
-# - Calculate optimal position so as not to go out of screen area.
-
-
 class LabelQLineEdit(QtWidgets.QLineEdit):
     def setListWidget(self, list_widget):
         self.list_widget = list_widget
