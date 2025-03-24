@@ -31,67 +31,183 @@ class ShortcutsDialog(QtWidgets.QDialog):
         self.setMinimumWidth(800)
         self.setMinimumHeight(1000)
 
+        # 获取当前主题
+        app = QtWidgets.QApplication.instance()
+        self.is_dark = app.property("currentTheme") == "dark"
+
         # 加载样式表
-        self.setStyleSheet("""
-            QDialog {
-                background-color: #f5f5f5;
-            }
-            QLabel {
-                font-size: 28px;
-                color: #333333;
-            }
-            QTableWidget {
-                background-color: white;
-                border: 1px solid #e0e0e0;
-                border-radius: 6px;
-                alternate-background-color: #f8f8f8;
-                gridline-color: #e0e0e0;
-            }
-            QTableWidget::item {
-                padding: 10px;
-                border-bottom: 1px solid #f0f0f0;
-            }
-            QTableWidget::item:selected {
-                background-color: #e6f3ff;
-                color: #333333;
-            }
-            QHeaderView::section {
-                background-color: #f0f0f0;
-                padding: 12px;
-                border: none;
-                border-bottom: 1px solid #e0e0e0;
-                font-weight: bold;
-                color: #555555;
-            }
-            QPushButton {
-                background-color: #ffffff;
-                border: 1px solid #e0e0e0;
-                border-radius: 6px;
-                padding: 8px 16px;
-                color: #333333;
-                font-weight: bold;
-                min-width: 100px;
-                min-height: 36px;
-            }
-            QPushButton:hover {
-                background-color: #f0f0f0;
-                border-color: #d0d0d0;
-            }
-            QPushButton:pressed {
-                background-color: #e0e0e0;
-            }
-            QLineEdit {
-                border: 1px solid #e0e0e0;
-                border-radius: 6px;
-                padding: 8px;
-                background-color: white;
-            }
-            QLineEdit:focus {
-                border-color: #66afe9;
-            }
-        """)
+        self.setThemeStyleSheet()
 
         self.initUI()
+
+    def setThemeStyleSheet(self):
+        """根据主题设置样式表"""
+        if self.is_dark:
+            self.setStyleSheet("""
+                QDialog {
+                    background-color: #252526;
+                }
+                QLabel {
+                    font-size: 28px;
+                    color: #ffffff;
+                }
+                QTableWidget {
+                    background-color: #2d2d30;
+                    border: 1px solid #3f3f46;
+                    border-radius: 6px;
+                    alternate-background-color: #333337;
+                    gridline-color: #3f3f46;
+                }
+                QTableWidget::item {
+                    padding: 10px;
+                    border-bottom: 1px solid #3f3f46;
+                    color: #ffffff;
+                }
+                QTableWidget::item:selected {
+                    background-color: #37373d;
+                    color: #ffffff;
+                }
+                QHeaderView::section {
+                    background-color: #2d2d30;
+                    padding: 12px;
+                    border: none;
+                    border-bottom: 1px solid #3f3f46;
+                    font-weight: bold;
+                    color: #ffffff;
+                }
+                QPushButton {
+                    background-color: #2d2d30;
+                    border: 1px solid #3f3f46;
+                    border-radius: 6px;
+                    padding: 8px 16px;
+                    color: #ffffff;
+                    font-weight: bold;
+                    min-width: 100px;
+                    min-height: 36px;
+                }
+                QPushButton:hover {
+                    background-color: #37373d;
+                    border-color: #4f4f56;
+                }
+                QPushButton:pressed {
+                    background-color: #3f3f46;
+                }
+                QLineEdit {
+                    border: 1px solid #3f3f46;
+                    border-radius: 6px;
+                    padding: 8px;
+                    background-color: #2d2d30;
+                    color: #ffffff;
+                }
+                QLineEdit:focus {
+                    border-color: #007acc;
+                }
+                QScrollBar:vertical {
+                    background-color: #252526;
+                    width: 8px;
+                    margin: 0px;
+                }
+                QScrollBar::handle:vertical {
+                    background-color: #5a5a5c;
+                    min-height: 30px;
+                    border-radius: 4px;
+                }
+                QScrollBar::handle:vertical:hover {
+                    background-color: #777779;
+                }
+                QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical,
+                QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
+                    background: none;
+                    height: 0px;
+                }
+            """)
+        else:
+            self.setStyleSheet("""
+                QDialog {
+                    background-color: #f5f5f5;
+                }
+                QLabel {
+                    font-size: 28px;
+                    color: #333333;
+                }
+                QTableWidget {
+                    background-color: white;
+                    border: 1px solid #e0e0e0;
+                    border-radius: 6px;
+                    alternate-background-color: #f8f8f8;
+                    gridline-color: #e0e0e0;
+                }
+                QTableWidget::item {
+                    padding: 10px;
+                    border-bottom: 1px solid #f0f0f0;
+                }
+                QTableWidget::item:selected {
+                    background-color: #e6f3ff;
+                    color: #333333;
+                }
+                QHeaderView::section {
+                    background-color: #f0f0f0;
+                    padding: 12px;
+                    border: none;
+                    border-bottom: 1px solid #e0e0e0;
+                    font-weight: bold;
+                    color: #555555;
+                }
+                QPushButton {
+                    background-color: #ffffff;
+                    border: 1px solid #e0e0e0;
+                    border-radius: 6px;
+                    padding: 8px 16px;
+                    color: #333333;
+                    font-weight: bold;
+                    min-width: 100px;
+                    min-height: 36px;
+                }
+                QPushButton:hover {
+                    background-color: #f0f0f0;
+                    border-color: #d0d0d0;
+                }
+                QPushButton:pressed {
+                    background-color: #e0e0e0;
+                }
+                QLineEdit {
+                    border: 1px solid #e0e0e0;
+                    border-radius: 6px;
+                    padding: 8px;
+                    background-color: white;
+                }
+                QLineEdit:focus {
+                    border-color: #66afe9;
+                }
+                QScrollBar:vertical {
+                    background-color: #f0f0f0;
+                    width: 8px;
+                    margin: 0px;
+                }
+                QScrollBar::handle:vertical {
+                    background-color: #c0c0c0;
+                    min-height: 30px;
+                    border-radius: 4px;
+                }
+                QScrollBar::handle:vertical:hover {
+                    background-color: #a0a0a0;
+                }
+                QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical,
+                QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
+                    background: none;
+                    height: 0px;
+                }
+            """)
+
+    def showEvent(self, event):
+        """窗口显示时更新主题"""
+        super(ShortcutsDialog, self).showEvent(event)
+        # 获取当前主题
+        app = QtWidgets.QApplication.instance()
+        current_theme = app.property("currentTheme")
+        if current_theme != self.is_dark:
+            self.is_dark = current_theme == "dark"
+            self.setThemeStyleSheet()
 
     def initUI(self):
         """初始化UI"""
@@ -565,49 +681,12 @@ class ShortcutEditDialog(QtWidgets.QDialog):
         self.setWindowTitle(self.tr("编辑快捷键"))
         self.setFixedSize(500, 500)
 
+        # 获取当前主题
+        app = QtWidgets.QApplication.instance()
+        self.is_dark = app.property("currentTheme") == "dark"
+
         # 设置样式
-        self.setStyleSheet("""
-            QDialog {
-                background-color: #f5f5f5;
-            }
-            QLabel {
-                font-size: 26px;
-                color: #333333;
-            }
-            QLabel#titleLabel {
-                font-size: 30px;
-                font-weight: bold;
-                color: #333333;
-            }
-            QPushButton {
-                background-color: #ffffff;
-                border: 1px solid #e0e0e0;
-                border-radius: 6px;
-                padding: 8px 16px;
-                color: #333333;
-                font-weight: bold;
-                min-width: 80px;
-                min-height: 32px;
-            }
-            QPushButton:hover {
-                background-color: #f0f0f0;
-                border-color: #d0d0d0;
-            }
-            QPushButton:pressed {
-                background-color: #e0e0e0;
-            }
-            QKeySequenceEdit {
-                border: 1px solid #e0e0e0;
-                border-radius: 6px;
-                padding: 10px;
-                background-color: white;
-                font-size: 20px;
-                min-height: 45px;
-            }
-            QKeySequenceEdit:focus {
-                border-color: #66afe9;
-            }
-        """)
+        self.setThemeStyleSheet()
 
         layout = QtWidgets.QVBoxLayout()
         layout.setContentsMargins(24, 24, 24, 24)
@@ -660,6 +739,7 @@ class ShortcutEditDialog(QtWidgets.QDialog):
         button_layout.addStretch()
         button_layout.addWidget(button_box)
 
+        # 添加所有组件到主布局
         layout.addWidget(title_label)
         layout.addWidget(function_label)
         layout.addWidget(self.keySequenceEdit)
@@ -696,3 +776,102 @@ class ShortcutEditDialog(QtWidgets.QDialog):
                 self.current_shortcut = new_shortcut
 
         super(ShortcutEditDialog, self).accept()
+
+    def showEvent(self, event):
+        """窗口显示时更新主题"""
+        super(ShortcutEditDialog, self).showEvent(event)
+        # 获取当前主题
+        app = QtWidgets.QApplication.instance()
+        current_theme = app.property("currentTheme")
+        if current_theme != self.is_dark:
+            self.is_dark = current_theme == "dark"
+            self.setThemeStyleSheet()
+
+    def setThemeStyleSheet(self):
+        """根据主题设置样式表"""
+        if self.is_dark:
+            self.setStyleSheet("""
+                QDialog {
+                    background-color: #252526;
+                }
+                QLabel {
+                    font-size: 28px;
+                    color: #ffffff;
+                }
+                QLabel#titleLabel {
+                    font-size: 30px;
+                    font-weight: bold;
+                    color: #333333;
+                }
+                QPushButton {
+                    background-color: #ffffff;
+                    border: 1px solid #e0e0e0;
+                    border-radius: 6px;
+                    padding: 8px 16px;
+                    color: #333333;
+                    font-weight: bold;
+                    min-width: 80px;
+                    min-height: 32px;
+                }
+                QPushButton:hover {
+                    background-color: #f0f0f0;
+                    border-color: #d0d0d0;
+                }
+                QPushButton:pressed {
+                    background-color: #e0e0e0;
+                }
+                QKeySequenceEdit {
+                    border: 1px solid #e0e0e0;
+                    border-radius: 6px;
+                    padding: 10px;
+                    background-color: white;
+                    font-size: 20px;
+                    min-height: 45px;
+                }
+                QKeySequenceEdit:focus {
+                    border-color: #66afe9;
+                }
+            """)
+        else:
+            self.setStyleSheet("""
+                QDialog {
+                    background-color: #f5f5f5;
+                }
+                QLabel {
+                    font-size: 28px;
+                    color: #333333;
+                }
+                QLabel#titleLabel {
+                    font-size: 30px;
+                    font-weight: bold;
+                    color: #333333;
+                }
+                QPushButton {
+                    background-color: #ffffff;
+                    border: 1px solid #e0e0e0;
+                    border-radius: 6px;
+                    padding: 8px 16px;
+                    color: #333333;
+                    font-weight: bold;
+                    min-width: 80px;
+                    min-height: 32px;
+                }
+                QPushButton:hover {
+                    background-color: #f0f0f0;
+                    border-color: #d0d0d0;
+                }
+                QPushButton:pressed {
+                    background-color: #e0e0e0;
+                }
+                QKeySequenceEdit {
+                    border: 1px solid #e0e0e0;
+                    border-radius: 6px;
+                    padding: 10px;
+                    background-color: white;
+                    font-size: 20px;
+                    min-height: 45px;
+                }
+                QKeySequenceEdit:focus {
+                    border-color: #66afe9;
+                }
+            """)
