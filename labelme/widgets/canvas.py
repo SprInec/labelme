@@ -1494,6 +1494,10 @@ class Canvas(QtWidgets.QWidget):
 
     def draw_skeleton(self, painter):
         """绘制骨骼连接"""
+        # 如果显示标签名称被关闭，则不绘制骨骼
+        if not Shape.show_label_names:
+            return
+
         # 获取所有点形状
         point_shapes = [
             shape for shape in self.shapes if shape.shape_type == "point"]

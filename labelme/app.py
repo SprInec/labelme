@@ -123,10 +123,10 @@ class MainWindow(QtWidgets.QMainWindow):
         # 初始化标签内容显示选项
         self._showLabelText = True
         self._showLabelGID = True
-        self._showLabelDesc = False
+        self._showLabelDesc = True
         Shape.show_label_text = True
         Shape.show_label_gid = True
-        Shape.show_label_desc = False
+        Shape.show_label_desc = True
 
         # 添加用于记住上一次标签的变量
         self._previous_label_text = None
@@ -759,7 +759,7 @@ class MainWindow(QtWidgets.QMainWindow):
         # 添加显示标签名称相关选项
         # 主选项 - 显示标签名称
         showLabelNames = self.createDockLikeAction(
-            self.tr("显示标签名称"),
+            self.tr("显示标签信息"),
             self.toggleShowLabelNames,
             False  # 默认未选中
         )
@@ -784,7 +784,7 @@ class MainWindow(QtWidgets.QMainWindow):
         showLabelDesc = self.createDockLikeAction(
             self.tr("　显示描述"),  # 前面加空格表示层级
             self.toggleShowLabelDesc,
-            False  # 默认不选中
+            True  # 默认选中
         )
         showLabelDesc.setEnabled(False)  # 初始禁用
 
@@ -1248,17 +1248,6 @@ class MainWindow(QtWidgets.QMainWindow):
                         self.setFitWindow(True)
                         self.actions.fitWindow.setChecked(True)
                         self.adjustScale(initial=True)
-
-#         # 添加显示标签名称的动作
-#         showLabelNames = action(
-#             self.tr("显示标签名称"),
-#             self.toggleShowLabelNames,
-#             'Ctrl+L',
-#             'tag',
-#             self.tr("在标注上显示标签名称"),
-#             checkable=True,
-#         )
-#         showLabelNames.setChecked(self._showLabelNames)
 
     def menu(self, title, actions=None):
         menu = self.menuBar().addMenu(title)
@@ -3720,23 +3709,46 @@ class MainWindow(QtWidgets.QMainWindow):
             logger.exception("保存主题配置失败: %s", e)
 
     def toggleShowLabelNames(self, checked):
-        """切换是否在标注上显示标签名称
-
-        Args:
-            checked: 从QAction的toggled信号接收到的选中状态
-        """
+        """切换是否显示标签名称"""
         self._showLabelNames = checked
         Shape.show_label_names = checked
 
-        # 根据主选项状态启用或禁用子选项
+        # 如果关闭显示标签名称，则同时关闭所有子选项
+        if not checked:
+            self._showLabelText = False
+            self._showLabelGID = False
+            self._showLabelDesc = False
+            self._showSkeleton = False
+            Shape.show_label_text = False
+            Shape.show_label_gid = False
+            Shape.show_label_desc = False
+
+            # 更新UI状态
+            self.showLabelText.setChecked(False)
+            self.showLabelGID.setChecked(False)
+            self.showLabelDesc.setChecked(False)
+            self.showSkeleton.setChecked(False)
+        elif checked:
+            self._showLabelNames = True
+            self._showLabelText = True
+            self._showLabelGID = True
+            self._showLabelDesc = True
+            Shape.show_label_names = True
+            Shape.show_label_text = True
+            Shape.show_label_gid = True
+            Shape.show_label_desc = True
+            self.showLabelText.setChecked(True)
+            self.showLabelGID.setChecked(True)
+            self.showLabelDesc.setChecked(True)
+
+        # 更新子选项的启用状态
         for option in self.labelNameOptions:
             option.setEnabled(checked)
 
-        # 刷新画布
         self.canvas.update()
 
     def toggleShowLabelText(self, checked):
-        """切换是否在标签中显示标签名称"""
+        """切换是否在标签中显示标签信息"""
         self._showLabelText = checked
         Shape.show_label_text = checked
         self.canvas.update()

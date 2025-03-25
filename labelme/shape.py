@@ -47,7 +47,7 @@ class Shape(object):
     # 显示标签内容的具体选项
     show_label_text = True
     show_label_gid = True
-    show_label_desc = False
+    show_label_desc = True
 
     def __init__(
         self,
