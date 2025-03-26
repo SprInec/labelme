@@ -521,16 +521,21 @@ class Shape(object):
                     gid_rect.height() + 8
                 )
 
-                # 绘制GID背景，左侧不使用圆角
+                # 绘制GID背景
                 painter.setPen(QtCore.Qt.NoPen)
                 painter.setBrush(bg_color)
 
-                painter.save()
-                painter.setClipRect(gid_bg_rect)
-                # 绘制一个更大的圆角矩形，然后通过裁剪区域来实现左侧直角
-                larger_rect = gid_bg_rect.adjusted(-8, 0, 0, 0)
-                painter.drawRoundedRect(larger_rect, 8, 8)
-                painter.restore()
+                if Shape.show_label_text and self.label:
+                    # 标签名称显示时,左侧不使用圆角
+                    painter.save()
+                    painter.setClipRect(gid_bg_rect)
+                    # 绘制一个更大的圆角矩形,然后通过裁剪区域来实现左侧直角
+                    larger_rect = gid_bg_rect.adjusted(-8, 0, 0, 0)
+                    painter.drawRoundedRect(larger_rect, 8, 8)
+                    painter.restore()
+                else:
+                    # 标签名称未显示时,使用完整的圆角矩形
+                    painter.drawRoundedRect(gid_bg_rect, 8, 8)
 
                 # 绘制GID文本
                 painter.setPen(text_color)
@@ -542,14 +547,24 @@ class Shape(object):
 
             # 计算并绘制描述信息（如果启用且存在）
             if Shape.show_label_desc and self.description:
-                # 重置X坐标为标签初始位置，Y坐标向下移动
-                current_x = label_pos.x()
-                current_y = current_y + fm.height() + 17
+                has_label = Shape.show_label_text and self.label
+                has_gid = Shape.show_label_gid and self.group_id is not None
+                
+                # 根据标签和GID是否显示来决定描述的位置
+                if has_label or has_gid:
+                    # 标签或GID显示时,描述位于标签下方
+                    current_x = label_pos.x()
+                    current_y = current_y + fm.height() + 17
+                else:
+                    # 标签和GID都未显示时,描述位于点的正下方
+                    point = self._scale_point(self.points[0])  # 获取点的位置
+                    current_x = point.x() - fm.boundingRect(self.description).width()/2 - 10  # 居中对齐
+                    current_y = point.y() + 17  # 与点保持一定距离
 
                 desc_text = self.description
                 desc_rect = fm.boundingRect(desc_text)
 
-                # 创建描述背景矩形，增加内边距使其更像气泡
+                # 创建描述背景矩形
                 desc_bg_rect = QtCore.QRectF(
                     current_x,
                     current_y,
@@ -559,8 +574,6 @@ class Shape(object):
 
                 # 使用浅灰色作为气泡背景色
                 bubble_bg_color = QtGui.QColor(240, 240, 240, 100)  # 浅灰色带透明度
-
-                # 根据背景亮度确定文字颜色
                 bubble_text_color = QtGui.QColor(60, 60, 60)  # 深灰色文字
 
                 # 绘制气泡形状的背景
@@ -568,14 +581,18 @@ class Shape(object):
                 painter.setBrush(bubble_bg_color)
                 painter.drawRoundedRect(desc_bg_rect, 8, 8)  # 增加圆角半径使其更圆润
 
+                # 绘制气泡的小三角形
                 triangle_path = QtGui.QPainterPath()
-                # 调整三角形位置和大小
-                triangle_top = QtCore.QPointF(
-                    current_x + 15, current_y - 6)  # Y坐标调整，更靠近气泡，距离更远
-                triangle_left = QtCore.QPointF(
-                    current_x + 5, current_y - 1)  # 左侧点向左移动
-                triangle_right = QtCore.QPointF(
-                    current_x + 25, current_y - 1)  # 右侧点向右移动
+                if has_label or has_gid:
+                    # 标签或GID显示时,三角形在上方
+                    triangle_top = QtCore.QPointF(current_x + 15, current_y - 6)
+                    triangle_left = QtCore.QPointF(current_x + 5, current_y - 1)
+                    triangle_right = QtCore.QPointF(current_x + 25, current_y - 1)
+                else:
+                    # 标签和GID都未显示时,三角形指向点
+                    triangle_top = QtCore.QPointF(point.x(), point.y() + 10)  
+                    triangle_left = QtCore.QPointF(point.x() - 6, point.y() + 16)
+                    triangle_right = QtCore.QPointF(point.x() + 6, point.y() + 16) 
 
                 # 使用贝塞尔曲线创建圆润的三角形
                 triangle_path.moveTo(triangle_top)
