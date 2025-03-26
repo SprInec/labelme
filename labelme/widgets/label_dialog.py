@@ -226,28 +226,51 @@ class LabelDialog(QtWidgets.QDialog):
         # 添加visible选项按钮组
         visible_group_layout = QtWidgets.QHBoxLayout()
         visible_group_layout.setAlignment(QtCore.Qt.AlignLeft)
+        visible_group_layout.setContentsMargins(0, 5, 0, 5)
+        visible_group_layout.setSpacing(0)
 
-        visible_label = QtWidgets.QLabel(self.tr("Visible:"))
+        visible_label = QtWidgets.QLabel(self.tr("visible:"))
+        visible_label.setStyleSheet(
+            "font-weight: 400; margin-right: 12px; font-size: 10pt;")
         visible_group_layout.addWidget(visible_label)
 
-        # 创建按钮组，确保按钮互斥
-        self.visible_btn_group = QtWidgets.QButtonGroup()
-        self.visible_btn_group.setExclusive(True)
+        # 创建一个容器widget来放置按钮，实现更好的视觉分组效果
+        button_container = QtWidgets.QWidget()
+        button_container.setFixedHeight(40)
+        button_container_layout = QtWidgets.QHBoxLayout(button_container)
+        button_container_layout.setContentsMargins(0, 0, 0, 0)
+        button_container_layout.setSpacing(2)  # 非常小的间距，让按钮看起来连接在一起
 
-        # 创建三个按钮
-        self.visible_btn_0 = QtWidgets.QRadioButton("0")
-        self.visible_btn_1 = QtWidgets.QRadioButton("1")
-        self.visible_btn_2 = QtWidgets.QRadioButton("2")
+        # 创建按钮组，允许取消选择
+        self.visible_btn_group = QtWidgets.QButtonGroup()
+        self.visible_btn_group.setExclusive(False)
+
+        # 创建三个按钮，使用自定义样式
+        self.visible_btn_0 = QtWidgets.QPushButton("0")
+        self.visible_btn_1 = QtWidgets.QPushButton("1")
+        self.visible_btn_2 = QtWidgets.QPushButton("2")
+
+        # 设置按钮固定大小和统一字体
+        for btn in [self.visible_btn_0, self.visible_btn_1, self.visible_btn_2]:
+            btn.setFixedSize(24, 40) 
+            btn.setCheckable(True)
+            btn.setProperty("class", "visible-btn")
+            # 字体从10pt增加到12pt，设置为粗体
+            btn.setFont(QtGui.QFont("Segoe UI", 24, QtGui.QFont.Bold))
 
         # 添加按钮到按钮组
         self.visible_btn_group.addButton(self.visible_btn_0, 0)
         self.visible_btn_group.addButton(self.visible_btn_1, 1)
         self.visible_btn_group.addButton(self.visible_btn_2, 2)
 
-        # 添加按钮到布局
-        visible_group_layout.addWidget(self.visible_btn_0)
-        visible_group_layout.addWidget(self.visible_btn_1)
-        visible_group_layout.addWidget(self.visible_btn_2)
+        # 将按钮添加到容器布局
+        button_container_layout.addWidget(self.visible_btn_0)
+        button_container_layout.addWidget(self.visible_btn_1)
+        button_container_layout.addWidget(self.visible_btn_2)
+
+        # 添加按钮容器到主布局
+        visible_group_layout.addWidget(button_container)
+        visible_group_layout.addStretch(1)  # 添加弹性空间，确保按钮组靠左对齐
 
         # 按钮点击事件连接
         self.visible_btn_group.buttonClicked.connect(
@@ -890,6 +913,13 @@ class LabelDialog(QtWidgets.QDialog):
         # 根据描述内容设置visible按钮状态
         if description in ["0", "1", "2"]:
             button_id = int(description)
+
+            # 清除所有按钮选中状态
+            self.visible_btn_0.setChecked(False)
+            self.visible_btn_1.setChecked(False)
+            self.visible_btn_2.setChecked(False)
+
+            # 设置对应按钮选中
             if button_id == 0:
                 self.visible_btn_0.setChecked(True)
             elif button_id == 1:
@@ -898,11 +928,9 @@ class LabelDialog(QtWidgets.QDialog):
                 self.visible_btn_2.setChecked(True)
         else:
             # 如果描述不是0、1、2，则清除所有按钮选中状态
-            self.visible_btn_group.setExclusive(False)
             self.visible_btn_0.setChecked(False)
             self.visible_btn_1.setChecked(False)
             self.visible_btn_2.setChecked(False)
-            self.visible_btn_group.setExclusive(True)
 
         # 如果没有提供颜色或提供的是默认绿色，尝试查找标签对应的颜色
         has_found_color = False
@@ -1221,6 +1249,119 @@ class LabelDialog(QtWidgets.QDialog):
         if hasattr(self, 'labelList') and hasattr(self.labelList, 'itemDelegate'):
             self.labelList.itemDelegate().setDarkMode(is_dark)
 
+        # 设置Visible按钮组样式
+        if hasattr(self, 'visible_btn_0'):
+            # 根据主题设置不同的按钮样式
+            if is_dark:
+                # 暗色主题按钮样式
+                btn_style = """
+                    QPushButton[class="visible-btn"] {
+                        background-color: #383838;
+                        color: #ffffff;
+                        border: none;
+                        border-radius: 6px;
+                        font-weight: 400;
+                        font-size: 23px;
+                        padding: 0px;
+                        margin: 0px;
+                    }
+                    QPushButton[class="visible-btn"]:hover {
+                        background-color: #4a4a4a;
+                    }
+                    QPushButton[class="visible-btn"]:pressed {
+                        background-color: #555555;
+                    }
+                    QPushButton[class="visible-btn"]:checked {
+                        background-color: #0078d7;
+                        color: white;
+                    }
+                    
+                    /* 为三个按钮创建分组效果 */
+                    #visible_btn_0 {
+                        border-top-right-radius: 0px;
+                        border-bottom-right-radius: 0px;
+                        border-right: 2px solid #333333;
+                    }
+                    #visible_btn_1 {
+                        border-radius: 0px;
+                        border-right: 2px solid #333333;
+                        border-left: 2px solid #333333;
+                    }
+                    #visible_btn_2 {
+                        border-top-left-radius: 0px;
+                        border-bottom-left-radius: 0px;
+                        border-left: 2px solid #333333;
+                    }
+                    
+                    /* 选中状态下的边框处理 */
+                    QPushButton[class="visible-btn"]:checked {
+                        border: none;
+                    }
+                """
+            else:
+                # 亮色主题按钮样式
+                btn_style = """
+                    QPushButton[class="visible-btn"] {
+                        background-color: #f0f0f0;
+                        color: #333333;
+                        border: none;
+                        border-radius: 6px;
+                        font-weight: 400;
+                        font-size: 23px;
+                        padding: 0px;
+                        margin: 0px;
+                    }
+                    QPushButton[class="visible-btn"]:hover {
+                        background-color: #e5e5e5;
+                    }
+                    QPushButton[class="visible-btn"]:pressed {
+                        background-color: #d5d5d5;
+                    }
+                    QPushButton[class="visible-btn"]:checked {
+                        background-color: #0078d7;
+                        color: white;
+                    }
+                    
+                    /* 为三个按钮创建分组效果 */
+                    #visible_btn_0 {
+                        border-top-right-radius: 0px;
+                        border-bottom-right-radius: 0px;
+                        border-right: 2px solid #ffffff;
+                    }
+                    #visible_btn_1 {
+                        border-radius: 0px;
+                        border-right: 2px solid #ffffff;
+                        border-left: 2px solid #ffffff;
+                    }
+                    #visible_btn_2 {
+                        border-top-left-radius: 0px;
+                        border-bottom-left-radius: 0px;
+                        border-left: 2px solid #ffffff;
+                    }
+                    
+                    /* 选中状态下的边框处理 */
+                    QPushButton[class="visible-btn"]:checked {
+                        border: none;
+                    }
+                """
+
+            # 设置按钮的objectName以便样式表可以定位
+            self.visible_btn_0.setObjectName("visible_btn_0")
+            self.visible_btn_1.setObjectName("visible_btn_1")
+            self.visible_btn_2.setObjectName("visible_btn_2")
+
+            # 应用样式到所有按钮
+            self.setStyleSheet(self.styleSheet() + btn_style)
+
+            # 设置标签样式
+            if hasattr(self, 'visible_label'):
+                if is_dark:
+                    self.visible_label.setStyleSheet(
+                        "color: #e0e0e0; font-weight: 400; margin-right: 12px; font-size: 11pt;")
+                else:
+                    self.visible_label.setStyleSheet(
+                        "color: #333333; font-weight: 400; margin-right: 12px; font-size: 11pt;")
+
         if is_dark:
             # 暗色主题样式
             if hasattr(self, 'scrollArea'):
@@ -1323,6 +1464,17 @@ class LabelDialog(QtWidgets.QDialog):
                         border: 1.5px solid #0078d7;
                     }
                 """)
+                
+            # 更新布局切换按钮图标
+            if hasattr(self, 'layout_toggle_button'):
+                if self._use_cloud_layout:
+                    self.layout_toggle_button.setIcon(
+                        labelme.utils.newIcon("w-icons8-grid-view-48"))
+                    self.layout_toggle_button.setToolTip(self.tr("切换为列表布局"))
+                else:
+                    self.layout_toggle_button.setIcon(
+                        labelme.utils.newIcon("w-icons8-list-view-48"))
+                    self.layout_toggle_button.setToolTip(self.tr("切换为流式布局"))
         else:
             # 亮色主题样式
             if hasattr(self, 'scrollArea'):
@@ -1376,6 +1528,16 @@ class LabelDialog(QtWidgets.QDialog):
                         background-color: #f0f0f0;
                     }
                 """)
+            # 更新布局切换按钮图标
+            if hasattr(self, 'layout_toggle_button'):
+                if self._use_cloud_layout:
+                    self.layout_toggle_button.setIcon(
+                        labelme.utils.newIcon("icons8-grid-view-48"))
+                    self.layout_toggle_button.setToolTip(self.tr("切换为列表布局"))
+                else:
+                    self.layout_toggle_button.setIcon(
+                        labelme.utils.newIcon("icons8-list-view-48"))
+                    self.layout_toggle_button.setToolTip(self.tr("切换为流式布局"))
 
             # 重置输入框样式为默认
             if hasattr(self, 'edit'):
@@ -1422,11 +1584,19 @@ class LabelDialog(QtWidgets.QDialog):
         # 获取选中按钮的ID
         button_id = self.visible_btn_group.id(button)
 
-        # 获取当前描述文本
-        current_desc = self.editDescription.text()
+        # 如果按钮已经被选中，则取消选择，否则选中并取消其他按钮
+        if button.isChecked():
+            # 确保其他按钮取消选中
+            for btn in self.visible_btn_group.buttons():
+                if btn != button and btn.isChecked():
+                    btn.setChecked(False)
 
-        # 设置描述文本为按钮ID
-        self.editDescription.setText(str(button_id))
+            # 更新描述文本为按钮ID
+            self.editDescription.setText(str(button_id))
+        else:
+            # 按钮取消选中，清空描述文本（如果当前描述是这个按钮的值）
+            if self.editDescription.text() == str(button_id):
+                self.editDescription.setText("")
 
 
 class FlowLayout(QtWidgets.QLayout):
