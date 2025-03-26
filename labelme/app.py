@@ -3118,6 +3118,9 @@ class MainWindow(QtWidgets.QMainWindow):
             return
 
         try:
+            # 保存当前主题设置
+            current_theme = self.currentTheme
+
             # 开始显示进度条
             self.startProgress(self.tr("正在执行目标检测..."))
 
@@ -3208,6 +3211,15 @@ class MainWindow(QtWidgets.QMainWindow):
             result_message = self.tr(f"检测到 {len(shapes)} 个对象")
             self.endProgress(result_message)
 
+            # 如果主题设置被改变，恢复到之前的主题
+            if self.currentTheme != current_theme:
+                if current_theme == "dark":
+                    self.setDarkTheme(update_actions=True)
+                elif current_theme == "default":
+                    self.setDefaultTheme(update_actions=True)
+                else:
+                    self.setLightTheme(update_actions=True)
+
         except Exception as e:
             self.endProgress(self.tr("检测失败"))
             self.errorMessage(
@@ -3226,6 +3238,9 @@ class MainWindow(QtWidgets.QMainWindow):
             return
 
         try:
+            # 保存当前主题设置
+            current_theme = self.currentTheme
+
             # 开始显示进度条
             self.startProgress(self.tr("正在执行人体姿态估计..."))
 
@@ -3318,11 +3333,20 @@ class MainWindow(QtWidgets.QMainWindow):
             self.setDirty()
 
             # 完成并显示结果消息
-            result_message = self.tr(f"检测到 {len(shapes)} 个人体姿态关键点")
+            result_message = self.tr(f"检测到 {len(shapes)} 个人体姿态")
             self.endProgress(result_message)
 
+            # 如果主题设置被改变，恢复到之前的主题
+            if self.currentTheme != current_theme:
+                if current_theme == "dark":
+                    self.setDarkTheme(update_actions=True)
+                elif current_theme == "default":
+                    self.setDefaultTheme(update_actions=True)
+                else:
+                    self.setLightTheme(update_actions=True)
+
         except Exception as e:
-            self.endProgress(self.tr("姿态估计失败"))
+            self.endProgress(self.tr("检测失败"))
             self.errorMessage(
                 self.tr("人体姿态估计错误"),
                 self.tr(f"运行人体姿态估计时出错: {str(e)}"),

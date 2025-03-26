@@ -187,6 +187,9 @@ class LabelDialog(QtWidgets.QDialog):
         self.edit_group_id.setValidator(
             QtGui.QRegExpValidator(QtCore.QRegExp(r"\d*"), None)
         )
+        # 为GID文本框安装事件过滤器以处理鼠标滚轮事件
+        self.edit_group_id.installEventFilter(self)
+
         layout = QtWidgets.QVBoxLayout()
         if show_text_field:
             layout_edit = QtWidgets.QHBoxLayout()
@@ -219,6 +222,39 @@ class LabelDialog(QtWidgets.QDialog):
         self.resetFlags()
         layout.addItem(self.flagsLayout)
         self.edit.textChanged.connect(self.updateFlags)
+
+        # 添加visible选项按钮组
+        visible_group_layout = QtWidgets.QHBoxLayout()
+        visible_group_layout.setAlignment(QtCore.Qt.AlignLeft)
+
+        visible_label = QtWidgets.QLabel(self.tr("Visible:"))
+        visible_group_layout.addWidget(visible_label)
+
+        # 创建按钮组，确保按钮互斥
+        self.visible_btn_group = QtWidgets.QButtonGroup()
+        self.visible_btn_group.setExclusive(True)
+
+        # 创建三个按钮
+        self.visible_btn_0 = QtWidgets.QRadioButton("0")
+        self.visible_btn_1 = QtWidgets.QRadioButton("1")
+        self.visible_btn_2 = QtWidgets.QRadioButton("2")
+
+        # 添加按钮到按钮组
+        self.visible_btn_group.addButton(self.visible_btn_0, 0)
+        self.visible_btn_group.addButton(self.visible_btn_1, 1)
+        self.visible_btn_group.addButton(self.visible_btn_2, 2)
+
+        # 添加按钮到布局
+        visible_group_layout.addWidget(self.visible_btn_0)
+        visible_group_layout.addWidget(self.visible_btn_1)
+        visible_group_layout.addWidget(self.visible_btn_2)
+
+        # 按钮点击事件连接
+        self.visible_btn_group.buttonClicked.connect(
+            self.onVisibleButtonClicked)
+
+        # 添加按钮组布局到主布局
+        layout.addLayout(visible_group_layout)
 
         # 添加description输入框
         self.editDescription = QtWidgets.QLineEdit()
@@ -851,6 +887,23 @@ class LabelDialog(QtWidgets.QDialog):
             description = ""
         self.editDescription.setText(description)
 
+        # 根据描述内容设置visible按钮状态
+        if description in ["0", "1", "2"]:
+            button_id = int(description)
+            if button_id == 0:
+                self.visible_btn_0.setChecked(True)
+            elif button_id == 1:
+                self.visible_btn_1.setChecked(True)
+            elif button_id == 2:
+                self.visible_btn_2.setChecked(True)
+        else:
+            # 如果描述不是0、1、2，则清除所有按钮选中状态
+            self.visible_btn_group.setExclusive(False)
+            self.visible_btn_0.setChecked(False)
+            self.visible_btn_1.setChecked(False)
+            self.visible_btn_2.setChecked(False)
+            self.visible_btn_group.setExclusive(True)
+
         # 如果没有提供颜色或提供的是默认绿色，尝试查找标签对应的颜色
         has_found_color = False
         # 清理文本，移除HTML标记和颜色标记
@@ -1331,6 +1384,49 @@ class LabelDialog(QtWidgets.QDialog):
                 self.edit_group_id.setStyleSheet("")
             if hasattr(self, 'editDescription'):
                 self.editDescription.setStyleSheet("")
+
+    def eventFilter(self, obj, event):
+        """事件过滤器，用于处理特定组件的事件"""
+        # 处理GID文本框的鼠标滚轮事件
+        if obj == self.edit_group_id and event.type() == QtCore.QEvent.Wheel:
+            # 获取当前GID值
+            current_gid_text = self.edit_group_id.text()
+
+            # 如果当前没有值，默认从0开始
+            if not current_gid_text:
+                current_gid = 0
+            else:
+                try:
+                    current_gid = int(current_gid_text)
+                except ValueError:
+                    current_gid = 0
+
+            # 根据滚轮方向增加或减少GID值
+            delta = event.angleDelta().y()
+            if delta > 0:  # 向上滚动
+                current_gid += 1
+            else:  # 向下滚动
+                current_gid = max(0, current_gid - 1)  # 确保GID不小于0
+
+            # 更新GID文本框
+            self.edit_group_id.setText(str(current_gid))
+
+            # 事件已处理
+            return True
+
+        # 其他事件交由默认处理
+        return super(LabelDialog, self).eventFilter(obj, event)
+
+    def onVisibleButtonClicked(self, button):
+        """处理visible按钮点击事件"""
+        # 获取选中按钮的ID
+        button_id = self.visible_btn_group.id(button)
+
+        # 获取当前描述文本
+        current_desc = self.editDescription.text()
+
+        # 设置描述文本为按钮ID
+        self.editDescription.setText(str(button_id))
 
 
 class FlowLayout(QtWidgets.QLayout):
