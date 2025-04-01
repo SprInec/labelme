@@ -44,6 +44,8 @@
 > 若是报错缺少什么包，请通过 `pip` 自行根据报错信息安装
 >
 > 半自动化标注功能依赖： `torch` `torchvision` `mmdet` `mmpose` `mmengine` `mmcv`
+>
+> mmpose 存放位置：`labelme\labelme\_automation\mmpose`
 
 ### 功能优化与新增
 
