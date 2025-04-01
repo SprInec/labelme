@@ -9,13 +9,16 @@
 <table>
 	<tr>
 		<td>
-			<img src="assets/image-20250318180611368.png" alt="明亮主题">
+			<img src="assets/image-20250401224048779.png" alt="明亮主题">
 		</td>
 		<td> 
-			<img src="assets/image-20250318180635981.png" alt="暗黑主题">
+			<img src="assets/image-20250401224119014.png" alt="暗黑主题">
 		</td>
 	</tr>
 </table>
+
+
+
 ### 使用方法
 
 1. clone 项目到本地
@@ -25,13 +28,19 @@
     cd labelme
     ```
 
-2. 本地安装
+2. 安装依赖
+
+    ```bash
+    pip install -r requirements.txt
+    ```
+
+3. 本地安装
 
     ```bash
     pip install -e .
     ```
 
-3. 命令行启动
+4. 命令行启动
 
     ```
     python ./labelme/__main__.py
