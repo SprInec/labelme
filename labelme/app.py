@@ -4122,8 +4122,12 @@ class MainWindow(QtWidgets.QMainWindow):
             user_config_file = os.path.join(
                 os.path.expanduser("~"), ".labelmerc")
             try:
-                with open(user_config_file, 'r', encoding='utf-8') as f:
-                    user_config = yaml.safe_load(f) or {}
+                # 先读取现有配置，以保留其他配置项
+                if os.path.exists(user_config_file):
+                    with open(user_config_file, 'r', encoding='utf-8') as f:
+                        user_config = yaml.safe_load(f) or {}
+                else:
+                    user_config = {}
 
                 # 更新快捷键配置
                 user_config['shortcuts'] = shortcuts_config
@@ -4155,8 +4159,10 @@ class MainWindow(QtWidgets.QMainWindow):
                 action_mapping = {
                     "close": getattr(self.actions, "close", None),
                     "open": getattr(self.actions, "open", None),
+                    "open_dir": getattr(self.actions, "openDir", None),
                     "save": getattr(self.actions, "save", None),
                     "save_as": getattr(self.actions, "saveAs", None),
+                    "save_to": getattr(self.actions, "saveTo", None),
                     "quit": getattr(self.actions, "quit", None),
                     "delete_file": getattr(self.actions, "deleteFile", None),
                     "open_next": getattr(self.actions, "openNextImg", None),
@@ -4179,14 +4185,21 @@ class MainWindow(QtWidgets.QMainWindow):
                     "paste_polygon": getattr(self.actions, "paste", None),
                     "undo": getattr(self.actions, "undo", None),
                     "undo_last_point": getattr(self.actions, "undoLastPoint", None),
+                    "add_point_to_edge": getattr(self.actions, "addPointToEdge", None),
                     "edit_label": getattr(self.actions, "edit", None),
                     "toggle_keep_prev_mode": getattr(self.actions, "toggleKeepPrevMode", None),
                     "remove_selected_point": getattr(self.actions, "removePoint", None),
+                    "show_all_polygons": getattr(self.actions, "showAllPolygons", None),
+                    "hide_all_polygons": getattr(self.actions, "hideAllPolygons", None),
+                    "toggle_all_polygons": getattr(self.actions, "toggleAllPolygons", None),
                 }
 
                 # 如果找到了对应的动作，则设置快捷键
                 if key in action_mapping and action_mapping[key]:
                     action_mapping[key].setShortcut(shortcut_seq)
+
+            # 通知用户快捷键配置已保存
+            self.status(self.tr("快捷键配置已应用并保存"), 5000)
 
         except Exception as e:
             print(f"应用自定义快捷键配置失败: {e}")

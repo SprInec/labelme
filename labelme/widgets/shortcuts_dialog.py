@@ -1,7 +1,7 @@
 from PyQt5 import QtCore, QtGui, QtWidgets
 from PyQt5.QtCore import Qt
 
-from labelme.config import get_config
+from labelme.config import get_config, get_default_config
 from labelme.config.config import save_config
 import labelme.styles
 
@@ -550,11 +550,22 @@ class ShortcutsDialog(QtWidgets.QDialog):
         )
 
         if reply == QtWidgets.QMessageBox.Yes:
-            # 恢复所有原始快捷键
-            self.modified_shortcuts = self.shortcuts.copy()
+            # 获取默认配置中的快捷键设置
+            default_config = get_default_config()
+            default_shortcuts = default_config.get("shortcuts", {})
+
+            # 恢复所有快捷键为默认值
+            self.modified_shortcuts = default_shortcuts.copy()
 
             # 更新表格
             self.populateTable()
+
+            # 提醒用户需要保存才能生效
+            QtWidgets.QMessageBox.information(
+                self,
+                self.tr("提示"),
+                self.tr("快捷键已重置为默认值。\n点击确定按钮保存更改。")
+            )
 
     def accept(self):
         """确认修改"""
