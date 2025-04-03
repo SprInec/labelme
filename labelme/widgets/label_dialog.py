@@ -1031,32 +1031,48 @@ class LabelDialog(QtWidgets.QDialog):
 
             if mouse_pos:
                 # 如果提供了鼠标位置，根据鼠标在屏幕中的位置智能放置对话框
-                # 确定鼠标位置在屏幕中的相对位置（左半边还是右半边，上半边还是下半边）
-                is_right_half = mouse_pos.x() > (screen.x() + screen.width() / 2)
-                is_bottom_half = mouse_pos.y() > (screen.y() + screen.height() / 2)
-                
-                # 先获取当前对话框的实际高度
+                # 获取对话框实际高度
                 actual_height = dialog_size.height()
-                
+                actual_width = dialog_size.width()
+
+                # 计算屏幕可用区域
+                available_height_below = screen.height() - mouse_pos.y() + screen.y()
+                available_height_above = mouse_pos.y() - screen.y()
+
+                # 检查鼠标是否在屏幕的右半部分
+                is_right_half = mouse_pos.x() > (screen.x() + screen.width() / 2)
+
+                # 水平位置计算
                 if is_right_half:
                     # 右侧区域，对话框右侧对齐鼠标位置
-                    x = mouse_pos.x() - dialog_size.width()
+                    x = mouse_pos.x() - actual_width
                 else:
                     # 左侧区域，对话框左侧对齐鼠标位置
                     x = mouse_pos.x()
 
-                if is_bottom_half:
-                    # 下半区域，对话框底部对齐鼠标位置
-                    y = mouse_pos.y() - (actual_height * 1.5)
-                else:
-                    # 上半区域，对话框顶部对齐鼠标位置
-                    y = mouse_pos.y()
-
-                # 边界检查：确保对话框不超出屏幕边界
+                # 确保对话框的水平位置在屏幕范围内
                 x = max(screen.x() + 5, min(x, screen.x() +
-                        screen.width() - dialog_size.width() - 5))
+                        screen.width() - actual_width - 5))
+
+                # 垂直位置计算 - 优先确保对话框完全在屏幕内
+                if available_height_below >= actual_height:
+                    # 鼠标下方有足够空间显示整个对话框
+                    y = mouse_pos.y()
+                elif available_height_above >= actual_height:
+                    # 鼠标上方有足够空间显示整个对话框
+                    y = mouse_pos.y() - actual_height
+                else:
+                    # 上下都没有足够空间，选择最大可用空间并居中显示
+                    if available_height_above > available_height_below:
+                        # 偏向上方显示
+                        y = screen.y() + 5
+                    else:
+                        # 偏向下方显示
+                        y = screen.y() + screen.height() - actual_height - 5
+
+                # 最终边界检查，确保完全在屏幕内
                 y = max(screen.y() + 5, min(y, screen.y() +
-                        screen.height() - dialog_size.height() - 5))
+                        screen.height() - actual_height - 5))
             else:
                 # 默认居中显示
                 x = screen.x() + (screen.width() - dialog_size.width()) // 2
