@@ -145,7 +145,7 @@ class LabelItemDelegate(QtWidgets.QStyledItemDelegate):
     def sizeHint(self, option, index):
         # 增大项高度以增强呼吸感
         size = super(LabelItemDelegate, self).sizeHint(option, index)
-        size.setHeight(55)  # 进一步增大项高度
+        size.setHeight(50)  # 进一步增大项高度
         return size
 
 
@@ -357,11 +357,11 @@ class LabelDialog(QtWidgets.QDialog):
         self.setLayout(layout)
 
         # 设置初始大小
-        self.resize(580, 650)
+        self.resize(500, 650)
 
         # 设置对话框的最小尺寸
-        self.setMinimumWidth(580)
-        self.setMinimumHeight(500)
+        self.setMinimumWidth(500)
+        self.setMinimumHeight(600)
 
         # completion
         completer = QtWidgets.QCompleter()
@@ -571,6 +571,12 @@ class LabelDialog(QtWidgets.QDialog):
         # 创建一个标签项小部件
         label_widget = LabelCloudItem(label_text, self.cloudContainer)
 
+        # 获取当前主题并设置到标签项
+        is_dark_theme = False
+        if self.app and hasattr(self.app, 'currentTheme'):
+            is_dark_theme = self.app.currentTheme == "dark"
+        label_widget.setDarkTheme(is_dark_theme)
+
         # 获取标签颜色
         clean_text = label_text.replace("●", "").strip()
         if '<font' in clean_text:
@@ -615,6 +621,11 @@ class LabelDialog(QtWidgets.QDialog):
         # 强制更新布局
         self.cloudContainer.updateGeometry()
         self.scrollArea.updateGeometry()
+
+        # 强制立即重新计算流式布局，解决新标签可能与现有标签重叠的问题
+        self.cloudContainer.updateLayout()
+        # 使用QTimer延迟调用一次更新，以确保UI完全渲染后的正确布局
+        QtCore.QTimer.singleShot(10, self.cloudContainer.updateLayout)
 
     def toggleCloudLayout(self, use_cloud=None):
         """切换布局模式"""
@@ -711,6 +722,7 @@ class LabelDialog(QtWidgets.QDialog):
         self.validate()
 
     def addLabelHistory(self, label):
+        """添加标签到历史记录，包括列表视图和标签云视图"""
         # 添加到列表视图
         if self.labelList.findItems(label, QtCore.Qt.MatchExactly):
             return
@@ -737,8 +749,9 @@ class LabelDialog(QtWidgets.QDialog):
                 current_color = QtGui.QColor(*rgb_color)
 
         # 设置标签项样式，应用获取到的颜色
-        background = QtGui.QBrush(QtGui.QColor(current_color.red(
-        ), current_color.green(), current_color.blue(), 25))  # 10%透明度
+        background = QtGui.QBrush(QtGui.QColor(current_color.red(),
+                                               current_color.green(),
+                                               current_color.blue(), 25))  # 10%透明度
         item.setBackground(background)
         item.setData(QtCore.Qt.UserRole+1, current_color)
 
@@ -746,7 +759,7 @@ class LabelDialog(QtWidgets.QDialog):
             self.labelList.sortItems()
 
         # 添加到标签云视图
-        if hasattr(self, 'cloudLayout'):
+        if hasattr(self, 'cloudContainer') and self.cloudContainer:
             self.addLabelToCloud(label)
 
             # 如果使用当前选择的颜色，同步到云布局中的标签项
@@ -1021,17 +1034,23 @@ class LabelDialog(QtWidgets.QDialog):
                 # 确定鼠标位置在屏幕中的相对位置（左半边还是右半边，上半边还是下半边）
                 is_right_half = mouse_pos.x() > (screen.x() + screen.width() / 2)
                 is_bottom_half = mouse_pos.y() > (screen.y() + screen.height() / 2)
-
-                # 计算对话框应该放置的位置
+                
+                # 先获取当前对话框的实际高度
+                actual_height = dialog_size.height()
+                
                 if is_right_half:
-                    # 右侧区域，对话框右下角对齐鼠标位置
+                    # 右侧区域，对话框右侧对齐鼠标位置
                     x = mouse_pos.x() - dialog_size.width()
                 else:
-                    # 左侧区域，对话框左下角对齐鼠标位置
+                    # 左侧区域，对话框左侧对齐鼠标位置
                     x = mouse_pos.x()
 
-                y = mouse_pos.y() - (dialog_size.height() +
-                                     200) if is_bottom_half else mouse_pos.y() + 5
+                if is_bottom_half:
+                    # 下半区域，对话框底部对齐鼠标位置
+                    y = mouse_pos.y() - (actual_height * 1.5)
+                else:
+                    # 上半区域，对话框顶部对齐鼠标位置
+                    y = mouse_pos.y()
 
                 # 边界检查：确保对话框不超出屏幕边界
                 x = max(screen.x() + 5, min(x, screen.x() +
@@ -1797,6 +1816,23 @@ class FlowLayout(QtWidgets.QLayout):
                     lineHeight = 0
                     item_rect = QtCore.QRect(x, y, item_width, item_height)
 
+                    # 重新检查重叠，直到找到不重叠的位置
+                    attempts = 0
+                    while attempts < 10:  # 最多尝试10次，避免无限循环
+                        overlaps = False
+                        for placed_rect in placed_rects:
+                            if item_rect.intersects(placed_rect):
+                                overlaps = True
+                                break
+
+                        if not overlaps:
+                            break
+
+                        # 如果还是重叠，继续尝试下一行
+                        y = y + item_height + spaceY
+                        item_rect = QtCore.QRect(x, y, item_width, item_height)
+                        attempts += 1
+
                 # 记录放置位置
                 placed_rects.append(item_rect)
 
@@ -1836,13 +1872,27 @@ class LabelCloudItem(QtWidgets.QWidget):
         else:
             self.clean_text = text
 
-        # 设置固定高度 - 增大高度
-        self.setFixedHeight(52)  # 增加高度从44px到52px
+        # 设置工具提示，显示完整文本（对于非常长的标签有用）
+        self.setToolTip(self.clean_text)
 
-        # 计算文本宽度并设置宽度 - 增大宽度
-        fm = QtGui.QFontMetrics(self.font())
-        text_width = fm.width(self.clean_text)
-        self.setFixedWidth(text_width + 65)  # 增加宽度边距从45px到65px
+        # 设置固定高度
+        self.setFixedHeight(50)  # 调整为更适合的高度
+
+        # 计算文本宽度并设置宽度 - 更精确地计算宽度
+        font = QtGui.QFont(self.font())
+        font.setPointSize(10)  # 确保使用与渲染时相同的字体大小
+        fm = QtGui.QFontMetrics(font)
+
+        # 使用boundingRect获取更准确的文本宽度
+        text_width = fm.boundingRect(self.clean_text).width()
+
+        # 减少边距，使背景长度与文本长度更契合
+        left_padding = 22  # 左侧边框宽度和少量边距
+        right_padding = 14  # 右侧少量边距
+        total_padding = left_padding + right_padding
+
+        # 设置宽度为文本宽度加上必要的边距
+        self.setFixedWidth(text_width + total_padding)
 
         # 鼠标样式
         self.setCursor(QtCore.Qt.PointingHandCursor)
@@ -1871,8 +1921,8 @@ class LabelCloudItem(QtWidgets.QWidget):
         # 圆角半径
         radius = 8
 
-        # 标签区域 - 增加内边距
-        rect = self.rect().adjusted(4, 4, -4, -4)  # 从2,2,-2,-2增加到4,4,-4,-4
+        # 标签区域 - 使用适当的内边距
+        rect = self.rect().adjusted(2, 2, -2, -2)
 
         # 创建路径
         path = QtGui.QPainterPath()
@@ -1888,7 +1938,7 @@ class LabelCloudItem(QtWidgets.QWidget):
         painter.fillPath(path, bg_color)
 
         # 左边框宽度
-        border_width = 14  # 从12px增加到14px
+        border_width = 12  # 减小左边框宽度，使整体更协调
 
         # 绘制左边框
         border_path = QtGui.QPainterPath()
@@ -1949,11 +1999,11 @@ class LabelCloudItem(QtWidgets.QWidget):
             else:
                 painter.setPen(QtGui.QColor(0, 0, 0))
 
-        # 文本区域 - 增加左边距
+        # 文本区域 - 调整文本位置使其更适合
         text_rect = QtCore.QRect(
-            rect.left() + border_width + 10,  # 左边框宽度 + 增加间距从6px到10px
+            rect.left() + border_width + 6,  # 减小左边距，使文本更靠近左边框
             rect.top(),
-            rect.width() - (border_width + 16),  # 增加右边距从12px到16px
+            rect.width() - (border_width + 8),  # 减小右边距
             rect.height()
         )
 
@@ -2180,7 +2230,12 @@ class LabelCloudContainer(QtWidgets.QWidget):
 
         # 确保更新生效
         self.updateGeometry()
-        self.parentWidget().updateGeometry()
+        if self.parentWidget():
+            self.parentWidget().updateGeometry()
+
+        # 强制所有标签项重新计算大小
+        for item in self.label_items:
+            item.adjustSize()
 
         # 触发布局重计算
         self.adjustSize()
@@ -2191,8 +2246,12 @@ class LabelCloudContainer(QtWidgets.QWidget):
             self.update_timer = QtCore.QTimer(self)
             self.update_timer.setSingleShot(True)
             self.update_timer.timeout.connect(self.delayedUpdate)
+        else:
+            # 如果计时器已存在，先停止它以防止多次触发
+            self.update_timer.stop()
 
-        self.update_timer.start(10)  # 10毫秒后再次更新
+        # 使用稍微延长的延迟时间，确保UI有足够时间处理
+        self.update_timer.start(30)  # 30毫秒后再次更新
 
     def delayedUpdate(self):
         """延迟更新，确保布局正确显示"""
