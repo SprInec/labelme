@@ -4,6 +4,7 @@
 /build/
 /dist/
 /*.egg-info/
+*.spec
 
 *.py[cdo]
 
