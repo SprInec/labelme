@@ -2873,6 +2873,8 @@ class MainWindow(QtWidgets.QMainWindow):
         mb = QtWidgets.QMessageBox
         msg = self.tr('Save annotations to "{}" before closing?').format(
             self.filename)
+        # 确保正确应用当前主题
+        self.ensureThemeApplied()
         answer = mb.question(
             self,
             self.tr("Save annotations?"),
