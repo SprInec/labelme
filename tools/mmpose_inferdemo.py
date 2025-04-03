@@ -36,14 +36,14 @@ img_path = 'B0001.png'
 # )
 
 detector = init_detector(
-    'labelme/_automation/mmpose/projects/rtmpose/rtmdet/person/rtmdet_m_640-8xb32_coco-person.py',
-    'labelme/_automation/mmpose/checkpoints/rtmdet_m_8xb32-100e_coco-obj365-person-235e8209.pth',
+    '../labelme/_automation/mmpose/projects/rtmpose/rtmdet/person/rtmdet_m_640-8xb32_coco-person.py',
+    '../labelme/_automation/mmpose/checkpoints/rtmdet_m_8xb32-100e_coco-obj365-person-235e8209.pth',
     device=device
 )
 
 pose_estimator = init_pose_estimator(
-    'labelme/_automation/mmpose/configs/body_2d_keypoint/topdown_heatmap/coco/td-hm_hrnet-w32_udp-8xb64-210e_coco-256x192.py',
-    'labelme/_automation/mmpose/checkpoints/hrnet_w32_coco_256x192-c78dce93_20200708.pth',
+    '../labelme/_automation/mmpose/configs/body_2d_keypoint/topdown_heatmap/coco/td-hm_hrnet-w32_udp-8xb64-210e_coco-256x192.py',
+    '../labelme/_automation/mmpose/checkpoints/hrnet_w32_coco_256x192-c78dce93_20200708.pth',
     device=device,
     cfg_options={'model': {'test_cfg': {'output_heatmaps': True}}}
 )

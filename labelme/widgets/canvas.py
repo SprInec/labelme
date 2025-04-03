@@ -1457,6 +1457,8 @@ class Canvas(QtWidgets.QWidget):
 
     def setShapeVisible(self, shape, value):
         self.visible[shape] = value
+        # 同时设置形状自身的可见性状态
+        shape.setVisible(value)
         self.update()
 
     def overrideCursor(self, cursor):
@@ -1514,11 +1516,12 @@ class Canvas(QtWidgets.QWidget):
                 if group_id not in grouped_points:
                     grouped_points[group_id] = {}
 
-                # 获取点的原始坐标和颜色
+                # 获取点的原始坐标和颜色以及可见性状态
                 point = shape.points[0]
                 grouped_points[group_id][shape.label] = {
                     "point": point,
-                    "color": shape.fill_color
+                    "color": shape.fill_color,
+                    "visible": shape.visible  # 保存点的可见性状态
                 }
 
         # 为每个组绘制骨骼连接
@@ -1542,6 +1545,10 @@ class Canvas(QtWidgets.QWidget):
                 if start_name in keypoints and end_name in keypoints:
                     start_data = keypoints[start_name]
                     end_data = keypoints[end_name]
+
+                    # 检查两端点的可见性，如果任意一点不可见，则跳过绘制该骨骼
+                    if not start_data["visible"] or not end_data["visible"]:
+                        continue
 
                     start_point = start_data["point"]
                     end_point = end_data["point"]
