@@ -884,35 +884,38 @@ class LabelDialog(QtWidgets.QDialog):
         if self._fit_to_content["column"]:
             pass
 
-        # 检查布局模式配置是否变化
+        # 缓存主题和布局信息，避免重复获取和计算
+        need_theme_update = False
+        need_layout_update = False
+        is_dark_theme = False
+
+        # 快速检查配置变更，只在必要时更新布局和主题
         if self.app and hasattr(self.app, '_config'):
             new_layout_mode = self.app._config.get('label_cloud_layout', False)
             if new_layout_mode != self._use_cloud_layout:
-                self.toggleCloudLayout(new_layout_mode)
+                need_layout_update = True
+                self._use_cloud_layout = new_layout_mode
 
-            # 确保正确应用当前主题
+            # 获取当前主题但不立即应用，延迟到showEvent应用
             current_theme = getattr(self.app, 'currentTheme', 'light')
             is_dark_theme = current_theme == 'dark'
-            self.setThemeStyleSheet(is_dark=is_dark_theme)
 
-            # 确保整个应用都更新了主题
-            app = QtWidgets.QApplication.instance()
-            if app:
-                if current_theme == "dark":
-                    app.setPalette(labelme.styles.get_dark_palette())
-                    app.setStyleSheet(labelme.styles.DARK_STYLE)
-                elif current_theme == "light":
-                    app.setPalette(labelme.styles.get_light_palette())
-                    app.setStyleSheet(labelme.styles.LIGHT_STYLE)
-                else:  # default theme
-                    app.setPalette(
-                        QtWidgets.QApplication.style().standardPalette())
-                    app.setStyleSheet("")
+        # 如果需要更新布局模式，执行最少量的必要更新
+        if need_layout_update:
+            # 只切换可见性，不重绘UI
+            if hasattr(self, 'scrollArea'):
+                self.scrollArea.setVisible(self._use_cloud_layout)
+            if hasattr(self, 'labelList'):
+                self.labelList.setVisible(not self._use_cloud_layout)
 
-            # 如果使用标签云布局，为每个标签项设置主题
-            if hasattr(self, 'cloudContainer') and self.cloudContainer:
-                for label_item in self.cloudContainer.label_items:
-                    label_item.setDarkTheme(is_dark_theme)
+            # 只更新布局切换按钮图标
+            if hasattr(self, 'layout_toggle_button'):
+                if self._use_cloud_layout:
+                    self.layout_toggle_button.setIcon(
+                        labelme.utils.newIcon("icons8-grid-view-48" if not is_dark_theme else "w-icons8-grid-view-48"))
+                else:
+                    self.layout_toggle_button.setIcon(
+                        labelme.utils.newIcon("icons8-list-view-48" if not is_dark_theme else "w-icons8-list-view-48"))
 
         # if text is None, the previous label in self.edit is kept
         if text is None:
@@ -925,51 +928,40 @@ class LabelDialog(QtWidgets.QDialog):
             description = ""
         self.editDescription.setText(description)
 
-        # 根据描述内容设置visible按钮状态
+        # 简化visible按钮状态更新
+        for btn in [self.visible_btn_0, self.visible_btn_1, self.visible_btn_2]:
+            btn.setChecked(False)
+
         if description in ["0", "1", "2"]:
             button_id = int(description)
-
-            # 清除所有按钮选中状态
-            self.visible_btn_0.setChecked(False)
-            self.visible_btn_1.setChecked(False)
-            self.visible_btn_2.setChecked(False)
-
-            # 设置对应按钮选中
             if button_id == 0:
                 self.visible_btn_0.setChecked(True)
             elif button_id == 1:
                 self.visible_btn_1.setChecked(True)
             elif button_id == 2:
                 self.visible_btn_2.setChecked(True)
-        else:
-            # 如果描述不是0、1、2，则清除所有按钮选中状态
-            self.visible_btn_0.setChecked(False)
-            self.visible_btn_1.setChecked(False)
-            self.visible_btn_2.setChecked(False)
 
-        # 如果没有提供颜色或提供的是默认绿色，尝试查找标签对应的颜色
+        # 优化颜色获取逻辑，减少重复计算
         has_found_color = False
-        # 清理文本，移除HTML标记和颜色标记
         clean_text = text.replace("●", "").strip()
         if '<font' in clean_text:
             clean_text = re.sub(r'<[^>]*>|</[^>]*>', '', clean_text).strip()
 
-        # 1. 首先从主应用程序获取颜色
-        if self.app:
+        # 快速尝试从应用程序获取颜色
+        if self.app and not color:
             qcolor = self.app.get_label_default_color(clean_text)
             if qcolor and isinstance(qcolor, QtGui.QColor):
                 color = qcolor
                 has_found_color = True
 
-        # 2. 如果从app获取不到，尝试从标签文本提取
-        if not has_found_color and "●" in text and 'color="' in text:
+        # 只在无法从app获取颜色时从文本提取
+        if not has_found_color and not color and "●" in text and 'color="' in text:
             try:
                 color_str = text.split('color="')[1].split('">')[0]
                 r = int(color_str[1:3], 16)
                 g = int(color_str[3:5], 16)
                 b = int(color_str[5:7], 16)
                 color = QtGui.QColor(r, g, b)
-                has_found_color = True
             except (IndexError, ValueError):
                 pass
 
@@ -978,26 +970,28 @@ class LabelDialog(QtWidgets.QDialog):
             self.selected_color = color
             self.update_color_button()
 
-        # 刷新所有标签项的颜色
-        self.refreshLabelColors()
+        # 仅在有app时有条件地刷新标签颜色
+        if self.app:
+            self.refreshCurrentLabelColor(clean_text)
 
+        # 设置标志
         if flags:
             self.setFlags(flags)
         else:
             self.resetFlags(text)
+
+        # 设置文本和选区
         self.edit.setText(text)
         self.edit.setSelection(0, len(text))
+
+        # 设置组ID
         if group_id is None:
             self.edit_group_id.clear()
         else:
             self.edit_group_id.setText(str(group_id))
 
         # 根据当前布局模式选择设置选中项
-        if self._use_cloud_layout:
-            # 在标签云视图中查找并选中项
-            # 注意：流式布局中没有直接的选中状态，但我们可以确保文本输入框显示正确的文本
-            pass
-        else:
+        if not self._use_cloud_layout:
             # 在标准列表视图中查找并选中项
             items = self.labelList.findItems(text, QtCore.Qt.MatchFixedString)
             if items:
@@ -1024,7 +1018,6 @@ class LabelDialog(QtWidgets.QDialog):
 
             if mouse_pos:
                 # 如果提供了鼠标位置，根据鼠标在屏幕中的位置智能放置对话框
-
                 # 确定鼠标位置在屏幕中的相对位置（左半边还是右半边，上半边还是下半边）
                 is_right_half = mouse_pos.x() > (screen.x() + screen.width() / 2)
                 is_bottom_half = mouse_pos.y() > (screen.y() + screen.height() / 2)
@@ -1037,33 +1030,14 @@ class LabelDialog(QtWidgets.QDialog):
                     # 左侧区域，对话框左下角对齐鼠标位置
                     x = mouse_pos.x()
 
-                if is_bottom_half:
-                    if is_right_half:
-                        # 右下区域，对话框右下角对齐鼠标位置
-                        y = mouse_pos.y() - (dialog_size.height() + 200)
-                    else:
-                        # 左下区域，对话框左下角对齐鼠标位置
-                        y = mouse_pos.y() - (dialog_size.height() + 200)
-                else:
-                    # 顶部区域，对话框顶边在鼠标位置下方
-                    y = mouse_pos.y() + 5
+                y = mouse_pos.y() - (dialog_size.height() +
+                                     200) if is_bottom_half else mouse_pos.y() + 5
 
                 # 边界检查：确保对话框不超出屏幕边界
-                # 左边界检查
-                if x < screen.x():
-                    x = screen.x() + 5
-
-                # 右边界检查
-                if x + dialog_size.width() > screen.x() + screen.width():
-                    x = screen.x() + screen.width() - dialog_size.width() - 5
-
-                # 上边界检查
-                if y < screen.y():
-                    y = screen.y() + 5
-
-                # 下边界检查
-                if y + dialog_size.height() > screen.y() + screen.height():
-                    y = screen.y() + screen.height() - dialog_size.height() - 5
+                x = max(screen.x() + 5, min(x, screen.x() +
+                        screen.width() - dialog_size.width() - 5))
+                y = max(screen.y() + 5, min(y, screen.y() +
+                        screen.height() - dialog_size.height() - 5))
             else:
                 # 默认居中显示
                 x = screen.x() + (screen.width() - dialog_size.width()) // 2
@@ -1083,6 +1057,34 @@ class LabelDialog(QtWidgets.QDialog):
             )
         else:
             return None
+
+    def refreshCurrentLabelColor(self, label_text):
+        """只刷新当前标签的颜色，而不是所有标签，提高性能"""
+        if not self.app:
+            return
+
+        # 获取标签颜色
+        rgb_color = self.app._get_rgb_by_label(label_text)
+        if not rgb_color:
+            return
+
+        color = QtGui.QColor(*rgb_color)
+
+        # 只更新当前标签在列表中的颜色
+        items = self.labelList.findItems(label_text, QtCore.Qt.MatchContains)
+        for item in items:
+            background = QtGui.QBrush(QtGui.QColor(
+                color.red(), color.green(), color.blue(), 25))
+            item.setBackground(background)
+            item.setData(QtCore.Qt.UserRole+1, color)
+
+        # 更新云布局中的当前标签颜色
+        if hasattr(self, 'cloudContainer') and self.cloudContainer:
+            for label_item in self.cloudContainer.label_items:
+                if label_item.clean_text == label_text:
+                    label_item.setLabelColor(color)
+                    label_item.update()
+                    break
 
     def choose_color(self):
         """打开颜色选择对话框"""
@@ -1240,24 +1242,66 @@ class LabelDialog(QtWidgets.QDialog):
         if not self.app:
             return
 
+        # 添加颜色缓存字典，避免重复查询同一标签的颜色
+        color_cache = {}
+
         # 刷新标准列表中的标签颜色
         for i in range(self.labelList.count()):
             item = self.labelList.item(i)
             if item:
-                self._set_label_item_style(item, item.text())
+                text = item.text()
+                clean_text = text.replace("●", "").strip()
+                if '<font' in clean_text:
+                    clean_text = re.sub(
+                        r'<[^>]*>|</[^>]*>', '', clean_text).strip()
+
+                # 优先使用缓存中的颜色
+                if clean_text in color_cache:
+                    color = color_cache[clean_text]
+                    background = QtGui.QBrush(QtGui.QColor(
+                        color.red(), color.green(), color.blue(), 25))
+                    item.setBackground(background)
+                    item.setData(QtCore.Qt.UserRole+1, color)
+                else:
+                    # 获取颜色并添加到缓存
+                    rgb_color = self.app._get_rgb_by_label(clean_text)
+                    if rgb_color:
+                        color = QtGui.QColor(*rgb_color)
+                        color_cache[clean_text] = color
+                        background = QtGui.QBrush(QtGui.QColor(
+                            color.red(), color.green(), color.blue(), 25))
+                        item.setBackground(background)
+                        item.setData(QtCore.Qt.UserRole+1, color)
 
         # 刷新流式布局中的标签颜色
         if hasattr(self, 'cloudContainer') and self.cloudContainer:
             for label_item in self.cloudContainer.label_items:
                 clean_text = label_item.clean_text
-                rgb_color = self.app._get_rgb_by_label(clean_text)
-                if rgb_color:
-                    label_item.setLabelColor(QtGui.QColor(*rgb_color))
+
+                # 优先使用缓存中的颜色
+                if clean_text in color_cache:
+                    label_item.setLabelColor(color_cache[clean_text])
+                else:
+                    # 获取颜色并添加到缓存
+                    rgb_color = self.app._get_rgb_by_label(clean_text)
+                    if rgb_color:
+                        color = QtGui.QColor(*rgb_color)
+                        color_cache[clean_text] = color
+                        label_item.setLabelColor(color)
 
     def setThemeStyleSheet(self, is_dark=False):
         """设置主题样式，用于适配亮色/暗色主题"""
         # 检查必要的UI元素是否已创建
         if not hasattr(self, 'scrollArea'):
+            return
+
+        # 添加样式表缓存
+        if hasattr(self, '_cached_dark_style') and is_dark:
+            self.setStyleSheet(self._cached_dark_style)
+            return
+
+        if hasattr(self, '_cached_light_style') and not is_dark:
+            self.setStyleSheet(self._cached_light_style)
             return
 
         # 更新标签项代理的主题设置
@@ -1365,22 +1409,12 @@ class LabelDialog(QtWidgets.QDialog):
             self.visible_btn_1.setObjectName("visible_btn_1")
             self.visible_btn_2.setObjectName("visible_btn_2")
 
-            # 应用样式到所有按钮
-            self.setStyleSheet(self.styleSheet() + btn_style)
+            # 构建完整样式表
+            full_style = self.styleSheet() + btn_style
 
-            # 设置标签样式
-            if hasattr(self, 'visible_label'):
-                if is_dark:
-                    self.visible_label.setStyleSheet(
-                        "color: #e0e0e0; font-weight: 400; margin-right: 12px; font-size: 11pt;")
-                else:
-                    self.visible_label.setStyleSheet(
-                        "color: #333333; font-weight: 400; margin-right: 12px; font-size: 11pt;")
-
-        if is_dark:
-            # 暗色主题样式
-            if hasattr(self, 'scrollArea'):
-                self.scrollArea.setStyleSheet("""
+            if is_dark:
+                # 暗色主题样式
+                dark_scroll_style = """
                     QScrollArea {
                         background-color: #2d2d30;
                         border: 1px solid #3f3f46;
@@ -1409,11 +1443,9 @@ class LabelDialog(QtWidgets.QDialog):
                     QScrollBar::sub-page:vertical {
                         background: none;
                     }
-                """)
+                """
 
-            # 同时更新标签列表样式
-            if hasattr(self, 'labelList'):
-                self.labelList.setStyleSheet("""
+                dark_list_style = """
                     QListWidget {
                         background-color: #2d2d30;
                         border: 1px solid #3f3f46;
@@ -1430,11 +1462,9 @@ class LabelDialog(QtWidgets.QDialog):
                     QListWidget::item:hover {
                         background-color: #3e3e42;
                     }
-                """)
+                """
 
-            # 设置输入框样式，增强边框可见度
-            if hasattr(self, 'edit'):
-                self.edit.setStyleSheet("""
+                dark_input_style = """
                     QLineEdit {
                         background-color: #1e1e1e;
                         color: #ffffff;
@@ -1446,54 +1476,39 @@ class LabelDialog(QtWidgets.QDialog):
                     QLineEdit:focus {
                         border: 1.5px solid #0078d7;
                     }
-                """)
+                """
 
-            # 同样设置组ID输入框样式
-            if hasattr(self, 'edit_group_id'):
-                self.edit_group_id.setStyleSheet("""
-                    QLineEdit {
-                        background-color: #1e1e1e;
-                        color: #ffffff;
-                        border: 1.5px solid #3f3f46;
-                        border-radius: 6px;
-                        padding: 6px;
-                        selection-background-color: #0078d7;
-                    }
-                    QLineEdit:focus {
-                        border: 1.5px solid #0078d7;
-                    }
-                """)
+                # 应用暗色主题样式
+                if hasattr(self, 'scrollArea'):
+                    self.scrollArea.setStyleSheet(dark_scroll_style)
 
-            # 设置描述输入框样式
-            if hasattr(self, 'editDescription'):
-                self.editDescription.setStyleSheet("""
-                    QLineEdit {
-                        background-color: #1e1e1e;
-                        color: #ffffff;
-                        border: 1.5px solid #3f3f46;
-                        border-radius: 6px;
-                        padding: 6px;
-                        selection-background-color: #0078d7;
-                    }
-                    QLineEdit:focus {
-                        border: 1.5px solid #0078d7;
-                    }
-                """)
+                if hasattr(self, 'labelList'):
+                    self.labelList.setStyleSheet(dark_list_style)
 
-            # 更新布局切换按钮图标
-            if hasattr(self, 'layout_toggle_button'):
-                if self._use_cloud_layout:
-                    self.layout_toggle_button.setIcon(
-                        labelme.utils.newIcon("w-icons8-grid-view-48"))
-                    self.layout_toggle_button.setToolTip(self.tr("切换为列表布局"))
-                else:
-                    self.layout_toggle_button.setIcon(
-                        labelme.utils.newIcon("w-icons8-list-view-48"))
-                    self.layout_toggle_button.setToolTip(self.tr("切换为流式布局"))
-        else:
-            # 亮色主题样式
-            if hasattr(self, 'scrollArea'):
-                self.scrollArea.setStyleSheet("""
+                if hasattr(self, 'edit'):
+                    self.edit.setStyleSheet(dark_input_style)
+
+                if hasattr(self, 'edit_group_id'):
+                    self.edit_group_id.setStyleSheet(dark_input_style)
+
+                if hasattr(self, 'editDescription'):
+                    self.editDescription.setStyleSheet(dark_input_style)
+
+                # 更新布局切换按钮图标
+                if hasattr(self, 'layout_toggle_button'):
+                    if self._use_cloud_layout:
+                        self.layout_toggle_button.setIcon(
+                            labelme.utils.newIcon("w-icons8-grid-view-48"))
+                    else:
+                        self.layout_toggle_button.setIcon(
+                            labelme.utils.newIcon("w-icons8-list-view-48"))
+
+                # 缓存暗色主题样式
+                self._cached_dark_style = full_style
+
+            else:
+                # 亮色主题样式
+                light_scroll_style = """
                     QScrollArea {
                         background-color: #fafafa;
                         border: 1px solid #d0d0d0;
@@ -1522,11 +1537,9 @@ class LabelDialog(QtWidgets.QDialog):
                     QScrollBar::sub-page:vertical {
                         background: none;
                     }
-                """)
+                """
 
-            # 同时更新标签列表样式
-            if hasattr(self, 'labelList'):
-                self.labelList.setStyleSheet("""
+                light_list_style = """
                     QListWidget {
                         background-color: #ffffff;
                         border: 1px solid #d0d0d0;
@@ -1542,25 +1555,37 @@ class LabelDialog(QtWidgets.QDialog):
                     QListWidget::item:hover {
                         background-color: #f0f0f0;
                     }
-                """)
-            # 更新布局切换按钮图标
-            if hasattr(self, 'layout_toggle_button'):
-                if self._use_cloud_layout:
-                    self.layout_toggle_button.setIcon(
-                        labelme.utils.newIcon("icons8-grid-view-48"))
-                    self.layout_toggle_button.setToolTip(self.tr("切换为列表布局"))
-                else:
-                    self.layout_toggle_button.setIcon(
-                        labelme.utils.newIcon("icons8-list-view-48"))
-                    self.layout_toggle_button.setToolTip(self.tr("切换为流式布局"))
+                """
 
-            # 重置输入框样式为默认
-            if hasattr(self, 'edit'):
-                self.edit.setStyleSheet("")
-            if hasattr(self, 'edit_group_id'):
-                self.edit_group_id.setStyleSheet("")
-            if hasattr(self, 'editDescription'):
-                self.editDescription.setStyleSheet("")
+                # 应用亮色主题样式
+                if hasattr(self, 'scrollArea'):
+                    self.scrollArea.setStyleSheet(light_scroll_style)
+
+                if hasattr(self, 'labelList'):
+                    self.labelList.setStyleSheet(light_list_style)
+
+                # 更新布局切换按钮图标
+                if hasattr(self, 'layout_toggle_button'):
+                    if self._use_cloud_layout:
+                        self.layout_toggle_button.setIcon(
+                            labelme.utils.newIcon("icons8-grid-view-48"))
+                    else:
+                        self.layout_toggle_button.setIcon(
+                            labelme.utils.newIcon("icons8-list-view-48"))
+
+                # 重置输入框样式为默认
+                if hasattr(self, 'edit'):
+                    self.edit.setStyleSheet("")
+                if hasattr(self, 'edit_group_id'):
+                    self.edit_group_id.setStyleSheet("")
+                if hasattr(self, 'editDescription'):
+                    self.editDescription.setStyleSheet("")
+
+                # 缓存亮色主题样式
+                self._cached_light_style = full_style
+
+            # 应用样式表
+            self.setStyleSheet(full_style)
 
     def eventFilter(self, obj, event):
         """事件过滤器，用于处理特定组件的事件"""
@@ -1615,12 +1640,30 @@ class LabelDialog(QtWidgets.QDialog):
 
     def showEvent(self, event):
         """重载showEvent确保对话框显示时应用正确的主题"""
-        # 获取并应用当前主题
+        # 缓存当前主题状态
+        if not hasattr(self, '_last_theme'):
+            self._last_theme = None
+
+        # 获取当前主题
         is_dark_theme = False
         if self.app and hasattr(self.app, 'currentTheme'):
             is_dark_theme = self.app.currentTheme == "dark"
-            # 应用主题样式
-            self.setThemeStyleSheet(is_dark=is_dark_theme)
+
+            # 只在主题发生变化时才应用样式
+            if self._last_theme != is_dark_theme:
+                self._last_theme = is_dark_theme
+
+                # 更新标签项代理的主题设置
+                if hasattr(self, 'labelList') and hasattr(self.labelList, 'itemDelegate'):
+                    self.labelList.itemDelegate().setDarkMode(is_dark_theme)
+
+                # 如果使用标签云布局，更新标签项主题
+                if hasattr(self, 'cloudContainer') and self.cloudContainer and self._use_cloud_layout:
+                    for label_item in self.cloudContainer.label_items:
+                        label_item.setDarkTheme(is_dark_theme)
+
+                # 应用主题样式
+                self.setThemeStyleSheet(is_dark=is_dark_theme)
 
         # 调用父类方法
         super(LabelDialog, self).showEvent(event)
