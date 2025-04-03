@@ -6,6 +6,7 @@ from PyQt5 import QtGui
 from PyQt5 import QtWidgets
 
 import labelme.utils
+import labelme.styles
 
 
 class LabelQLineEdit(QtWidgets.QLineEdit):
@@ -252,7 +253,7 @@ class LabelDialog(QtWidgets.QDialog):
 
         # 设置按钮固定大小和统一字体
         for btn in [self.visible_btn_0, self.visible_btn_1, self.visible_btn_2]:
-            btn.setFixedSize(24, 40) 
+            btn.setFixedSize(24, 40)
             btn.setCheckable(True)
             btn.setProperty("class", "visible-btn")
             # 字体从10pt增加到12pt，设置为粗体
@@ -889,10 +890,24 @@ class LabelDialog(QtWidgets.QDialog):
             if new_layout_mode != self._use_cloud_layout:
                 self.toggleCloudLayout(new_layout_mode)
 
-            # 检查当前主题并应用相应样式
-            current_theme = self.app._config.get('theme', 'light')
+            # 确保正确应用当前主题
+            current_theme = getattr(self.app, 'currentTheme', 'light')
             is_dark_theme = current_theme == 'dark'
             self.setThemeStyleSheet(is_dark=is_dark_theme)
+
+            # 确保整个应用都更新了主题
+            app = QtWidgets.QApplication.instance()
+            if app:
+                if current_theme == "dark":
+                    app.setPalette(labelme.styles.get_dark_palette())
+                    app.setStyleSheet(labelme.styles.DARK_STYLE)
+                elif current_theme == "light":
+                    app.setPalette(labelme.styles.get_light_palette())
+                    app.setStyleSheet(labelme.styles.LIGHT_STYLE)
+                else:  # default theme
+                    app.setPalette(
+                        QtWidgets.QApplication.style().standardPalette())
+                    app.setStyleSheet("")
 
             # 如果使用标签云布局，为每个标签项设置主题
             if hasattr(self, 'cloudContainer') and self.cloudContainer:
@@ -1464,7 +1479,7 @@ class LabelDialog(QtWidgets.QDialog):
                         border: 1.5px solid #0078d7;
                     }
                 """)
-                
+
             # 更新布局切换按钮图标
             if hasattr(self, 'layout_toggle_button'):
                 if self._use_cloud_layout:
@@ -1597,6 +1612,18 @@ class LabelDialog(QtWidgets.QDialog):
             # 按钮取消选中，清空描述文本（如果当前描述是这个按钮的值）
             if self.editDescription.text() == str(button_id):
                 self.editDescription.setText("")
+
+    def showEvent(self, event):
+        """重载showEvent确保对话框显示时应用正确的主题"""
+        # 获取并应用当前主题
+        is_dark_theme = False
+        if self.app and hasattr(self.app, 'currentTheme'):
+            is_dark_theme = self.app.currentTheme == "dark"
+            # 应用主题样式
+            self.setThemeStyleSheet(is_dark=is_dark_theme)
+
+        # 调用父类方法
+        super(LabelDialog, self).showEvent(event)
 
 
 class FlowLayout(QtWidgets.QLayout):

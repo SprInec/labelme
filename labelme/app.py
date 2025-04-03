@@ -2834,6 +2834,8 @@ class MainWindow(QtWidgets.QMainWindow):
         msg = self.tr(
             "You are about to permanently delete this label file, " "proceed anyway?"
         )
+        # 确保正确应用当前主题
+        self.ensureThemeApplied()
         answer = mb.warning(self, self.tr("Attention"), msg, mb.Yes | mb.No)
         if answer != mb.Yes:
             return
@@ -2886,7 +2888,25 @@ class MainWindow(QtWidgets.QMainWindow):
         else:  # answer == mb.Cancel
             return False
 
+    def ensureThemeApplied(self):
+        """确保当前主题设置正确应用"""
+        app = QtWidgets.QApplication.instance()
+        if hasattr(self, 'currentTheme') and app:
+            if self.currentTheme == "dark":
+                app.setPalette(labelme.styles.get_dark_palette())
+                app.setStyleSheet(labelme.styles.DARK_STYLE)
+            elif self.currentTheme == "light":
+                app.setPalette(labelme.styles.get_light_palette())
+                app.setStyleSheet(labelme.styles.LIGHT_STYLE)
+            else:  # default theme
+                app.setPalette(
+                    QtWidgets.QApplication.style().standardPalette())
+                app.setStyleSheet("")
+
     def errorMessage(self, title, message):
+        # 确保当前主题设置正确应用（修复主题bug）
+        self.ensureThemeApplied()
+
         return QtWidgets.QMessageBox.critical(
             self, title, "<p><b>%s</b></p>%s" % (title, message)
         )
@@ -2916,6 +2936,8 @@ class MainWindow(QtWidgets.QMainWindow):
         msg = self.tr(
             "您即将永久删除 {} 个标注对象，确定继续吗？"
         ).format(len(self.canvas.selectedShapes))
+        # 确保正确应用当前主题
+        self.ensureThemeApplied()
         if yes == QtWidgets.QMessageBox.warning(
             self, self.tr("注意"), msg, yes | no, yes
         ):
@@ -3179,6 +3201,15 @@ class MainWindow(QtWidgets.QMainWindow):
 
             self.setProgress(80)  # 更新进度 - 模型推理完成
 
+            # 如果主题设置被改变，恢复到之前的主题
+            if self.currentTheme != current_theme:
+                if current_theme == "dark":
+                    self.setDarkTheme(update_actions=True)
+                elif current_theme == "default":
+                    self.setDefaultTheme(update_actions=True)
+                else:
+                    self.setLightTheme(update_actions=True)
+
             if not shape_dicts:
                 self.endProgress(self.tr("未检测到任何对象"))
                 self.errorMessage(
@@ -3211,7 +3242,8 @@ class MainWindow(QtWidgets.QMainWindow):
             result_message = self.tr(f"检测到 {len(shapes)} 个对象")
             self.endProgress(result_message)
 
-            # 如果主题设置被改变，恢复到之前的主题
+        except Exception as e:
+            # 如果发生异常，确保恢复主题设置
             if self.currentTheme != current_theme:
                 if current_theme == "dark":
                     self.setDarkTheme(update_actions=True)
@@ -3220,7 +3252,6 @@ class MainWindow(QtWidgets.QMainWindow):
                 else:
                     self.setLightTheme(update_actions=True)
 
-        except Exception as e:
             self.endProgress(self.tr("检测失败"))
             self.errorMessage(
                 self.tr("目标检测错误"),
@@ -3304,6 +3335,15 @@ class MainWindow(QtWidgets.QMainWindow):
 
             self.setProgress(80)  # 更新进度 - 模型推理完成
 
+            # 如果主题设置被改变，恢复到之前的主题
+            if self.currentTheme != current_theme:
+                if current_theme == "dark":
+                    self.setDarkTheme(update_actions=True)
+                elif current_theme == "default":
+                    self.setDefaultTheme(update_actions=True)
+                else:
+                    self.setLightTheme(update_actions=True)
+
             if not shape_dicts:
                 self.endProgress(self.tr("未检测到任何人体姿态"))
                 self.errorMessage(
@@ -3336,7 +3376,8 @@ class MainWindow(QtWidgets.QMainWindow):
             result_message = self.tr(f"检测到 {len(shapes)} 个人体姿态")
             self.endProgress(result_message)
 
-            # 如果主题设置被改变，恢复到之前的主题
+        except Exception as e:
+            # 如果发生异常，确保恢复主题设置
             if self.currentTheme != current_theme:
                 if current_theme == "dark":
                     self.setDarkTheme(update_actions=True)
@@ -3345,7 +3386,6 @@ class MainWindow(QtWidgets.QMainWindow):
                 else:
                     self.setLightTheme(update_actions=True)
 
-        except Exception as e:
             self.endProgress(self.tr("检测失败"))
             self.errorMessage(
                 self.tr("人体姿态估计错误"),

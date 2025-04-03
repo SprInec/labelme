@@ -1,6 +1,7 @@
 import os
 import yaml
 from PyQt5 import QtCore, QtGui, QtWidgets
+import labelme.styles
 
 from labelme._automation.config_loader import ConfigLoader
 from labelme._automation.model_downloader import set_torch_home
@@ -305,6 +306,22 @@ class AISettingsDialog(QtWidgets.QDialog):
                 has_torch = False
 
             if not has_torch:
+                # 确保应用正确的主题
+                app = QtWidgets.QApplication.instance()
+                parent_window = self.parent() if self.parent() else None
+                if parent_window and hasattr(parent_window, 'currentTheme') and app:
+                    current_theme = parent_window.currentTheme
+                    if current_theme == "dark":
+                        app.setPalette(labelme.styles.get_dark_palette())
+                        app.setStyleSheet(labelme.styles.DARK_STYLE)
+                    elif current_theme == "light":
+                        app.setPalette(labelme.styles.get_light_palette())
+                        app.setStyleSheet(labelme.styles.LIGHT_STYLE)
+                    else:  # default theme
+                        app.setPalette(
+                            QtWidgets.QApplication.style().standardPalette())
+                        app.setStyleSheet("")
+
                 QtWidgets.QMessageBox.warning(
                     self,
                     self.tr("依赖缺失"),

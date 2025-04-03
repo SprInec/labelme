@@ -3,6 +3,7 @@ from PyQt5.QtCore import Qt
 
 from labelme.config import get_config
 from labelme.config.config import save_config
+import labelme.styles
 
 
 class ShortcutsDialog(QtWidgets.QDialog):
@@ -565,6 +566,21 @@ class ShortcutsDialog(QtWidgets.QDialog):
         if self.parent and hasattr(self.parent, 'applyCustomShortcuts'):
             self.parent.applyCustomShortcuts(self.modified_shortcuts)
 
+            # 确保应用正确的主题
+            app = QtWidgets.QApplication.instance()
+            if hasattr(self.parent, 'currentTheme') and app:
+                current_theme = self.parent.currentTheme
+                if current_theme == "dark":
+                    app.setPalette(labelme.styles.get_dark_palette())
+                    app.setStyleSheet(labelme.styles.DARK_STYLE)
+                elif current_theme == "light":
+                    app.setPalette(labelme.styles.get_light_palette())
+                    app.setStyleSheet(labelme.styles.LIGHT_STYLE)
+                else:  # default theme
+                    app.setPalette(
+                        QtWidgets.QApplication.style().standardPalette())
+                    app.setStyleSheet("")
+
             # 提示用户
             QtWidgets.QMessageBox.information(
                 self,
@@ -577,6 +593,21 @@ class ShortcutsDialog(QtWidgets.QDialog):
 
             # 尝试立即应用快捷键设置
             self.applyShortcuts()
+
+            # 确保应用正确的主题
+            app = QtWidgets.QApplication.instance()
+            if self.parent and hasattr(self.parent, 'currentTheme') and app:
+                current_theme = self.parent.currentTheme
+                if current_theme == "dark":
+                    app.setPalette(labelme.styles.get_dark_palette())
+                    app.setStyleSheet(labelme.styles.DARK_STYLE)
+                elif current_theme == "light":
+                    app.setPalette(labelme.styles.get_light_palette())
+                    app.setStyleSheet(labelme.styles.LIGHT_STYLE)
+                else:  # default theme
+                    app.setPalette(
+                        QtWidgets.QApplication.style().standardPalette())
+                    app.setStyleSheet("")
 
             # 提示用户
             QtWidgets.QMessageBox.information(
