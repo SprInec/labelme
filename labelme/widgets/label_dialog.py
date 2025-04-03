@@ -65,7 +65,7 @@ class LabelItemDelegate(QtWidgets.QStyledItemDelegate):
             painter.fillPath(path, bg_color)
 
             # 左边框宽度
-            border_width = 12  # 增加左边框宽度
+            border_width = 15  # 增加左边框宽度
 
             # 绘制左边框 (使用圆角)
             border_path = QtGui.QPainterPath()
@@ -94,9 +94,39 @@ class LabelItemDelegate(QtWidgets.QStyledItemDelegate):
 
         # 选中状态高亮 (也使用圆角)
         if option.state & QtWidgets.QStyle.State_Selected:
-            highlight_color = QtGui.QColor(0, 120, 215, 178)  # 70%透明度
+            # 使用更美观的高亮效果 - 使用与标签颜色协调的深色调
+            if color_data and isinstance(color_data, QtGui.QColor):
+                base_color = QtGui.QColor(color_data)
+                highlight_color = QtGui.QColor(base_color)
+
+                # 基于基础颜色创建更深的高亮色
+                h, s, v, a = highlight_color.getHsv()
+
+                if self.is_dark:
+                    # 暗色主题下使用亮度增强的颜色，但保持较高饱和度
+                    new_s = min(255, s + 40)  # 增加饱和度
+                    new_v = min(255, v + 60)  # 增加亮度
+                    highlight_color.setHsv(h, new_s, new_v, 180)  # 半透明
+                else:
+                    # 亮色主题下使用饱和度增强的颜色
+                    new_s = min(255, s + 70)  # 增加饱和度
+                    new_v = max(0, v - 20)    # 稍微降低亮度以增强色彩感
+                    highlight_color.setHsv(h, new_s, new_v, 180)  # 半透明
+            else:
+                # 如果没有颜色数据，使用默认高亮色
+                highlight_color = QtGui.QColor(0, 120, 215, 180)
+
             painter.fillPath(path, highlight_color)
-            painter.setPen(QtGui.QColor(255, 255, 255))  # 选中时文本为白色
+
+            # 选中文本颜色 - 使用更适合阅读的颜色而不是固定的白色
+            if self.is_dark:
+                painter.setPen(QtGui.QColor(255, 255, 255))  # 暗色主题下使用白色
+            else:
+                # 检查背景颜色的亮度，选择对比度好的文本颜色
+                if highlight_color.value() < 150:
+                    painter.setPen(QtGui.QColor(255, 255, 255))  # 深色背景使用白色文本
+                else:
+                    painter.setPen(QtGui.QColor(0, 0, 0))  # 浅色背景使用黑色文本
         elif option.state & QtWidgets.QStyle.State_MouseOver:
             # 根据主题设置不同的悬停高亮颜色
             if self.is_dark:
@@ -145,7 +175,7 @@ class LabelItemDelegate(QtWidgets.QStyledItemDelegate):
     def sizeHint(self, option, index):
         # 增大项高度以增强呼吸感
         size = super(LabelItemDelegate, self).sizeHint(option, index)
-        size.setHeight(50)  # 进一步增大项高度
+        size.setHeight(60)  # 进一步增大项高度
         return size
 
 
@@ -1892,9 +1922,9 @@ class LabelCloudItem(QtWidgets.QWidget):
         self.setToolTip(self.clean_text)
 
         # 设置固定高度
-        self.setFixedHeight(50)  # 调整为更适合的高度
+        self.setFixedHeight(52)  # 调整为更适合的高度
 
-        # 计算文本宽度并设置宽度 - 更精确地计算宽度
+        # 计算文本宽度并设置宽度 - 确保文本完整显示
         font = QtGui.QFont(self.font())
         font.setPointSize(10)  # 确保使用与渲染时相同的字体大小
         fm = QtGui.QFontMetrics(font)
@@ -1902,13 +1932,20 @@ class LabelCloudItem(QtWidgets.QWidget):
         # 使用boundingRect获取更准确的文本宽度
         text_width = fm.boundingRect(self.clean_text).width()
 
-        # 减少边距，使背景长度与文本长度更契合
-        left_padding = 22  # 左侧边框宽度和少量边距
-        right_padding = 14  # 右侧少量边距
-        total_padding = left_padding + right_padding
+        # 统一的左右内边距，确保所有标签使用相同的内边距
+        # 左侧边框宽度
+        border_width = 15  # 与LabelItemDelegate中保持一致
 
-        # 设置宽度为文本宽度加上必要的边距
-        self.setFixedWidth(text_width + total_padding)
+        # 统一的内边距
+        left_padding = 18  # 左侧边框右侧的文本前空间
+        right_padding = 20  # 文本右侧的固定留白空间
+
+        # 计算完整宽度 - 采用新的计算方式
+        # 文本宽度 + 左边框宽度 + 左内边距 + 固定的右侧留白
+        total_width = text_width + border_width + left_padding + right_padding
+
+        # 设置计算后的宽度
+        self.setFixedWidth(int(total_width))
 
         # 鼠标样式
         self.setCursor(QtCore.Qt.PointingHandCursor)
@@ -1954,7 +1991,7 @@ class LabelCloudItem(QtWidgets.QWidget):
         painter.fillPath(path, bg_color)
 
         # 左边框宽度
-        border_width = 12  # 减小左边框宽度，使整体更协调
+        border_width = 15  # 减小左边框宽度，使整体更协调
 
         # 绘制左边框
         border_path = QtGui.QPainterPath()
@@ -1993,10 +2030,35 @@ class LabelCloudItem(QtWidgets.QWidget):
 
         # 根据主题设置选中状态或悬停状态高亮颜色
         if self.selected:
-            highlight_color = QtGui.QColor(0, 120, 215, 178)  # 70%透明度
+            # 使用更美观的高亮效果 - 使用与标签颜色协调的深色调
+            base_color = self.color
+            highlight_color = QtGui.QColor(base_color)
+
+            # 基于基础颜色创建更深的高亮色
+            h, s, v, a = highlight_color.getHsv()
+
+            if self.is_dark:
+                # 暗色主题下使用亮度增强的颜色，但保持较高饱和度
+                new_s = min(255, s + 40)  # 增加饱和度
+                new_v = min(255, v + 60)  # 增加亮度
+                highlight_color.setHsv(h, new_s, new_v, 180)  # 半透明
+            else:
+                # 亮色主题下使用饱和度增强的颜色
+                new_s = min(255, s + 70)  # 增加饱和度
+                new_v = max(0, v - 20)    # 稍微降低亮度以增强色彩感
+                highlight_color.setHsv(h, new_s, new_v, 180)  # 半透明
+
             painter.fillPath(path, highlight_color)
-            # 选中文本为白色，不管暗色还是亮色主题
-            painter.setPen(QtGui.QColor(255, 255, 255))
+
+            # 选中文本颜色 - 使用更适合阅读的颜色而不是固定的白色
+            if self.is_dark:
+                painter.setPen(QtGui.QColor(255, 255, 255))  # 暗色主题下使用白色
+            else:
+                # 检查背景颜色的亮度，选择对比度好的文本颜色
+                if highlight_color.value() < 150:
+                    painter.setPen(QtGui.QColor(255, 255, 255))  # 深色背景使用白色文本
+                else:
+                    painter.setPen(QtGui.QColor(0, 0, 0))  # 浅色背景使用黑色文本
         elif self.hover or self.dragging:
             if self.is_dark:
                 # 暗色主题悬停颜色
@@ -2015,20 +2077,43 @@ class LabelCloudItem(QtWidgets.QWidget):
             else:
                 painter.setPen(QtGui.QColor(0, 0, 0))
 
-        # 文本区域 - 调整文本位置使其更适合
-        text_rect = QtCore.QRect(
-            rect.left() + border_width + 6,  # 减小左边距，使文本更靠近左边框
-            rect.top(),
-            rect.width() - (border_width + 8),  # 减小右边距
-            rect.height()
-        )
-
-        # 绘制文本
-        # 设置字体
+        # 为文本区域创建更动态的布局
+        # 获取文本宽度，以便更精确地定位
         font = painter.font()
         font.setPointSize(10)
         painter.setFont(font)
-        painter.drawText(text_rect, QtCore.Qt.AlignVCenter, self.clean_text)
+        fm = painter.fontMetrics()
+        text_width = fm.boundingRect(self.clean_text).width()
+
+        # 左侧边框宽度
+        border_width = 15  # 与初始化时保持一致
+
+        # 定义与初始化方法中相同的内边距常量
+        left_padding = 18  # 左侧固定内边距
+        right_padding = 20  # 右侧固定内边距 - 与初始化方法保持一致
+
+        # 文本区域 - 使用更精确的位置计算
+        # 从左边框开始，加上固定的左侧内边距
+        text_left = rect.left() + border_width + 8
+
+        # 文本显示区域宽度为：总宽度 - 左边框 - 左侧内边距 - 右侧内边距
+        # 这确保所有标签的右侧留白是完全一致的
+        text_width_available = rect.width() - border_width - 8 - right_padding
+
+        text_rect = QtCore.QRect(
+            text_left,
+            rect.top(),
+            text_width_available,
+            rect.height()
+        )
+
+        # 直接使用完整文本，不再截断处理
+        display_text = self.clean_text
+
+        # 使用AlignVCenter|AlignLeft确保文本垂直居中但水平左对齐
+        # 这样所有标签的文本都从同一位置开始，右侧留白一致
+        painter.drawText(text_rect, QtCore.Qt.AlignVCenter |
+                         QtCore.Qt.AlignLeft, display_text)
 
     def mousePressEvent(self, event):
         """鼠标按下事件"""

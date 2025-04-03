@@ -5,6 +5,12 @@
 /dist/
 /*.egg-info/
 *.spec
+build_standalone.bat
+README_STANDALONE.md
+version.txt
+dpi_aware.py
+qt_fix.py
+qt_init_hook.py
 
 *.py[cdo]
 
