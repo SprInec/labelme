@@ -1360,15 +1360,7 @@ class LabelDialog(QtWidgets.QDialog):
         if not hasattr(self, 'scrollArea'):
             return
 
-        # 添加样式表缓存
-        if hasattr(self, '_cached_dark_style') and is_dark:
-            self.setStyleSheet(self._cached_dark_style)
-            return
-
-        if hasattr(self, '_cached_light_style') and not is_dark:
-            self.setStyleSheet(self._cached_light_style)
-            return
-
+        # 移除样式表缓存机制，确保每次都应用完整样式
         # 更新标签项代理的主题设置
         if hasattr(self, 'labelList') and hasattr(self.labelList, 'itemDelegate'):
             self.labelList.itemDelegate().setDarkMode(is_dark)
@@ -1541,6 +1533,31 @@ class LabelDialog(QtWidgets.QDialog):
                     QLineEdit:focus {
                         border: 1.5px solid #0078d7;
                     }
+                    QTextEdit {
+                        background-color: #1e1e1e;
+                        color: #ffffff;
+                        border: 1.5px solid #3f3f46;
+                        border-radius: 6px;
+                        padding: 6px;
+                        selection-background-color: #0078d7;
+                    }
+                    QTextEdit:focus {
+                        border: 1.5px solid #0078d7;
+                    }
+                    QLabel {
+                        color: #e0e0e0;
+                    }
+                    QPushButton {
+                        background-color: #3c3c3c;
+                        color: #e0e0e0;
+                        border: 1px solid #555555;
+                    }
+                    QPushButton:hover {
+                        background-color: #444444;
+                    }
+                    QPushButton:pressed {
+                        background-color: #505050;
+                    }
                 """
 
                 # 应用暗色主题样式
@@ -1559,6 +1576,10 @@ class LabelDialog(QtWidgets.QDialog):
                 if hasattr(self, 'editDescription'):
                     self.editDescription.setStyleSheet(dark_input_style)
 
+                # 明确设置所有标签和按钮的样式，确保它们使用暗色主题
+                for widget in self.findChildren(QtWidgets.QLabel):
+                    widget.setStyleSheet("color: #e0e0e0;")
+
                 # 更新布局切换按钮图标
                 if hasattr(self, 'layout_toggle_button'):
                     if self._use_cloud_layout:
@@ -1567,9 +1588,6 @@ class LabelDialog(QtWidgets.QDialog):
                     else:
                         self.layout_toggle_button.setIcon(
                             labelme.utils.newIcon("w-icons8-list-view-48"))
-
-                # 缓存暗色主题样式
-                self._cached_dark_style = full_style
 
             else:
                 # 亮色主题样式
@@ -1622,12 +1640,52 @@ class LabelDialog(QtWidgets.QDialog):
                     }
                 """
 
+                light_input_style = """
+                    QLineEdit {
+                        background-color: #ffffff;
+                        color: #333333;
+                        border: 1.5px solid #d0d0d0;
+                        border-radius: 6px;
+                        padding: 6px;
+                        selection-background-color: #0078d7;
+                    }
+                    QLineEdit:focus {
+                        border: 1.5px solid #0078d7;
+                    }
+                    QTextEdit {
+                        background-color: #ffffff;
+                        color: #333333;
+                        border: 1.5px solid #d0d0d0;
+                        border-radius: 6px;
+                        padding: 6px;
+                        selection-background-color: #0078d7;
+                    }
+                    QTextEdit:focus {
+                        border: 1.5px solid #0078d7;
+                    }
+                    QLabel {
+                        color: #333333;
+                    }
+                """
+
                 # 应用亮色主题样式
                 if hasattr(self, 'scrollArea'):
                     self.scrollArea.setStyleSheet(light_scroll_style)
 
                 if hasattr(self, 'labelList'):
                     self.labelList.setStyleSheet(light_list_style)
+
+                # 更新输入框样式为亮色主题
+                if hasattr(self, 'edit'):
+                    self.edit.setStyleSheet(light_input_style)
+                if hasattr(self, 'edit_group_id'):
+                    self.edit_group_id.setStyleSheet(light_input_style)
+                if hasattr(self, 'editDescription'):
+                    self.editDescription.setStyleSheet(light_input_style)
+
+                # 明确设置所有标签的样式，确保它们使用亮色主题
+                for widget in self.findChildren(QtWidgets.QLabel):
+                    widget.setStyleSheet("color: #333333;")
 
                 # 更新布局切换按钮图标
                 if hasattr(self, 'layout_toggle_button'):
@@ -1637,17 +1695,6 @@ class LabelDialog(QtWidgets.QDialog):
                     else:
                         self.layout_toggle_button.setIcon(
                             labelme.utils.newIcon("icons8-list-view-48"))
-
-                # 重置输入框样式为默认
-                if hasattr(self, 'edit'):
-                    self.edit.setStyleSheet("")
-                if hasattr(self, 'edit_group_id'):
-                    self.edit_group_id.setStyleSheet("")
-                if hasattr(self, 'editDescription'):
-                    self.editDescription.setStyleSheet("")
-
-                # 缓存亮色主题样式
-                self._cached_light_style = full_style
 
             # 应用样式表
             self.setStyleSheet(full_style)
@@ -1705,30 +1752,29 @@ class LabelDialog(QtWidgets.QDialog):
 
     def showEvent(self, event):
         """重载showEvent确保对话框显示时应用正确的主题"""
-        # 缓存当前主题状态
-        if not hasattr(self, '_last_theme'):
-            self._last_theme = None
-
         # 获取当前主题
         is_dark_theme = False
         if self.app and hasattr(self.app, 'currentTheme'):
             is_dark_theme = self.app.currentTheme == "dark"
+            
+            # 每次显示时都应用主题样式，确保所有控件样式一致
+            # 更新标签项代理的主题设置
+            if hasattr(self, 'labelList') and hasattr(self.labelList, 'itemDelegate'):
+                self.labelList.itemDelegate().setDarkMode(is_dark_theme)
 
-            # 只在主题发生变化时才应用样式
-            if self._last_theme != is_dark_theme:
-                self._last_theme = is_dark_theme
+            # 如果使用标签云布局，更新标签项主题
+            if hasattr(self, 'cloudContainer') and self.cloudContainer and self._use_cloud_layout:
+                for label_item in self.cloudContainer.label_items:
+                    label_item.setDarkTheme(is_dark_theme)
 
-                # 更新标签项代理的主题设置
-                if hasattr(self, 'labelList') and hasattr(self.labelList, 'itemDelegate'):
-                    self.labelList.itemDelegate().setDarkMode(is_dark_theme)
-
-                # 如果使用标签云布局，更新标签项主题
-                if hasattr(self, 'cloudContainer') and self.cloudContainer and self._use_cloud_layout:
-                    for label_item in self.cloudContainer.label_items:
-                        label_item.setDarkTheme(is_dark_theme)
-
-                # 应用主题样式
-                self.setThemeStyleSheet(is_dark=is_dark_theme)
+            # 强制清除缓存的样式，确保每次都重新应用完整样式
+            if hasattr(self, '_cached_dark_style'):
+                delattr(self, '_cached_dark_style')
+            if hasattr(self, '_cached_light_style'):
+                delattr(self, '_cached_light_style')
+                
+            # 应用主题样式
+            self.setThemeStyleSheet(is_dark=is_dark_theme)
 
         # 调用父类方法
         super(LabelDialog, self).showEvent(event)

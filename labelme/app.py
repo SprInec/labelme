@@ -3660,11 +3660,21 @@ class MainWindow(QtWidgets.QMainWindow):
 
         # 重置标签对话框主题
         if hasattr(self, 'labelDialog'):
+            # 强制清除缓存的样式
+            if hasattr(self.labelDialog, '_cached_dark_style'):
+                delattr(self.labelDialog, '_cached_dark_style')
+            if hasattr(self.labelDialog, '_cached_light_style'):
+                delattr(self.labelDialog, '_cached_light_style')
+                
             self.labelDialog.setThemeStyleSheet(is_dark=False)
             # 更新标签云布局中的所有标签项
             if hasattr(self.labelDialog, 'cloudContainer') and self.labelDialog.cloudContainer:
                 for label_item in self.labelDialog.cloudContainer.label_items:
                     label_item.setDarkTheme(False)
+                    
+            # 刷新整个对话框，确保所有控件更新到新主题
+            if self.labelDialog.isVisible():
+                self.labelDialog.update()
 
         # 更新dock窗口标题栏
         self.updateDockTitles()
@@ -3707,11 +3717,21 @@ class MainWindow(QtWidgets.QMainWindow):
 
         # 更新标签对话框主题
         if hasattr(self, 'labelDialog'):
+            # 强制清除缓存的样式
+            if hasattr(self.labelDialog, '_cached_dark_style'):
+                delattr(self.labelDialog, '_cached_dark_style')
+            if hasattr(self.labelDialog, '_cached_light_style'):
+                delattr(self.labelDialog, '_cached_light_style')
+                
             self.labelDialog.setThemeStyleSheet(is_dark=True)
             # 更新标签云布局中的所有标签项
             if hasattr(self.labelDialog, 'cloudContainer') and self.labelDialog.cloudContainer:
                 for label_item in self.labelDialog.cloudContainer.label_items:
                     label_item.setDarkTheme(True)
+                    
+            # 刷新整个对话框，确保所有控件更新到新主题
+            if self.labelDialog.isVisible():
+                self.labelDialog.update()
 
         # 更新dock窗口标题栏
         self.updateDockTitles()
@@ -3754,11 +3774,21 @@ class MainWindow(QtWidgets.QMainWindow):
 
         # 重置标签对话框主题
         if hasattr(self, 'labelDialog'):
+            # 强制清除缓存的样式
+            if hasattr(self.labelDialog, '_cached_dark_style'):
+                delattr(self.labelDialog, '_cached_dark_style')
+            if hasattr(self.labelDialog, '_cached_light_style'):
+                delattr(self.labelDialog, '_cached_light_style')
+                
             self.labelDialog.setThemeStyleSheet(is_dark=False)
             # 更新标签云布局中的所有标签项
             if hasattr(self.labelDialog, 'cloudContainer') and self.labelDialog.cloudContainer:
                 for label_item in self.labelDialog.cloudContainer.label_items:
                     label_item.setDarkTheme(False)
+                    
+            # 刷新整个对话框，确保所有控件更新到新主题
+            if self.labelDialog.isVisible():
+                self.labelDialog.update()
 
         # 更新图标
         self._update_icons8_actions()
