@@ -198,6 +198,10 @@ class LabelDialog(QtWidgets.QDialog):
 
         # 保存对主应用程序的引用
         self.app = app
+        
+        # 添加用户调整后的对话框大小记忆功能
+        self._user_dialog_size = None
+        self._ignore_resize = False
 
         # 获取标签云布局配置
         self._use_cloud_layout = False
@@ -1056,57 +1060,65 @@ class LabelDialog(QtWidgets.QDialog):
                 mouse_pos) if mouse_pos else desktop.primaryScreen()
             screen = desktop.screenGeometry(screen_number)
 
-            # 获取对话框大小
-            dialog_size = self.sizeHint()
+            # 1. 获取标签对话框的实际高度和宽度
+            # 注意：如果用户调整过大小，使用保存的大小
+            dialog_size = self._user_dialog_size if self._user_dialog_size else self.sizeHint()
+            actual_height = dialog_size.height()
+            actual_width = dialog_size.width()
+
+            # 2. 获取屏幕宽高
+            screen_width = screen.width()
+            screen_height = screen.height()
+            screen_left = screen.x()
+            screen_top = screen.y()
 
             if mouse_pos:
-                # 如果提供了鼠标位置，根据鼠标在屏幕中的位置智能放置对话框
-                # 获取对话框实际高度
-                actual_height = dialog_size.height()
-                actual_width = dialog_size.width()
+                # 3. 获取当前鼠标所在实际位置
+                mouse_x = mouse_pos.x()
+                mouse_y = mouse_pos.y()
 
-                # 计算屏幕可用区域
-                available_height_below = screen.height() - mouse_pos.y() + screen.y()
-                available_height_above = mouse_pos.y() - screen.y()
+                # 4. 判断若在鼠标位置弹出标签对话框是否会超出屏幕范围
+                # 计算各个方向的可用空间
+                available_height_below = screen_height - (mouse_y - screen_top)
+                available_height_above = mouse_y - screen_top
+                available_width_right = screen_width - (mouse_x - screen_left)
+                available_width_left = mouse_x - screen_left
 
-                # 检查鼠标是否在屏幕的右半部分
-                is_right_half = mouse_pos.x() > (screen.x() + screen.width() / 2)
+                # 初始位置计算
+                # 默认位置：对话框左上角位于鼠标位置
+                x = mouse_x
+                y = mouse_y
 
-                # 水平位置计算
-                if is_right_half:
-                    # 右侧区域，对话框右侧对齐鼠标位置
-                    x = mouse_pos.x() - actual_width
-                else:
-                    # 左侧区域，对话框左侧对齐鼠标位置
-                    x = mouse_pos.x()
-
-                # 确保对话框的水平位置在屏幕范围内
-                x = max(screen.x() + 5, min(x, screen.x() +
-                        screen.width() - actual_width - 5))
-
-                # 垂直位置计算 - 优先确保对话框完全在屏幕内
-                if available_height_below >= actual_height:
-                    # 鼠标下方有足够空间显示整个对话框
-                    y = mouse_pos.y()
-                elif available_height_above >= actual_height:
-                    # 鼠标上方有足够空间显示整个对话框
-                    y = mouse_pos.y() - actual_height
-                else:
-                    # 上下都没有足够空间，选择最大可用空间并居中显示
-                    if available_height_above > available_height_below:
-                        # 偏向上方显示
-                        y = screen.y() + 5
-                    else:
-                        # 偏向下方显示
-                        y = screen.y() + screen.height() - actual_height - 5
-
+                # 5. 如果会超出屏幕范围，则调整位置
+                # 水平方向调整
+                if available_width_right < actual_width:
+                    # 右侧空间不足，尝试放在左侧
+                    x = mouse_x - actual_width
+                    # 如果左侧也放不下，则尽量靠右边缘
+                    if x < screen_left:
+                        x = screen_left + screen_width - actual_width - 5
+                
+                # 垂直方向调整（优先向上偏移）
+                if available_height_below < actual_height:
+                    # 下方空间不足，尝试放在上方
+                    y = mouse_y - actual_height
+                    # 如果上方也放不下，则考虑屏幕中央位置
+                    if y < screen_top:
+                        # 判断上下哪个空间更大
+                        if available_height_above > available_height_below:
+                            # 上方空间更大，尽量靠近顶部
+                            y = screen_top + 5
+                        else:
+                            # 下方空间更大，尽量靠近底部
+                            y = screen_top + screen_height - actual_height - 5
+                
                 # 最终边界检查，确保完全在屏幕内
-                y = max(screen.y() + 5, min(y, screen.y() +
-                        screen.height() - actual_height - 5))
+                x = max(screen_left + 5, min(x, screen_left + screen_width - actual_width - 5))
+                y = max(screen_top + 5, min(y, screen_top + screen_height - actual_height - 5))
             else:
                 # 默认居中显示
-                x = screen.x() + (screen.width() - dialog_size.width()) // 2
-                y = screen.y() + (screen.height() - dialog_size.height()) // 2
+                x = screen_left + (screen_width - actual_width) // 2
+                y = screen_top + (screen_height - actual_height) // 2
 
             self.move(x, y)
 
@@ -1201,9 +1213,15 @@ class LabelDialog(QtWidgets.QDialog):
         return self.selected_color
 
     def resizeEvent(self, event):
-        """处理窗口大小变化事件，确保标签列表控件能正确调整大小"""
+        """处理窗口大小变化事件，确保标签列表控件能正确调整大小并记录用户调整的对话框大小"""
         super(LabelDialog, self).resizeEvent(event)
         # 窗口大小变化时，标签列表控件会自动调整大小，因为我们已经设置了合适的大小策略
+        
+        # 记住用户调整后的对话框大小，但忽略初始化和popUp方法中设置大小导致的事件
+        if not self._ignore_resize and self.isVisible():
+            new_size = self.size()
+            self._user_dialog_size = new_size
+            logger.debug(f"用户调整标签对话框大小为: {new_size.width()}x{new_size.height()}")
 
     def labelSelectionChanged(self):
         # 处理选择变化
@@ -1751,7 +1769,7 @@ class LabelDialog(QtWidgets.QDialog):
                 self.editDescription.setText("")
 
     def showEvent(self, event):
-        """重载showEvent确保对话框显示时应用正确的主题"""
+        """重载showEvent确保对话框显示时应用正确的主题以及用户保存的大小"""
         # 获取当前主题
         is_dark_theme = False
         if self.app and hasattr(self.app, 'currentTheme'):
@@ -1775,9 +1793,22 @@ class LabelDialog(QtWidgets.QDialog):
                 
             # 应用主题样式
             self.setThemeStyleSheet(is_dark=is_dark_theme)
+            
+        # 如果有用户保存的对话框大小，确保在显示前应用它
+        if hasattr(self, '_user_dialog_size') and self._user_dialog_size:
+            # 设置暂时忽略resize事件，避免循环记录
+            self._ignore_resize = True
+            # 应用用户之前调整的大小
+            self.resize(self._user_dialog_size)
+            # 重新启用resize事件记录
+            QtCore.QTimer.singleShot(100, self._enable_resize_recording)
 
         # 调用父类方法
         super(LabelDialog, self).showEvent(event)
+
+    def _enable_resize_recording(self):
+        """启用大小变化记录"""
+        self._ignore_resize = False
 
 
 class FlowLayout(QtWidgets.QLayout):
